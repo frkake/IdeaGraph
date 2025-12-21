@@ -18,6 +18,7 @@ from idea_graph.ingestion.extractor import (
     InternalRelation,
 )
 from idea_graph.ingestion.graph_writer import GraphWriterService
+from idea_graph.ingestion.crawler import CitationCrawler, CrawlTarget, CrawlResult
 
 __all__ = [
     "DatasetLoaderService",
@@ -32,4 +33,7 @@ __all__ = [
     "Entity",
     "InternalRelation",
     "GraphWriterService",
+    "CitationCrawler",
+    "CrawlTarget",
+    "CrawlResult",
 ]

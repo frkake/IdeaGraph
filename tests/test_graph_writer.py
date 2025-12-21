@@ -66,9 +66,9 @@ class TestGraphWriterService:
             mock_conn.session.return_value.__exit__ = MagicMock(return_value=False)
 
             citations = [
-                ("paper1", "paper2"),
-                ("paper1", "paper3"),
-                ("paper2", "paper3"),
+                ("paper1", "paper2", "Paper 2 Title"),
+                ("paper1", "paper3", "Paper 3 Title"),
+                ("paper2", "paper3", "Paper 3 Title"),
             ]
 
             service = GraphWriterService(batch_size=100)

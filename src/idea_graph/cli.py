@@ -28,6 +28,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         DownloaderService,
         ExtractorService,
         GraphWriterService,
+        CitationCrawler,
     )
     from idea_graph.ingestion.progress import ProgressManager
 
@@ -83,7 +84,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 from idea_graph.ingestion.dataset_loader import generate_paper_id
 
                 ref_id = generate_paper_id(ref_title)
-                citations.append((paper.paper_id, ref_id))
+                citations.append((paper.paper_id, ref_id, ref_title))
         writer.write_citations(citations)
 
     # 各論文を処理
@@ -121,6 +122,25 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if extractions and not args.skip_write:
         logging.info(f"Writing {len(extractions)} extractions to graph...")
         writer.write_extracted(extractions)
+
+    # 引用論文のクロール（max_depth > 0 の場合）
+    if args.max_depth > 0 and not args.skip_download:
+        logging.info(f"Starting citation crawl (max_depth={args.max_depth})...")
+        crawler = CitationCrawler(
+            downloader=downloader,
+            extractor=extractor,
+            writer=writer,
+            progress=progress,
+            max_depth=args.max_depth,
+            crawl_limit=args.crawl_limit,
+        )
+        crawler.add_seeds(papers)
+
+        crawl_stats = {"completed": 0, "failed": 0, "not_found": 0, "skipped": 0}
+        for result in tqdm(crawler.crawl(), desc="Crawling citations"):
+            crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
+
+        logging.info(f"Crawl completed: {crawl_stats}")
 
     # サマリー
     summary = progress.get_summary()
@@ -195,6 +215,18 @@ def main() -> int:
     ingest_parser.add_argument("--skip-download", action="store_true", help="ダウンロードをスキップ")
     ingest_parser.add_argument("--skip-extract", action="store_true", help="抽出をスキップ")
     ingest_parser.add_argument("--skip-write", action="store_true", help="グラフ書き込みをスキップ")
+    ingest_parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=1,
+        help="引用論文の再帰的探索の最大深度 (0=メイン論文のみ, 1=直接引用)",
+    )
+    ingest_parser.add_argument(
+        "--crawl-limit",
+        type=int,
+        default=None,
+        help="クロールする引用論文の最大数",
+    )
 
     # serve コマンド
     serve_parser = subparsers.add_parser("serve", help="Web サーバーを起動")
@@ -217,8 +249,6 @@ def main() -> int:
     else:
         parser.print_help()
         return 0
-
-    return 0
 
 
 if __name__ == "__main__":

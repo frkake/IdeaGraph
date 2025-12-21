@@ -78,11 +78,11 @@ class GraphWriterService:
         logger.info(f"Created/updated {total} Paper nodes")
         return total
 
-    def write_citations(self, citations: Sequence[tuple[str, str]]) -> int:
+    def write_citations(self, citations: Sequence[tuple[str, str, str]]) -> int:
         """CITES 関係をバッチで作成
 
         Args:
-            citations: (from_paper_id, to_paper_id) のタプルリスト
+            citations: (from_paper_id, to_paper_id, ref_title) のタプルリスト
 
         Returns:
             作成された件数
@@ -92,7 +92,10 @@ class GraphWriterService:
 
         for i in range(0, len(citations_list), self.batch_size):
             batch = citations_list[i : i + self.batch_size]
-            batch_data = [{"from_id": c[0], "to_id": c[1]} for c in batch]
+            batch_data = [
+                {"from_id": c[0], "to_id": c[1], "ref_title": c[2]}
+                for c in batch
+            ]
 
             with Neo4jConnection.session() as session:
                 session.run(
@@ -100,6 +103,7 @@ class GraphWriterService:
                     UNWIND $batch AS item
                     MATCH (from:Paper {id: item.from_id})
                     MERGE (to:Paper {id: item.to_id})
+                    ON CREATE SET to.title = item.ref_title
                     MERGE (from)-[:CITES]->(to)
                     """,
                     batch=batch_data,

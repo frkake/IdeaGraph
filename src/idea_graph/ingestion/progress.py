@@ -18,10 +18,12 @@ class PaperProgress(BaseModel):
 
     paper_id: str
     title: str
-    status: str = "pending"  # pending, downloading, extracting, writing, completed, failed
+    status: str = "pending"  # pending, downloading, extracting, writing, completed, failed, not_found
     error_message: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
+    depth: int = 0  # 探索深度（0=シード論文、1=直接引用、2=引用の引用...）
+    source: str = "dataset"  # "dataset" or "citation"
 
 
 class PipelineProgress(BaseModel):
@@ -96,12 +98,27 @@ class ProgressManager:
             return False
         return self.progress.papers[paper_id].status == "completed"
 
-    def register_paper(self, paper_id: str, title: str) -> None:
-        """論文を登録"""
+    def register_paper(
+        self,
+        paper_id: str,
+        title: str,
+        depth: int = 0,
+        source: str = "dataset",
+    ) -> None:
+        """論文を登録
+
+        Args:
+            paper_id: 論文ID
+            title: 論文タイトル
+            depth: 探索深度（0=シード論文）
+            source: ソース（"dataset" or "citation"）
+        """
         if paper_id not in self.progress.papers:
             self.progress.papers[paper_id] = PaperProgress(
                 paper_id=paper_id,
                 title=title,
+                depth=depth,
+                source=source,
             )
             self._save()
 
