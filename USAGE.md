@@ -475,6 +475,12 @@ docker compose logs neo4j
 
 # 再起動
 docker compose restart neo4j
+
+# 再起動＆確認
+sudo docker compose up -d --force-recreate
+sudo docker compose ps
+sudo docker compose logs neo4j --tail 200
+uv run idea-graph status
 ```
 
 ### Gemini API エラー
@@ -533,6 +539,21 @@ docker compose up -d
 ```
 
 この方法はインデックスや制約も削除されるため、次回 `ingest` 実行時に自動再作成されます。
+
+#### cache/ から Neo4j を再構築（おすすめ）
+
+Neo4j を `down -v` で完全初期化しても、`cache/extractions` が残っていれば **LLM抽出や再ダウンロードをせずに** グラフを再構築できます。
+
+```bash
+# Neo4j を完全初期化（DBを捨てる）
+docker compose down -v
+docker compose up -d
+
+# cache/extractions から再構築（progress.json を見ない）
+uv run idea-graph rebuild
+```
+
+注意: `uv run idea-graph ingest` は `cache/progress.json` によって「完了済みをスキップ」するため、**DBだけ消して progress を残すと復元されない**ことがあります。DB再構築用途は `rebuild` を使ってください。
 
 #### 完全リセット（Neo4j + ローカルキャッシュ）
 

@@ -20,6 +20,7 @@ dependencies = [
     "httpx>=0.28.0",
     "arxiv>=2.0.0",
     "rich>=13.0.0",
+    "pillow>=12.1.0",
 ]
 
 [project.optional-dependencies]

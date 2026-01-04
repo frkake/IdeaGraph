@@ -555,6 +555,84 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rebuild(args: argparse.Namespace) -> int:
+    """キャッシュ（cache/extractions）から Neo4j を再構築"""
+    import json
+
+    from idea_graph.ingestion import DatasetLoaderService, GraphWriterService
+    from idea_graph.ingestion.extractor import ExtractedInfo
+
+    logging.info("Starting rebuild from cache...")
+
+    # 設定の確認
+    settings.ensure_cache_dirs()
+
+    writer = GraphWriterService()
+
+    # インデックスの作成
+    logging.info("Ensuring Neo4j indexes...")
+    try:
+        writer.ensure_indexes()
+    except Exception as e:
+        logging.error(f"Failed to create indexes: {e}")
+        logging.error("Make sure Neo4j is running (docker compose up -d)")
+        return 1
+
+    # データセットの読み込み（Paperタイトルの復元）
+    logging.info("Loading dataset (for Paper titles)...")
+    loader = DatasetLoaderService()
+    papers = list(loader.load())
+    if args.limit:
+        papers = papers[: args.limit]
+        logging.info(f"Limited dataset papers to {args.limit}")
+
+    logging.info("Writing Paper nodes...")
+    writer.write_papers(papers)
+
+    # cache/extractions から抽出結果を読み込み、グラフへ書き戻し
+    cache_dir = settings.extractions_cache_dir
+    cache_files = sorted(cache_dir.glob("*.json"))
+
+    if args.limit:
+        # datasetのlimitに合わせて「全体の作業量を抑えたい」用途を想定
+        cache_files = cache_files[: args.limit]
+        logging.info(f"Limited cached extractions to {args.limit}")
+
+    if not cache_files:
+        logging.warning(f"No cached extractions found in: {cache_dir}")
+        logging.warning("Run: uv run idea-graph ingest  (to populate cache/extractions)")
+        return 0
+
+    logging.info(f"Replaying {len(cache_files)} cached extractions from: {cache_dir}")
+
+    batch: list[ExtractedInfo] = []
+    processed = 0
+    failed = 0
+    batch_size = args.batch_size or 200
+
+    for path in tqdm(cache_files, desc="Rebuilding from cache/extractions"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            batch.append(ExtractedInfo(**data))
+        except Exception as e:
+            failed += 1
+            logging.warning(f"Failed to load cached extraction: {path} ({e})")
+            continue
+
+        if len(batch) >= batch_size:
+            writer.write_extracted(batch)
+            processed += len(batch)
+            batch.clear()
+
+    if batch:
+        writer.write_extracted(batch)
+        processed += len(batch)
+        batch.clear()
+
+    logging.info(f"Rebuild done. processed={processed}, failed={failed}")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> NoReturn:
     """Web サーバーを起動"""
     import uvicorn
@@ -772,6 +850,23 @@ def main() -> int:
         help="各論文から探索する引用の最大数（重要度上位N件）",
     )
 
+    # rebuild コマンド
+    rebuild_parser = subparsers.add_parser(
+        "rebuild",
+        help="cache/extractions から Neo4j を再構築（DBを作り直したいとき用）",
+    )
+    rebuild_parser.add_argument(
+        "--limit",
+        type=int,
+        help="処理する件数の制限（datasetのPaper作成とcache再生の両方に適用）",
+    )
+    rebuild_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=200,
+        help="cache再生時の書き込みバッチサイズ (デフォルト: 200)",
+    )
+
     # serve コマンド
     serve_parser = subparsers.add_parser("serve", help="Web サーバーを起動")
     serve_parser.add_argument("--host", default="0.0.0.0", help="ホスト")
@@ -856,6 +951,8 @@ def main() -> int:
 
     if args.command == "ingest":
         return cmd_ingest(args)
+    elif args.command == "rebuild":
+        return cmd_rebuild(args)
     elif args.command == "serve":
         cmd_serve(args)
     elif args.command == "status":

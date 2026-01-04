@@ -7,8 +7,12 @@ services:
       - "7687:7687"  # Bolt
     environment:
       - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}
-      - NEO4J_server_memory_heap_max__size=2G
-      - NEO4J_server_memory_pagecache_size=1G
+      # NOTE:
+      # 既定値を大きくしすぎると（例: 16G/16G）WSL2 やメモリが小さい環境で Neo4j が起動失敗し、
+      # Bolt(7687) への接続が Connection refused になります。
+      # 必要なら .env で NEO4J_HEAP_MAX / NEO4J_PAGECACHE_SIZE を上書きしてください。
+      - NEO4J_server_memory_heap_max__size=${NEO4J_HEAP_MAX:-4G}
+      - NEO4J_server_memory_pagecache_size=${NEO4J_PAGECACHE_SIZE:-4G}
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
