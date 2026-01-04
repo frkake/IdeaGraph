@@ -168,6 +168,55 @@
             margin-bottom: 0.25rem;
             word-wrap: break-word;
         }
+        /* Edge info panel */
+        .edge-info {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: #1a1a2e;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            max-height: 250px;
+            overflow-y: auto;
+            border-left: 3px solid #FF5722;
+        }
+        .edge-info h3 {
+            color: #FF5722;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .edge-info p {
+            margin-bottom: 0.25rem;
+            word-wrap: break-word;
+        }
+        .citation-badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        .importance-score {
+            color: #FFD700;
+            letter-spacing: 2px;
+        }
+        .context-section {
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid #0f3460;
+        }
+        .context-text {
+            color: #bbb;
+            font-style: italic;
+            line-height: 1.4;
+            margin-top: 0.25rem;
+        }
+        .legend-line {
+            width: 20px;
+            height: 3px;
+            border-radius: 1px;
+        }
         .section {
             margin-bottom: 1.25rem;
         }
@@ -216,6 +265,23 @@
                 <div class="legend-item">
                     <div class="legend-diamond" style="background: #7CB342;"></div>
                     <span>Other</span>
+                </div>
+                <span style="margin-left: 1rem; color: #666;">|</span>
+                <div class="legend-item">
+                    <div class="legend-line" style="background: #FF5722;"></div>
+                    <span>Extends</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line" style="background: #2196F3;"></div>
+                    <span>Compares</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line" style="background: #4CAF50;"></div>
+                    <span>Uses</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line" style="background: #9E9E9E;"></div>
+                    <span>Background</span>
                 </div>
             </div>
         </header>
@@ -267,6 +333,12 @@
                     <h3>選択ノード</h3>
                     <div id="nodeDetails"></div>
                 </div>
+
+                <!-- エッジ詳細 -->
+                <div id="edgeInfo" class="edge-info" style="display: none;">
+                    <h3>引用関係詳細</h3>
+                    <div id="edgeDetails"></div>
+                </div>
             </div>
             <div id="graph"></div>
         </div>
@@ -292,6 +364,25 @@
             'Feature': '#009688',
         };
         const defaultEntityColor = '#7CB342';
+
+        // 引用タイプ別の色マッピング
+        const citationTypeColors = {
+            'EXTENDS': '#FF5722',      // オレンジ - 拡張
+            'COMPARES': '#2196F3',     // 青 - 比較
+            'USES': '#4CAF50',         // 緑 - 使用
+            'BACKGROUND': '#9E9E9E',   // グレー - 背景
+            'MENTIONS': '#607D8B',     // 青グレー - 言及
+        };
+        const defaultCitationColor = '#607D8B';
+
+        function getCitationColor(citationType) {
+            return citationTypeColors[citationType] || defaultCitationColor;
+        }
+
+        function truncateText(text, maxLength) {
+            if (!text) return '';
+            return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+        }
 
         // クイックフィルターのクエリ
         const filterQueries = {
@@ -373,9 +464,22 @@
                     relationships: {
                         CITES: {
                             [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                static: {
-                                    label: "CITES",
-                                    color: "#607D8B",
+                                function: {
+                                    // 引用タイプによる動的な色分け
+                                    color: (edge) => {
+                                        const citationType = edge.properties?.citation_type;
+                                        return getCitationColor(citationType);
+                                    },
+                                    // 重要度による動的な太さ
+                                    width: (edge) => {
+                                        const score = edge.properties?.importance_score || 1;
+                                        return Math.max(1, Math.min(5, score));
+                                    },
+                                    // 引用タイプをラベルに表示
+                                    label: (edge) => {
+                                        const citationType = edge.properties?.citation_type;
+                                        return citationType || 'CITES';
+                                    },
                                 },
                             },
                         },
@@ -431,6 +535,10 @@
 
                 viz.registerOnEvent("clickNode", (event) => {
                     showNodeInfo(event.node);
+                });
+
+                viz.registerOnEvent("clickEdge", (event) => {
+                    showEdgeInfo(event.edge);
                 });
 
             } catch (error) {
@@ -555,6 +663,69 @@
                 }
                 detailsDiv.innerHTML = html || '<p>プロパティなし</p>';
                 infoDiv.style.display = 'block';
+                // エッジ情報を非表示
+                document.getElementById('edgeInfo').style.display = 'none';
+            } else {
+                infoDiv.style.display = 'none';
+            }
+        }
+
+        function showEdgeInfo(edge) {
+            const infoDiv = document.getElementById('edgeInfo');
+            const detailsDiv = document.getElementById('edgeDetails');
+
+            if (edge && edge.raw) {
+                const props = edge.raw.properties || {};
+                const relType = edge.raw.type || 'Unknown';
+
+                // 引用関係のプロパティを抽出
+                const citationType = props.citation_type || 'Unknown';
+                const importanceScore = props.importance_score || 0;
+                const context = props.context || '情報なし';
+
+                // 引用元・引用先のノード情報を取得
+                let sourceTitle = '不明';
+                let targetTitle = '不明';
+
+                if (viz.nodes) {
+                    const sourceNode = viz.nodes.get(edge.from);
+                    const targetNode = viz.nodes.get(edge.to);
+                    if (sourceNode && sourceNode.raw) {
+                        sourceTitle = sourceNode.raw.properties?.title || sourceNode.label || '不明';
+                    }
+                    if (targetNode && targetNode.raw) {
+                        targetTitle = targetNode.raw.properties?.title || targetNode.label || '不明';
+                    }
+                }
+
+                // 重要度の星表示
+                const scoreStars = importanceScore > 0
+                    ? '★'.repeat(importanceScore) + '☆'.repeat(5 - importanceScore)
+                    : '未評価';
+
+                // 引用タイプの色
+                const citationColor = getCitationColor(citationType);
+
+                let html = `
+                    <div style="margin-bottom: 0.5rem;">
+                        <span class="citation-badge" style="background-color: ${citationColor};">
+                            ${citationType}
+                        </span>
+                    </div>
+                    <p><strong>関係タイプ:</strong> ${relType}</p>
+                    <p><strong>重要度:</strong> <span class="importance-score">${scoreStars}</span> (${importanceScore}/5)</p>
+                    <p><strong>引用元:</strong> ${truncateText(sourceTitle, 60)}</p>
+                    <p><strong>引用先:</strong> ${truncateText(targetTitle, 60)}</p>
+                    <div class="context-section">
+                        <strong>引用コンテキスト:</strong>
+                        <p class="context-text">${context}</p>
+                    </div>
+                `;
+
+                detailsDiv.innerHTML = html;
+                infoDiv.style.display = 'block';
+                // ノード情報を非表示
+                document.getElementById('nodeInfo').style.display = 'none';
             } else {
                 infoDiv.style.display = 'none';
             }

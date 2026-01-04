@@ -80,14 +80,21 @@ Please extract:
    - INSPIRED_BY: One method is inspired by another
 5. **cited_papers**: Important cited papers with their relevance to this work (top 10-15 most important):
    - title: The exact title of the cited paper
-   - importance_score (1-5): How important this citation is for understanding this paper
-     - 5: Foundation of this work / directly extended by this paper
-     - 4: Key method used or main comparison baseline
-     - 3: Related method / relevant prior work
-     - 2: Background reference / general context
-     - 1: Peripheral mention
-   - citation_type: EXTENDS (builds upon), COMPARES (compared against), USES (uses method/data from), BACKGROUND (general background), MENTIONS (peripheral)
-   - context: Brief explanation of why this paper is cited (1 sentence)
+   - citation_type: The type of citation relationship (see below)
+   - importance_score (1-5): MUST be consistent with citation_type as follows:
+     - EXTENDS: Score 5 (this paper directly builds upon/extends the cited work)
+     - COMPARES: Score 4-5 (main comparison baseline or competing method)
+     - USES: Score 3-4 (uses method, dataset, or technique from the cited work)
+     - BACKGROUND: Score 2-3 (provides theoretical foundation or general context)
+     - MENTIONS: Score 1-2 (peripheral or brief mention)
+   - context: Brief explanation of WHY this paper is cited and HOW it relates to this work (1-2 sentences)
+
+Citation type definitions:
+- EXTENDS: This paper directly extends, improves, or builds upon the cited work's method/approach
+- COMPARES: The cited work is a baseline or competing method that this paper compares against
+- USES: This paper uses a method, dataset, benchmark, or technique from the cited work
+- BACKGROUND: The cited work provides theoretical background, motivation, or general context
+- MENTIONS: Brief or peripheral mention without deep engagement
 
 Focus on extracting information that would be useful for building a knowledge graph of AI research.
 Prioritize papers that are directly extended, compared against, or whose methods are used in this work.
