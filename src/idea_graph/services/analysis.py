@@ -14,14 +14,22 @@ class PathNode(BaseModel):
     """パスノード"""
 
     id: str
-    label: str  # Paper or Entity type
+    label: str  # Paper or Entity
     name: str
+    # Entity用の追加情報
+    entity_type: str | None = None  # Method, Dataset, Metric, Task, etc.
+    description: str | None = None  # Entityの説明
 
 
 class PathEdge(BaseModel):
     """パスエッジ"""
 
     type: str  # CITES, MENTIONS, etc.
+    from_id: str  # ソースノードID
+    to_id: str  # ターゲットノードID
+    importance_score: int | None = None  # 1-5 (CITES関係のみ)
+    citation_type: str | None = None  # EXTENDS, COMPARES, USES, BACKGROUND, MENTIONS
+    context: str | None = None  # 引用コンテキスト
 
 
 class RankedPath(BaseModel):
@@ -30,14 +38,16 @@ class RankedPath(BaseModel):
     nodes: list[PathNode]
     edges: list[PathEdge]
     score: float
-    score_breakdown: dict[str, float] | None = None
+    score_breakdown: dict[str, Any] | None = None
 
 
 class AnalysisResult(BaseModel):
     """分析結果"""
 
     target_paper_id: str
-    candidates: list[RankedPath]
+    candidates: list[RankedPath]  # 全パス（後方互換性のため）
+    paper_paths: list[RankedPath] | None = None  # Paper引用パス
+    entity_paths: list[RankedPath] | None = None  # Entity関連パス
     multihop_k: int
 
 
@@ -63,56 +73,170 @@ class AnalysisService:
         multihop_k: int,
         top_n: int,
     ) -> list[dict[str, Any]]:
-        """マルチホップパスを探索"""
+        """マルチホップパスを探索（Paper引用パスとEntity関連パスを両方取得）"""
+        paths = []
+
         with Neo4jConnection.session() as session:
-            # CITES と MENTIONS を含むパスを探索
-            result = session.run(
-                """
+            # クエリのベース部分
+            base_query = """
                 MATCH path = (target:Paper {id: $target_id})-[rels*1..""" + str(multihop_k) + """]->(n)
-                WHERE n:Paper OR n:Entity
+                WHERE (n:Paper OR n:Entity)
                 WITH path, target, n, rels,
                      length(path) AS path_length,
+                     // Paper引用関連
                      size([r IN rels WHERE type(r) = 'CITES']) AS cite_count,
-                     size([r IN rels WHERE type(r) = 'MENTIONS']) AS mention_count
-                RETURN path, target, n, rels, path_length, cite_count, mention_count
-                ORDER BY cite_count DESC, path_length ASC
+                     reduce(s = 0, r IN [rel IN rels WHERE type(rel) = 'CITES'] |
+                            s + coalesce(r.importance_score, 3)) AS cite_importance,
+                     size([r IN rels WHERE type(r) = 'CITES' AND r.citation_type = 'EXTENDS']) AS cite_extends,
+                     size([r IN rels WHERE type(r) = 'CITES' AND r.citation_type = 'COMPARES']) AS cite_compares,
+                     size([r IN rels WHERE type(r) = 'CITES' AND r.citation_type = 'USES']) AS cite_uses,
+                     // Entity関連
+                     size([r IN rels WHERE type(r) = 'MENTIONS']) AS mentions_count,
+                     size([r IN rels WHERE type(r) = 'USES']) AS entity_uses_count,
+                     size([r IN rels WHERE type(r) = 'EXTENDS']) AS entity_extends_count,
+                     size([r IN rels WHERE type(r) = 'COMPARES']) AS entity_compares_count,
+                     size([r IN rels WHERE type(r) = 'ENABLES']) AS enables_count,
+                     size([r IN rels WHERE type(r) = 'IMPROVES']) AS improves_count,
+                     size([r IN rels WHERE type(r) = 'ADDRESSES']) AS addresses_count,
+                     // Entityノードの数
+                     size([node IN nodes(path) WHERE 'Entity' IN labels(node)]) AS entity_count,
+                     // 関係タイプのリスト
+                     [r IN rels | type(r)] AS rel_types
+            """
+
+            # 1. Paper引用パス（CITES を含む）を取得
+            cite_query = base_query + """
+                WHERE cite_count > 0
+                RETURN path, target, n, rels, path_length,
+                       cite_count, cite_importance, cite_extends, cite_compares, cite_uses,
+                       mentions_count, entity_uses_count, entity_extends_count, entity_compares_count,
+                       enables_count, improves_count, addresses_count,
+                       entity_count, rel_types
+                ORDER BY cite_importance DESC, path_length ASC
                 LIMIT $limit
-                """,
-                target_id=target_paper_id,
-                limit=top_n * 2,  # スコアリング後にフィルタするため多めに取得
-            )
+            """
+            result = session.run(cite_query, target_id=target_paper_id, limit=top_n)
 
-            paths = []
             for record in result:
-                paths.append({
-                    "path": record["path"],
-                    "target": record["target"],
-                    "end_node": record["n"],
-                    "rels": record["rels"],
-                    "path_length": record["path_length"],
-                    "cite_count": record["cite_count"],
-                    "mention_count": record["mention_count"],
-                })
+                paths.append(self._record_to_path_data(record))
 
-            return paths
+            # 2. Entity関連パス（MENTIONS, USES, EXTENDS 等を含む、CITES を含まない）を取得
+            entity_query = base_query + """
+                WHERE cite_count = 0 AND entity_count > 0
+                RETURN path, target, n, rels, path_length,
+                       cite_count, cite_importance, cite_extends, cite_compares, cite_uses,
+                       mentions_count, entity_uses_count, entity_extends_count, entity_compares_count,
+                       enables_count, improves_count, addresses_count,
+                       entity_count, rel_types
+                ORDER BY
+                    entity_uses_count + entity_extends_count + enables_count DESC,
+                    path_length ASC
+                LIMIT $limit
+            """
+            result = session.run(entity_query, target_id=target_paper_id, limit=top_n)
 
-    def _score_path(self, path_data: dict[str, Any]) -> float:
+            for record in result:
+                paths.append(self._record_to_path_data(record))
+
+        return paths
+
+    def _record_to_path_data(self, record) -> dict[str, Any]:
+        """Neo4jレコードをパスデータに変換"""
+        return {
+            "path": record["path"],
+            "target": record["target"],
+            "end_node": record["n"],
+            "rels": record["rels"],
+            "path_length": record["path_length"],
+            # Paper引用関連
+            "cite_count": record["cite_count"],
+            "cite_importance": record["cite_importance"],
+            "cite_extends": record["cite_extends"],
+            "cite_compares": record["cite_compares"],
+            "cite_uses": record["cite_uses"],
+            # Entity関連
+            "mentions_count": record["mentions_count"],
+            "entity_uses_count": record["entity_uses_count"],
+            "entity_extends_count": record["entity_extends_count"],
+            "entity_compares_count": record["entity_compares_count"],
+            "enables_count": record["enables_count"],
+            "improves_count": record["improves_count"],
+            "addresses_count": record["addresses_count"],
+            "entity_count": record["entity_count"],
+            "rel_types": record["rel_types"],
+        }
+
+    def _score_path(self, path_data: dict[str, Any]) -> dict[str, Any]:
         """パスをスコアリング
 
         スコアリング基準:
-        - CITES 関係の数: 高いほど良い（引用関係は重要）
-        - パスの長さ: 短いほど良い（直接的な関連）
-        - MENTIONS 関係の数: 中程度（エンティティ関連）
+        1. Paper引用関連:
+           - importance_score: LLMが抽出した引用の重要度 (1-5)
+           - citation_type: EXTENDS/COMPARES/USES による重み付け
+        2. Entity関連:
+           - MENTIONS: 論文がエンティティに言及
+           - USES/EXTENDS/COMPARES: エンティティ間の関係
+           - ENABLES/IMPROVES/ADDRESSES: エンティティの効果
+        3. パス長: 短いほど良い
         """
-        cite_weight = 10.0
-        mention_weight = 5.0
-        length_penalty = 2.0
+        # === Paper引用スコア ===
+        cite_importance_score = path_data.get("cite_importance", 0) * 2.0
+        cite_type_score = (
+            path_data.get("cite_extends", 0) * 20 +  # EXTENDS は最重要
+            path_data.get("cite_compares", 0) * 15 +
+            path_data.get("cite_uses", 0) * 12 +
+            max(0, path_data["cite_count"] -
+                path_data.get("cite_extends", 0) -
+                path_data.get("cite_compares", 0) -
+                path_data.get("cite_uses", 0)) * 10
+        )
 
-        cite_score = path_data["cite_count"] * cite_weight
-        mention_score = path_data["mention_count"] * mention_weight
-        length_score = -path_data["path_length"] * length_penalty
+        # === Entity関連スコア ===
+        mentions_score = path_data.get("mentions_count", 0) * 3.0
+        entity_relation_score = (
+            path_data.get("entity_uses_count", 0) * 8 +
+            path_data.get("entity_extends_count", 0) * 10 +
+            path_data.get("entity_compares_count", 0) * 7 +
+            path_data.get("enables_count", 0) * 9 +
+            path_data.get("improves_count", 0) * 8 +
+            path_data.get("addresses_count", 0) * 6
+        )
 
-        return cite_score + mention_score + length_score + 100  # ベーススコア
+        # === ペナルティ ===
+        length_penalty = -path_data["path_length"] * 2.0
+
+        # === 合計スコア ===
+        total_score = (
+            cite_importance_score +
+            cite_type_score +
+            mentions_score +
+            entity_relation_score +
+            length_penalty +
+            100  # ベーススコア
+        )
+
+        return {
+            "total": total_score,
+            # Paper引用関連
+            "cite_importance_score": cite_importance_score,
+            "cite_type_score": cite_type_score,
+            "cite_extends": path_data.get("cite_extends", 0),
+            "cite_compares": path_data.get("cite_compares", 0),
+            "cite_uses": path_data.get("cite_uses", 0),
+            # Entity関連
+            "mentions_score": mentions_score,
+            "entity_relation_score": entity_relation_score,
+            "entity_uses": path_data.get("entity_uses_count", 0),
+            "entity_extends": path_data.get("entity_extends_count", 0),
+            "entity_compares": path_data.get("entity_compares_count", 0),
+            "enables": path_data.get("enables_count", 0),
+            "improves": path_data.get("improves_count", 0),
+            "addresses": path_data.get("addresses_count", 0),
+            # その他
+            "entity_count": path_data.get("entity_count", 0),
+            "rel_types": path_data.get("rel_types", []),
+            "length_penalty": length_penalty,
+        }
 
     def _extract_path_info(self, path_data: dict[str, Any]) -> RankedPath:
         """パス情報を抽出"""
@@ -127,30 +251,47 @@ class AnalysisService:
 
             if "Paper" in labels:
                 name = node.get("title", node.get("id", "Unknown"))
+                nodes.append(PathNode(
+                    id=node.get("id", node.element_id),
+                    label=label,
+                    name=name,
+                ))
             else:
+                # Entity ノード
                 name = node.get("name", node.get("id", "Unknown"))
+                nodes.append(PathNode(
+                    id=node.get("id", node.element_id),
+                    label=label,
+                    name=name,
+                    entity_type=node.get("type"),
+                    description=node.get("description"),
+                ))
 
-            nodes.append(PathNode(
-                id=node.get("id", node.element_id),
-                label=label,
-                name=name,
-            ))
+        # エッジを抽出（詳細属性を含む）
+        for i, rel in enumerate(path.relationships):
+            # ソースとターゲットのノードIDを取得
+            from_node = path.nodes[i]
+            to_node = path.nodes[i + 1]
+            from_id = from_node.get("id", from_node.element_id)
+            to_id = to_node.get("id", to_node.element_id)
 
-        # エッジを抽出
-        for rel in path.relationships:
-            edges.append(PathEdge(type=rel.type))
+            edge = PathEdge(
+                type=rel.type,
+                from_id=from_id,
+                to_id=to_id,
+                importance_score=rel.get("importance_score") if rel.type == "CITES" else None,
+                citation_type=rel.get("citation_type") if rel.type == "CITES" else None,
+                context=rel.get("context") if rel.type == "CITES" else None,
+            )
+            edges.append(edge)
 
-        score = self._score_path(path_data)
+        score_data = self._score_path(path_data)
 
         return RankedPath(
             nodes=nodes,
             edges=edges,
-            score=score,
-            score_breakdown={
-                "cite_score": path_data["cite_count"] * 10.0,
-                "mention_score": path_data["mention_count"] * 5.0,
-                "length_penalty": -path_data["path_length"] * 2.0,
-            },
+            score=score_data["total"],
+            score_breakdown=score_data,  # 全てのスコア詳細を含める
         )
 
     def analyze(
@@ -183,21 +324,35 @@ class AnalysisService:
             return AnalysisResult(
                 target_paper_id=target_paper_id,
                 candidates=[],
+                paper_paths=[],
+                entity_paths=[],
                 multihop_k=multihop_k,
             )
 
-        # スコアリングとランキング
-        ranked_paths = []
+        # スコアリングとランキング、Paper引用とEntity関連を分離
+        paper_paths = []
+        entity_paths = []
+
         for path_data in paths:
             ranked_path = self._extract_path_info(path_data)
-            ranked_paths.append(ranked_path)
+            # Entity を含むパスかどうかで分類
+            if path_data.get("entity_count", 0) > 0 and path_data.get("cite_count", 0) == 0:
+                entity_paths.append(ranked_path)
+            else:
+                paper_paths.append(ranked_path)
 
-        # スコア降順でソート
-        ranked_paths.sort(key=lambda x: x.score, reverse=True)
+        # 各カテゴリでスコア降順ソート
+        paper_paths.sort(key=lambda x: x.score, reverse=True)
+        entity_paths.sort(key=lambda x: x.score, reverse=True)
 
-        # 上位 N 件を返す
+        # 全パスを結合してソート（後方互換性）
+        all_paths = paper_paths + entity_paths
+        all_paths.sort(key=lambda x: x.score, reverse=True)
+
         return AnalysisResult(
             target_paper_id=target_paper_id,
-            candidates=ranked_paths[:top_n],
+            candidates=all_paths[:top_n * 2],  # 両カテゴリを含むため多めに
+            paper_paths=paper_paths[:top_n],
+            entity_paths=entity_paths[:top_n],
             multihop_k=multihop_k,
         )

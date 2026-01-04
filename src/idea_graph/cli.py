@@ -26,34 +26,112 @@ def _print_analysis_json(result: "AnalysisResult") -> None:
     print(result.model_dump_json(indent=2))
 
 
+def _print_path(path, index: int) -> None:
+    """単一パスを表示"""
+    print(f"{'=' * 70}")
+    print(f"Path {index} (Score: {path.score:.1f})")
+    print(f"{'=' * 70}")
+
+    # ノードパスを表示（詳細エッジ情報付き）
+    for j, node in enumerate(path.nodes):
+        if node.label == "Paper":
+            node_label = "[Paper]"
+            node_display = node.name[:55]
+        else:
+            # Entity ノード
+            entity_type = node.entity_type or "Entity"
+            node_label = f"[{entity_type}]"
+            node_display = node.name[:45]
+            if node.description:
+                node_display += f"\n          {node.description[:60]}..."
+
+        print(f"  {node_label} {node_display}")
+
+        if j < len(path.edges):
+            edge = path.edges[j]
+            edge_info = f"    ↓ --[{edge.type}]--"
+
+            # CITES関係の詳細情報を追加
+            if edge.type == "CITES":
+                details = []
+                if edge.importance_score is not None:
+                    details.append(f"重要度:{edge.importance_score}/5")
+                if edge.citation_type:
+                    details.append(f"種別:{edge.citation_type}")
+                if details:
+                    edge_info += f" ({', '.join(details)})"
+
+            print(edge_info)
+
+            # コンテキストを表示
+            if edge.context:
+                context_lines = edge.context.split(". ")
+                for line in context_lines[:2]:  # 最大2文まで
+                    if line.strip():
+                        print(f"       > {line.strip()[:65]}...")
+
+    # スコア内訳
+    if path.score_breakdown:
+        print(f"\n  Score breakdown:")
+        bd = path.score_breakdown
+
+        # Paper引用関連
+        cite_score = bd.get('cite_importance_score', 0) + bd.get('cite_type_score', 0)
+        if cite_score > 0:
+            print(f"    [Paper引用] {cite_score:.1f}")
+            if bd.get('cite_extends', 0) > 0:
+                print(f"      └ CITES(EXTENDS): {int(bd.get('cite_extends', 0))}件")
+            if bd.get('cite_compares', 0) > 0:
+                print(f"      └ CITES(COMPARES): {int(bd.get('cite_compares', 0))}件")
+            if bd.get('cite_uses', 0) > 0:
+                print(f"      └ CITES(USES): {int(bd.get('cite_uses', 0))}件")
+
+        # Entity関連
+        entity_score = bd.get('mentions_score', 0) + bd.get('entity_relation_score', 0)
+        if entity_score > 0 or bd.get('entity_count', 0) > 0:
+            print(f"    [Entity関連] {entity_score:.1f} (Entityノード数: {int(bd.get('entity_count', 0))})")
+            if bd.get('mentions_score', 0) > 0:
+                print(f"      └ MENTIONS: {bd.get('mentions_score', 0):.1f}")
+            if bd.get('entity_uses', 0) > 0:
+                print(f"      └ USES: {int(bd.get('entity_uses', 0))}件")
+            if bd.get('entity_extends', 0) > 0:
+                print(f"      └ EXTENDS: {int(bd.get('entity_extends', 0))}件")
+            if bd.get('enables', 0) > 0:
+                print(f"      └ ENABLES: {int(bd.get('enables', 0))}件")
+            if bd.get('improves', 0) > 0:
+                print(f"      └ IMPROVES: {int(bd.get('improves', 0))}件")
+
+        print(f"    [距離ペナルティ] {bd.get('length_penalty', 0):.1f}")
+    print()
+
+
 def _print_analysis_table(result: "AnalysisResult") -> None:
     """分析結果をテーブル形式で出力"""
     print(f"\n=== Analysis Results for {result.target_paper_id} ===")
     print(f"Max hops: {result.multihop_k}")
-    print(f"Found {len(result.candidates)} paths\n")
 
-    if not result.candidates:
+    paper_count = len(result.paper_paths) if result.paper_paths else 0
+    entity_count = len(result.entity_paths) if result.entity_paths else 0
+    print(f"Found {paper_count} paper paths, {entity_count} entity paths\n")
+
+    # Paper引用パスを表示
+    if result.paper_paths:
+        print(f"\n{'#' * 70}")
+        print(f"# Paper引用パス ({len(result.paper_paths)}件)")
+        print(f"{'#' * 70}")
+        for i, path in enumerate(result.paper_paths, 1):
+            _print_path(path, i)
+
+    # Entity関連パスを表示
+    if result.entity_paths:
+        print(f"\n{'#' * 70}")
+        print(f"# Entity関連パス ({len(result.entity_paths)}件)")
+        print(f"{'#' * 70}")
+        for i, path in enumerate(result.entity_paths, 1):
+            _print_path(path, i)
+
+    if not result.paper_paths and not result.entity_paths:
         print("No paths found.")
-        return
-
-    for i, path in enumerate(result.candidates, 1):
-        print(f"--- Path {i} (Score: {path.score:.1f}) ---")
-
-        # ノードパスを表示
-        node_names = [n.name[:40] for n in path.nodes]
-        edge_types = [e.type for e in path.edges]
-
-        path_str = ""
-        for j, node_name in enumerate(node_names):
-            path_str += node_name
-            if j < len(edge_types):
-                path_str += f" --[{edge_types[j]}]--> "
-
-        print(f"Path: {path_str}")
-
-        if path.score_breakdown:
-            print(f"Score breakdown: {path.score_breakdown}")
-        print()
 
 
 def _format_proposals_markdown(result: "ProposalResult") -> str:
