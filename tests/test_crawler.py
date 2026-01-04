@@ -1,6 +1,6 @@
 """CitationCrawler のテスト"""
 
-from collections import deque
+import heapq
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,19 +10,50 @@ from idea_graph.ingestion.dataset_loader import PaperMetadata
 from idea_graph.ingestion.downloader import DownloadResult, FileType
 
 
+def create_target(paper_id: str, title: str, depth: int, importance_score: int = 3) -> CrawlTarget:
+    """テスト用のCrawlTargetを作成"""
+    return CrawlTarget(
+        priority=(-importance_score, depth),
+        paper_id=paper_id,
+        title=title,
+        depth=depth,
+        importance_score=importance_score,
+    )
+
+
 class TestCrawlTarget:
     """CrawlTarget のテスト"""
 
     def test_create_crawl_target(self):
         """CrawlTarget が正しく作成されること"""
-        target = CrawlTarget(
+        target = create_target(
             paper_id="paper1",
             title="Test Paper",
             depth=1,
+            importance_score=4,
         )
         assert target.paper_id == "paper1"
         assert target.title == "Test Paper"
         assert target.depth == 1
+        assert target.importance_score == 4
+        assert target.priority == (-4, 1)
+
+    def test_priority_ordering(self):
+        """優先度が正しく比較されること（高重要度、低深度が優先）"""
+        high_importance = create_target("p1", "High", depth=1, importance_score=5)
+        low_importance = create_target("p2", "Low", depth=1, importance_score=2)
+        deep = create_target("p3", "Deep", depth=3, importance_score=5)
+
+        # heapq は小さい値が優先
+        queue = []
+        heapq.heappush(queue, low_importance)
+        heapq.heappush(queue, deep)
+        heapq.heappush(queue, high_importance)
+
+        # 高重要度が最初に出る
+        assert heapq.heappop(queue).paper_id == "p1"  # importance=5, depth=1
+        assert heapq.heappop(queue).paper_id == "p3"  # importance=5, depth=3
+        assert heapq.heappop(queue).paper_id == "p2"  # importance=2, depth=1
 
 
 class TestCrawlResult:
@@ -102,14 +133,21 @@ class TestCitationCrawler:
         """add_seeds が引用論文をキューに追加すること"""
         crawler, _, _, _, _ = self._create_crawler()
 
-        papers = [
-            PaperMetadata(paper_id="seed1", title="Seed 1", references=["Ref A", "Ref B"]),
+        # グラフから重要度付き引用情報を取得するモック
+        mock_citations = [
+            ("cited1", "Cited Paper 1", 5),
+            ("cited2", "Cited Paper 2", 4),
         ]
 
-        crawler.add_seeds(papers)
+        with patch.object(crawler, "_get_citations_with_importance", return_value=mock_citations):
+            papers = [
+                PaperMetadata(paper_id="seed1", title="Seed 1", references=["Ref A", "Ref B"]),
+            ]
+            crawler.add_seeds(papers)
 
         # 引用論文がキューに追加されている (depth=1)
         assert len(crawler._queue) == 2
+        # heapqなので最初の要素が最優先
         target = crawler._queue[0]
         assert target.depth == 1
 
@@ -117,12 +155,15 @@ class TestCitationCrawler:
         """add_seeds が重複する引用を除外すること"""
         crawler, _, _, _, _ = self._create_crawler()
 
-        papers = [
-            PaperMetadata(paper_id="seed1", title="Seed 1", references=["Ref A"]),
-            PaperMetadata(paper_id="seed2", title="Seed 2", references=["Ref A"]),  # 同じ引用
-        ]
+        # seed1とseed2で同じ引用を返すモック
+        mock_citations = [("cited_a", "Cited A", 3)]
 
-        crawler.add_seeds(papers)
+        with patch.object(crawler, "_get_citations_with_importance", return_value=mock_citations):
+            papers = [
+                PaperMetadata(paper_id="seed1", title="Seed 1", references=["Ref A"]),
+                PaperMetadata(paper_id="seed2", title="Seed 2", references=["Ref A"]),  # 同じ引用
+            ]
+            crawler.add_seeds(papers)
 
         # 重複が除外されている
         assert len(crawler._queue) == 1
@@ -132,7 +173,8 @@ class TestCitationCrawler:
         crawler, downloader, extractor, writer, progress = self._create_crawler(max_depth=1)
 
         # depth=2 のターゲットを直接キューに追加
-        crawler._queue.append(CrawlTarget(paper_id="deep", title="Deep", depth=2))
+        target = create_target(paper_id="deep", title="Deep", depth=2)
+        heapq.heappush(crawler._queue, target)
         crawler._visited.add("deep")
 
         results = list(crawler.crawl())
@@ -155,7 +197,8 @@ class TestCitationCrawler:
 
         # 5件のターゲットを追加
         for i in range(5):
-            crawler._queue.append(CrawlTarget(paper_id=f"paper{i}", title=f"Paper {i}", depth=1))
+            target = create_target(paper_id=f"paper{i}", title=f"Paper {i}", depth=1)
+            heapq.heappush(crawler._queue, target)
             crawler._visited.add(f"paper{i}")
 
         with patch("idea_graph.ingestion.crawler.Neo4jConnection"):
@@ -171,7 +214,8 @@ class TestCitationCrawler:
         # 完了済みと設定
         progress.is_completed.return_value = True
 
-        crawler._queue.append(CrawlTarget(paper_id="done", title="Done", depth=1))
+        target = create_target(paper_id="done", title="Done", depth=1)
+        heapq.heappush(crawler._queue, target)
         crawler._visited.add("done")
 
         results = list(crawler.crawl())
@@ -189,7 +233,8 @@ class TestCitationCrawler:
             error_message="Connection error",
         )
 
-        crawler._queue.append(CrawlTarget(paper_id="fail", title="Fail", depth=1))
+        target = create_target(paper_id="fail", title="Fail", depth=1)
+        heapq.heappush(crawler._queue, target)
         crawler._visited.add("fail")
 
         results = list(crawler.crawl())
@@ -208,7 +253,8 @@ class TestCitationCrawler:
             error_message="Paper not found on arXiv",
         )
 
-        crawler._queue.append(CrawlTarget(paper_id="missing", title="Missing", depth=1))
+        target = create_target(paper_id="missing", title="Missing", depth=1)
+        heapq.heappush(crawler._queue, target)
         crawler._visited.add("missing")
 
         results = list(crawler.crawl())
@@ -228,7 +274,8 @@ class TestCitationCrawler:
         )
         extractor.extract.return_value = None
 
-        crawler._queue.append(CrawlTarget(paper_id="extract_fail", title="Extract Fail", depth=1))
+        target = create_target(paper_id="extract_fail", title="Extract Fail", depth=1)
+        heapq.heappush(crawler._queue, target)
         crawler._visited.add("extract_fail")
 
         results = list(crawler.crawl())
@@ -249,7 +296,8 @@ class TestCitationCrawler:
         )
         extractor.extract.return_value = MagicMock()
 
-        crawler._queue.append(CrawlTarget(paper_id="success", title="Success", depth=1))
+        target = create_target(paper_id="success", title="Success", depth=1)
+        heapq.heappush(crawler._queue, target)
         crawler._visited.add("success")
 
         with patch("idea_graph.ingestion.crawler.Neo4jConnection"):
@@ -267,7 +315,8 @@ class TestCitationCrawler:
         """get_stats が正しい統計を返すこと"""
         crawler, _, _, _, _ = self._create_crawler(max_depth=2, crawl_limit=100)
 
-        crawler._queue.append(CrawlTarget(paper_id="q1", title="Q1", depth=1))
+        target = create_target(paper_id="q1", title="Q1", depth=1)
+        heapq.heappush(crawler._queue, target)
         crawler._visited.add("v1")
         crawler._visited.add("v2")
         crawler._crawled_count = 5
@@ -279,26 +328,25 @@ class TestCitationCrawler:
         assert stats["visited"] == 2
         assert stats["max_depth"] == 2
         assert stats["crawl_limit"] == 100
+        assert stats["top_n_citations"] == 5
 
     def test_enqueue_citations_from_graph(self):
         """_enqueue_citations がグラフから引用を取得すること"""
         crawler, _, _, _, _ = self._create_crawler()
 
-        # Neo4j セッションをモック
-        mock_record1 = {"id": "cited1", "title": "Cited Paper 1"}
-        mock_record2 = {"id": "cited2", "title": "Cited Paper 2"}
+        # _get_citations_with_importance をモック
+        mock_citations = [
+            ("cited1", "Cited Paper 1", 5),
+            ("cited2", "Cited Paper 2", 3),
+        ]
 
-        with patch("idea_graph.ingestion.crawler.Neo4jConnection") as mock_conn:
-            mock_session = MagicMock()
-            mock_conn.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-            mock_conn.session.return_value.__exit__ = MagicMock(return_value=False)
-            mock_session.run.return_value = [mock_record1, mock_record2]
-
+        with patch.object(crawler, "_get_citations_with_importance", return_value=mock_citations):
             crawler._enqueue_citations("paper1", 2)
 
         # 引用がキューに追加されている
         assert len(crawler._queue) == 2
-        assert crawler._queue[0].depth == 2
+        # heapqなので重要度が高いものが先頭
+        assert crawler._queue[0].importance_score == 5
         assert "cited1" in crawler._visited
         assert "cited2" in crawler._visited
 
@@ -309,15 +357,33 @@ class TestCitationCrawler:
         # 既に visited に追加
         crawler._visited.add("cited1")
 
-        mock_record = {"id": "cited1", "title": "Already Visited"}
+        mock_citations = [("cited1", "Already Visited", 4)]
 
-        with patch("idea_graph.ingestion.crawler.Neo4jConnection") as mock_conn:
-            mock_session = MagicMock()
-            mock_conn.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-            mock_conn.session.return_value.__exit__ = MagicMock(return_value=False)
-            mock_session.run.return_value = [mock_record]
-
+        with patch.object(crawler, "_get_citations_with_importance", return_value=mock_citations):
             crawler._enqueue_citations("paper1", 2)
 
         # キューに追加されていない
         assert len(crawler._queue) == 0
+
+    def test_top_n_citations_limit(self):
+        """top_n_citations で上位N件のみがキューに追加されること"""
+        crawler, _, _, _, _ = self._create_crawler()
+        crawler.top_n_citations = 2  # 上位2件のみ
+
+        # 重要度順に並んだ5件の引用（既にソート済み）
+        mock_citations = [
+            ("p1", "Paper 1", 5),
+            ("p2", "Paper 2", 4),
+            ("p3", "Paper 3", 3),
+            ("p4", "Paper 4", 2),
+            ("p5", "Paper 5", 1),
+        ]
+
+        with patch.object(crawler, "_get_citations_with_importance", return_value=mock_citations):
+            crawler._enqueue_citations("paper1", 1)
+
+        # 上位2件のみがキューに追加される
+        assert len(crawler._queue) == 2
+        assert "p1" in crawler._visited
+        assert "p2" in crawler._visited
+        assert "p3" not in crawler._visited

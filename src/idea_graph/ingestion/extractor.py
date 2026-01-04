@@ -35,6 +35,20 @@ class InternalRelation(BaseModel):
     relation_type: str = Field(description="関係のタイプ (EXTENDS, ALIAS_OF, COMPONENT_OF, etc.)")
 
 
+class CitedPaper(BaseModel):
+    """引用論文とその重要度"""
+
+    title: str = Field(description="引用論文のタイトル")
+    importance_score: int = Field(
+        ge=1, le=5,
+        description="この引用の重要度 (1=低, 5=高). 5: 本研究の基盤・直接拡張, 4: 主要手法・比較対象, 3: 関連手法, 2: 背景・一般参照, 1: 付随的言及"
+    )
+    citation_type: str = Field(
+        description="引用のタイプ: EXTENDS(拡張), COMPARES(比較), USES(使用), BACKGROUND(背景), MENTIONS(言及)"
+    )
+    context: str | None = Field(default=None, description="引用のコンテキスト（なぜ重要か）")
+
+
 class ExtractedInfo(BaseModel):
     """抽出された論文情報"""
 
@@ -43,6 +57,7 @@ class ExtractedInfo(BaseModel):
     claims: list[str] = Field(description="論文の主張・貢献のリスト")
     entities: list[Entity] = Field(description="抽出されたエンティティのリスト")
     relations: list[InternalRelation] = Field(default_factory=list, description="エンティティ間の関係のリスト")
+    cited_papers: list[CitedPaper] = Field(default_factory=list, description="重要な引用論文のリスト（重要度付き）")
     raw_extended: dict | None = Field(default=None, description="拡張テンプレートの結果")
 
 
@@ -63,8 +78,19 @@ Please extract:
    - ALIAS_OF: Alternative names for the same concept
    - COMPONENT_OF: One entity is a component of another
    - INSPIRED_BY: One method is inspired by another
+5. **cited_papers**: Important cited papers with their relevance to this work (top 10-15 most important):
+   - title: The exact title of the cited paper
+   - importance_score (1-5): How important this citation is for understanding this paper
+     - 5: Foundation of this work / directly extended by this paper
+     - 4: Key method used or main comparison baseline
+     - 3: Related method / relevant prior work
+     - 2: Background reference / general context
+     - 1: Peripheral mention
+   - citation_type: EXTENDS (builds upon), COMPARES (compared against), USES (uses method/data from), BACKGROUND (general background), MENTIONS (peripheral)
+   - context: Brief explanation of why this paper is cited (1 sentence)
 
 Focus on extracting information that would be useful for building a knowledge graph of AI research.
+Prioritize papers that are directly extended, compared against, or whose methods are used in this work.
 """
 
 

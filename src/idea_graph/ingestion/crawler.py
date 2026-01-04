@@ -1,8 +1,8 @@
-"""引用論文の再帰的探索モジュール"""
+"""引用論文の再帰的探索モジュール（優先度付き）"""
 
+import heapq
 import logging
-from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterator
 
 from idea_graph.db import Neo4jConnection
@@ -15,13 +15,18 @@ from idea_graph.ingestion.progress import ProgressManager
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(order=True)
 class CrawlTarget:
-    """クロール対象"""
+    """クロール対象（優先度付き）"""
 
-    paper_id: str
-    title: str
-    depth: int
+    # heapq用のソートキー: 低い値ほど優先（重要度は負の値で保存）
+    priority: tuple[int, int] = field(compare=True)  # (-importance_score, depth)
+
+    # 実際のデータ（比較に含めない）
+    paper_id: str = field(compare=False)
+    title: str = field(compare=False)
+    depth: int = field(compare=False)
+    importance_score: int = field(default=3, compare=False)  # 1-5, default: 3
 
 
 @dataclass
@@ -36,7 +41,7 @@ class CrawlResult:
 
 
 class CitationCrawler:
-    """引用論文の再帰的クローラー（BFS）"""
+    """引用論文の再帰的クローラー（重要度優先）"""
 
     def __init__(
         self,
@@ -46,6 +51,7 @@ class CitationCrawler:
         progress: ProgressManager,
         max_depth: int = 1,
         crawl_limit: int | None = None,
+        top_n_citations: int = 5,
     ):
         """初期化
 
@@ -56,6 +62,7 @@ class CitationCrawler:
             progress: 進捗管理
             max_depth: 最大探索深度
             crawl_limit: クロールする最大論文数
+            top_n_citations: 各論文から探索する引用の最大数（重要度上位N件）
         """
         self.downloader = downloader
         self.extractor = extractor
@@ -63,13 +70,26 @@ class CitationCrawler:
         self.progress = progress
         self.max_depth = max_depth
         self.crawl_limit = crawl_limit
+        self.top_n_citations = top_n_citations
 
-        # BFS キュー
-        self._queue: deque[CrawlTarget] = deque()
+        # 優先度付きキュー（heapq）
+        self._queue: list[CrawlTarget] = []
         # 処理済みまたはキュー済みの paper_id
         self._visited: set[str] = set()
         # クロール済みカウント
         self._crawled_count: int = 0
+
+    def _create_target(
+        self, paper_id: str, title: str, depth: int, importance_score: int = 3
+    ) -> CrawlTarget:
+        """CrawlTargetを作成（優先度を自動計算）"""
+        return CrawlTarget(
+            priority=(-importance_score, depth),  # 重要度高い順、深度浅い順
+            paper_id=paper_id,
+            title=title,
+            depth=depth,
+            importance_score=importance_score,
+        )
 
     def add_seeds(self, papers: list[PaperMetadata]) -> None:
         """シード論文（depth=0）を処理済みとしてマーク
@@ -83,21 +103,24 @@ class CitationCrawler:
         for paper in papers:
             self._visited.add(paper.paper_id)
 
-            # 引用論文をキューに追加（depth=1）
-            for ref_title in paper.references:
-                ref_id = generate_paper_id(ref_title)
-                if ref_id not in self._visited:
-                    self._queue.append(CrawlTarget(
-                        paper_id=ref_id,
-                        title=ref_title,
-                        depth=1,
-                    ))
-                    self._visited.add(ref_id)
+            # グラフから重要度付き引用情報を取得（上位N件）
+            citations = self._get_citations_with_importance(paper.paper_id)
+            top_citations = citations[: self.top_n_citations]
+
+            added = 0
+            for cited_id, cited_title, importance_score in top_citations:
+                if cited_id not in self._visited:
+                    target = self._create_target(cited_id, cited_title, 1, importance_score)
+                    heapq.heappush(self._queue, target)
+                    self._visited.add(cited_id)
+                    added += 1
+
+            logger.debug(f"Paper {paper.paper_id}: queued {added}/{len(citations)} citations")
 
         logger.info(f"Added {len(papers)} seed papers, {len(self._queue)} citations queued")
 
     def crawl(self) -> Iterator[CrawlResult]:
-        """BFSでクロール実行
+        """重要度優先でクロール実行
 
         Yields:
             CrawlResult: 各論文の処理結果
@@ -108,7 +131,7 @@ class CitationCrawler:
                 logger.info(f"Crawl limit reached: {self.crawl_limit}")
                 break
 
-            target = self._queue.popleft()
+            target = heapq.heappop(self._queue)
 
             # 深度チェック
             if target.depth > self.max_depth:
@@ -123,6 +146,11 @@ class CitationCrawler:
                     status="skipped",
                 )
                 continue
+
+            logger.info(
+                f"Processing: {target.title[:50]}... "
+                f"(importance={target.importance_score}, depth={target.depth})"
+            )
 
             # 処理実行
             result = self._process_paper(target)
@@ -207,39 +235,57 @@ class CitationCrawler:
             status="completed",
         )
 
-    def _enqueue_citations(self, paper_id: str, next_depth: int) -> None:
-        """論文の引用論文をキューに追加
-
-        グラフから CITES 関係を読み取り、引用論文をキューに追加する。
+    def _get_citations_with_importance(
+        self, paper_id: str
+    ) -> list[tuple[str, str, int]]:
+        """グラフから重要度付き引用情報を取得
 
         Args:
             paper_id: 論文ID
-            next_depth: 追加する論文の深度
+
+        Returns:
+            (cited_id, cited_title, importance_score) のリスト
         """
         try:
             with Neo4jConnection.session() as session:
                 result = session.run(
                     """
-                    MATCH (p:Paper {id: $paper_id})-[:CITES]->(cited:Paper)
-                    RETURN cited.id AS id, cited.title AS title
+                    MATCH (p:Paper {id: $paper_id})-[r:CITES]->(cited:Paper)
+                    RETURN cited.id AS id,
+                           cited.title AS title,
+                           COALESCE(r.importance_score, 3) AS importance_score
+                    ORDER BY importance_score DESC
                     """,
                     paper_id=paper_id,
                 )
 
-                for record in result:
-                    cited_id = record["id"]
-                    cited_title = record["title"] or ""
-
-                    if cited_id and cited_id not in self._visited:
-                        self._queue.append(CrawlTarget(
-                            paper_id=cited_id,
-                            title=cited_title,
-                            depth=next_depth,
-                        ))
-                        self._visited.add(cited_id)
+                return [
+                    (record["id"], record["title"] or "", record["importance_score"])
+                    for record in result
+                    if record["id"]
+                ]
 
         except Exception as e:
             logger.warning(f"Failed to get citations for {paper_id}: {e}")
+            return []
+
+    def _enqueue_citations(self, paper_id: str, next_depth: int) -> None:
+        """論文の引用論文をキューに追加（重要度上位N件）
+
+        グラフから CITES 関係を読み取り、重要度上位N件を優先度付きでキューに追加する。
+
+        Args:
+            paper_id: 論文ID
+            next_depth: 追加する論文の深度
+        """
+        citations = self._get_citations_with_importance(paper_id)
+        top_citations = citations[: self.top_n_citations]
+
+        for cited_id, cited_title, importance_score in top_citations:
+            if cited_id not in self._visited:
+                target = self._create_target(cited_id, cited_title, next_depth, importance_score)
+                heapq.heappush(self._queue, target)
+                self._visited.add(cited_id)
 
     def get_stats(self) -> dict:
         """クロール統計を取得"""
@@ -249,4 +295,5 @@ class CitationCrawler:
             "visited": len(self._visited),
             "max_depth": self.max_depth,
             "crawl_limit": self.crawl_limit,
+            "top_n_citations": self.top_n_citations,
         }

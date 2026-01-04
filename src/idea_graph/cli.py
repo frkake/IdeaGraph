@@ -125,7 +125,10 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
     # 引用論文のクロール（max_depth > 0 の場合）
     if args.max_depth > 0 and not args.skip_download:
-        logging.info(f"Starting citation crawl (max_depth={args.max_depth})...")
+        logging.info(
+            f"Starting citation crawl (max_depth={args.max_depth}, "
+            f"top_n_citations={args.top_n_citations})..."
+        )
         crawler = CitationCrawler(
             downloader=downloader,
             extractor=extractor,
@@ -133,6 +136,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             progress=progress,
             max_depth=args.max_depth,
             crawl_limit=args.crawl_limit,
+            top_n_citations=args.top_n_citations,
         )
         crawler.add_seeds(papers)
 
@@ -226,6 +230,12 @@ def main() -> int:
         type=int,
         default=None,
         help="クロールする引用論文の最大数",
+    )
+    ingest_parser.add_argument(
+        "--top-n-citations",
+        type=int,
+        default=5,
+        help="各論文から探索する引用の最大数（重要度上位N件）",
     )
 
     # serve コマンド

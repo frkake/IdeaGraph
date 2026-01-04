@@ -6,7 +6,7 @@ from typing import Sequence
 
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
-from idea_graph.ingestion.dataset_loader import PaperMetadata
+from idea_graph.ingestion.dataset_loader import PaperMetadata, generate_paper_id
 from idea_graph.ingestion.extractor import ExtractedInfo
 
 logger = logging.getLogger(__name__)
@@ -211,6 +211,28 @@ class GraphWriterService:
                                 source_id=source_id,
                                 target_id=target_id,
                             )
+
+                # CITES 関係を重要度付きで作成
+                if extraction.cited_papers:
+                    for cited in extraction.cited_papers:
+                        cited_id = generate_paper_id(cited.title)
+                        session.run(
+                            """
+                            MATCH (p:Paper {id: $paper_id})
+                            MERGE (cited:Paper {id: $cited_id})
+                            ON CREATE SET cited.title = $cited_title
+                            MERGE (p)-[r:CITES]->(cited)
+                            SET r.importance_score = $importance_score,
+                                r.citation_type = $citation_type,
+                                r.context = $context
+                            """,
+                            paper_id=extraction.paper_id,
+                            cited_id=cited_id,
+                            cited_title=cited.title,
+                            importance_score=cited.importance_score,
+                            citation_type=cited.citation_type,
+                            context=cited.context or "",
+                        )
 
                 total += 1
 
