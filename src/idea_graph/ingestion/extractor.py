@@ -73,12 +73,7 @@ Please extract:
    - Challenge: Problems or challenges addressed (e.g., "vanishing gradient", "long-range dependencies")
    - Task: ML/AI tasks (e.g., "image classification", "machine translation")
    - Metric: Evaluation metrics (e.g., "BLEU score", "F1 score")
-4. **relations**: Relationships between entities (optional):
-   - EXTENDS: One method extends/improves another
-   - ALIAS_OF: Alternative names for the same concept
-   - COMPONENT_OF: One entity is a component of another
-   - INSPIRED_BY: One method is inspired by another
-5. **cited_papers**: Important cited papers with their relevance to this work (top 10-15 most important):
+4. **cited_papers**: Important cited papers with their relevance to this work (top 10-15 most important):
    - title: The exact title of the cited paper
    - citation_type: The type of citation relationship (see below)
    - importance_score (1-5): MUST be consistent with citation_type as follows:
