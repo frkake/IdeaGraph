@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+from datetime import datetime
 from typing import Sequence
 
 from idea_graph.config import settings
@@ -79,6 +80,29 @@ class GraphWriterService:
         for paper in papers:
             logger.info(f"Paper: {paper.paper_id} {paper.title}")
         return total
+
+    def update_paper_published_date(
+        self, paper_id: str, published_date: datetime | None
+    ) -> None:
+        """Paper ノードの公開日を更新
+
+        Args:
+            paper_id: 論文ID
+            published_date: 公開日（None の場合は更新しない）
+        """
+        if published_date is None:
+            return
+
+        with Neo4jConnection.session() as session:
+            session.run(
+                """
+                MATCH (p:Paper {id: $paper_id})
+                SET p.published_date = $published_date
+                """,
+                paper_id=paper_id,
+                published_date=published_date.isoformat(),
+            )
+        logger.debug(f"Updated published_date for {paper_id}: {published_date}")
 
     def write_citations(self, citations: Sequence[tuple[str, str, str]]) -> int:
         """CITES 関係をバッチで作成

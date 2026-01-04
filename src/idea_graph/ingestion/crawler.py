@@ -199,6 +199,9 @@ class CitationCrawler:
                     error_message=download_result.error_message,
                 )
 
+        # 公開日を保存
+        self.writer.update_paper_published_date(target.paper_id, download_result.published_date)
+
         # 抽出
         self.progress.update_status(target.paper_id, "extracting")
         extracted = self.extractor.extract(

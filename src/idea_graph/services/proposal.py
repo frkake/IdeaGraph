@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
@@ -62,16 +62,16 @@ class ProposalService:
 
     def __init__(self, model_name: str | None = None):
         """初期化"""
-        self.model_name = model_name or settings.gemini_model
+        self.model_name = model_name or settings.openai_model
         self._llm = None
 
     @property
-    def llm(self) -> ChatGoogleGenerativeAI:
+    def llm(self) -> ChatOpenAI:
         """LLM インスタンスを取得"""
         if self._llm is None:
-            self._llm = ChatGoogleGenerativeAI(
+            self._llm = ChatOpenAI(
                 model=self.model_name,
-                google_api_key=settings.google_api_key,
+                api_key=settings.openai_api_key,
                 temperature=0.0,
             )
         return self._llm

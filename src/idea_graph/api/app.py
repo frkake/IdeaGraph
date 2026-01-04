@@ -260,6 +260,173 @@ def propose_ideas(request: ProposeRequest) -> ProposalResult:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ========== ストレージ API ==========
+
+
+class SaveAnalysisRequest(BaseModel):
+    """分析保存リクエスト"""
+
+    target_paper_id: str
+    target_paper_title: str | None = None
+    analysis_result: dict[str, Any]
+
+
+class SaveProposalRequest(BaseModel):
+    """提案保存リクエスト"""
+
+    target_paper_id: str
+    target_paper_title: str | None = None
+    analysis_id: str | None = None
+    proposal: dict[str, Any]
+    rating: int | None = None
+    notes: str | None = None
+
+
+class UpdateProposalRequest(BaseModel):
+    """提案更新リクエスト"""
+
+    rating: int | None = None
+    notes: str | None = None
+
+
+@app.post("/api/storage/analyses")
+def save_analysis_result(request: SaveAnalysisRequest):
+    """分析結果を保存"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    saved = service.save_analysis(
+        target_paper_id=request.target_paper_id,
+        analysis_result=request.analysis_result,
+        target_paper_title=request.target_paper_title,
+    )
+    return saved
+
+
+@app.get("/api/storage/analyses")
+def list_saved_analyses(target_paper_id: str | None = None, limit: int = 50):
+    """保存された分析結果の一覧を取得"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    analyses = service.list_analyses(target_paper_id=target_paper_id, limit=limit)
+    return {"analyses": [a.model_dump() for a in analyses]}
+
+
+@app.get("/api/storage/analyses/{analysis_id}")
+def get_saved_analysis(analysis_id: str):
+    """保存された分析結果を取得"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    analysis = service.load_analysis(analysis_id)
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return analysis
+
+
+@app.delete("/api/storage/analyses/{analysis_id}")
+def delete_saved_analysis(analysis_id: str):
+    """保存された分析結果を削除"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    if not service.delete_analysis(analysis_id):
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return {"status": "deleted"}
+
+
+@app.post("/api/storage/proposals")
+def save_proposal_result(request: SaveProposalRequest):
+    """提案を保存"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    saved = service.save_proposal(
+        target_paper_id=request.target_paper_id,
+        proposal=request.proposal,
+        target_paper_title=request.target_paper_title,
+        analysis_id=request.analysis_id,
+        rating=request.rating,
+        notes=request.notes,
+    )
+    return saved
+
+
+@app.get("/api/storage/proposals")
+def list_saved_proposals(target_paper_id: str | None = None, limit: int = 50):
+    """保存された提案の一覧を取得"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    proposals = service.list_proposals(target_paper_id=target_paper_id, limit=limit)
+    return {"proposals": [p.model_dump() for p in proposals]}
+
+
+@app.get("/api/storage/proposals/{proposal_id}")
+def get_saved_proposal(proposal_id: str):
+    """保存された提案を取得"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    proposal = service.load_proposal(proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    return proposal
+
+
+@app.patch("/api/storage/proposals/{proposal_id}")
+def update_saved_proposal(proposal_id: str, request: UpdateProposalRequest):
+    """提案の評価・メモを更新"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    updated = service.update_proposal(
+        proposal_id=proposal_id,
+        rating=request.rating,
+        notes=request.notes,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    return updated
+
+
+@app.delete("/api/storage/proposals/{proposal_id}")
+def delete_saved_proposal(proposal_id: str):
+    """保存された提案を削除"""
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+    if not service.delete_proposal(proposal_id):
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    return {"status": "deleted"}
+
+
+@app.get("/api/storage/export/proposals")
+def export_proposals(
+    format: str = "markdown",
+    target_paper_id: str | None = None,
+    proposal_ids: str | None = None,
+):
+    """提案をエクスポート"""
+    from fastapi.responses import PlainTextResponse
+
+    from idea_graph.services.storage import StorageService
+
+    service = StorageService()
+
+    ids = proposal_ids.split(",") if proposal_ids else None
+
+    if format == "json":
+        content = service.export_proposals_json(proposal_ids=ids, target_paper_id=target_paper_id)
+        return PlainTextResponse(content, media_type="application/json")
+    else:
+        content = service.export_proposals_markdown(
+            proposal_ids=ids, target_paper_id=target_paper_id
+        )
+        return PlainTextResponse(content, media_type="text/markdown")
+
+
 # ========== フロントエンド ==========
 
 

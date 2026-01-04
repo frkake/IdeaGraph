@@ -15,6 +15,9 @@ class Settings(BaseModel):
     # Google API
     google_api_key: str = Field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
 
+    # OpenAI API
+    openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+
     # Neo4j
     neo4j_uri: str = Field(default_factory=lambda: os.getenv("NEO4J_URI", "bolt://localhost:7687"))
     neo4j_user: str = Field(default_factory=lambda: os.getenv("NEO4J_USER", "neo4j"))
@@ -34,6 +37,7 @@ class Settings(BaseModel):
 
     # LLM settings
     gemini_model: str = Field(default="gemini-3-flash-preview")
+    openai_model: str = Field(default="gpt-5.2-2025-12-11")
 
     def ensure_cache_dirs(self) -> None:
         """キャッシュディレクトリを作成"""

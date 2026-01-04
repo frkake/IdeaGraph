@@ -1,8 +1,10 @@
 """論文ダウンロードモジュール"""
 
+import json
 import logging
 import shutil
 import time
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
@@ -31,6 +33,7 @@ class DownloadResult(BaseModel):
     file_type: FileType | None = None
     success: bool
     error_message: str | None = None
+    published_date: datetime | None = None
 
 
 class DownloaderService:
@@ -60,6 +63,25 @@ class DownloaderService:
         """論文用ディレクトリのパスを取得"""
         return self.cache_dir / paper_id
 
+    def _load_metadata(self, paper_id: str) -> dict | None:
+        """メタデータファイルを読み込み"""
+        metadata_path = self._get_paper_dir(paper_id) / "metadata.json"
+        if metadata_path.exists():
+            with metadata_path.open() as f:
+                return json.load(f)
+        return None
+
+    def _save_metadata(self, paper_id: str, published_date: datetime | None) -> None:
+        """メタデータファイルを保存"""
+        paper_dir = self._get_paper_dir(paper_id)
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = paper_dir / "metadata.json"
+        metadata = {
+            "published_date": published_date.isoformat() if published_date else None,
+        }
+        with metadata_path.open("w") as f:
+            json.dump(metadata, f)
+
     def _check_cache(self, paper_id: str) -> DownloadResult | None:
         """キャッシュを確認
 
@@ -67,6 +89,12 @@ class DownloaderService:
             キャッシュがあれば DownloadResult、なければ None
         """
         paper_dir = self._get_paper_dir(paper_id)
+
+        # メタデータを読み込み
+        metadata = self._load_metadata(paper_id)
+        published_date = None
+        if metadata and metadata.get("published_date"):
+            published_date = datetime.fromisoformat(metadata["published_date"])
 
         # LaTeX ソースを優先
         latex_path = paper_dir / "source.tar.gz"
@@ -76,6 +104,7 @@ class DownloaderService:
                 file_path=latex_path,
                 file_type=FileType.LATEX,
                 success=True,
+                published_date=published_date,
             )
 
         # PDF をチェック
@@ -86,6 +115,7 @@ class DownloaderService:
                 file_path=pdf_path,
                 file_type=FileType.PDF,
                 success=True,
+                published_date=published_date,
             )
 
         return None
@@ -128,6 +158,9 @@ class DownloaderService:
         paper_dir = self._get_paper_dir(paper_id)
         paper_dir.mkdir(parents=True, exist_ok=True)
 
+        # arXiv から公開日を取得
+        published_date = result.published
+
         last_error = None
 
         # LaTeX ソースを試行
@@ -137,11 +170,14 @@ class DownloaderService:
                     dirpath=str(paper_dir),
                     filename="source.tar.gz",
                 )
+                # メタデータを保存
+                self._save_metadata(paper_id, published_date)
                 return DownloadResult(
                     paper_id=paper_id,
                     file_path=Path(downloaded_path),
                     file_type=FileType.LATEX,
                     success=True,
+                    published_date=published_date,
                 )
             except Exception as e:
                 last_error = e
@@ -156,11 +192,14 @@ class DownloaderService:
                     dirpath=str(paper_dir),
                     filename="paper.pdf",
                 )
+                # メタデータを保存
+                self._save_metadata(paper_id, published_date)
                 return DownloadResult(
                     paper_id=paper_id,
                     file_path=Path(downloaded_path),
                     file_type=FileType.PDF,
                     success=True,
+                    published_date=published_date,
                 )
             except Exception as e:
                 last_error = e

@@ -1,0 +1,775 @@
+/* IdeaGraph - メインスタイルシート */
+
+/* ========== リセット・ベース ========== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: #eee;
+    min-height: 100vh;
+}
+
+/* ========== CSS変数 ========== */
+:root {
+    /* 背景色 */
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-tertiary: #0f3460;
+
+    /* アクセントカラー */
+    --accent-blue: #4A90D9;
+    --accent-green: #7CB342;
+    --accent-orange: #FF9800;
+
+    /* スコア表示用 */
+    --score-high: #4CAF50;
+    --score-medium: #FFC107;
+    --score-low: #F44336;
+
+    /* タブ */
+    --tab-active: #4A90D9;
+    --tab-inactive: #555;
+
+    /* カード */
+    --card-bg: #1f2937;
+    --card-border: #374151;
+
+    /* Entity タイプ別カラー */
+    --entity-method: #FF9800;
+    --entity-approach: #FFC107;
+    --entity-framework: #8BC34A;
+    --entity-finding: #03A9F4;
+    --entity-dataset: #9C27B0;
+    --entity-benchmark: #00BCD4;
+    --entity-task: #E91E63;
+    --entity-challenge: #F44336;
+    --entity-metric: #795548;
+    --entity-default: #7CB342;
+
+    /* 引用タイプ別カラー */
+    --citation-extends: #FF5722;
+    --citation-compares: #2196F3;
+    --citation-uses: #4CAF50;
+    --citation-background: #9E9E9E;
+    --citation-mentions: #607D8B;
+}
+
+/* ========== コンテナ ========== */
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* ========== ヘッダー ========== */
+header {
+    background: var(--bg-secondary);
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+header h1 {
+    font-size: 1.25rem;
+    color: var(--accent-blue);
+}
+
+/* ========== タブナビゲーション ========== */
+.nav-tabs {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.nav-tab {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.85rem;
+    border-radius: 4px 4px 0 0;
+    transition: all 0.2s;
+}
+
+.nav-tab:hover {
+    color: #ccc;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-tab.active {
+    color: #fff;
+    background: var(--bg-primary);
+    border-bottom: 2px solid var(--accent-blue);
+}
+
+/* ========== 凡例 ========== */
+.legend {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.7rem;
+    margin-left: auto;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.legend-diamond {
+    width: 8px;
+    height: 8px;
+    transform: rotate(45deg);
+}
+
+.legend-line {
+    width: 16px;
+    height: 2px;
+    border-radius: 1px;
+}
+
+/* ========== メインエリア ========== */
+.main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ========== サイドバー（左） ========== */
+.sidebar {
+    width: 300px;
+    background: var(--bg-secondary);
+    padding: 1rem;
+    overflow-y: auto;
+    border-right: 1px solid var(--bg-tertiary);
+}
+
+.sidebar h2 {
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    color: var(--accent-green);
+    border-bottom: 1px solid var(--bg-tertiary);
+    padding-bottom: 0.4rem;
+}
+
+.sidebar label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    color: #aaa;
+}
+
+.sidebar input,
+.sidebar select,
+.sidebar textarea {
+    width: 100%;
+    padding: 0.4rem;
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--bg-tertiary);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: #eee;
+    font-size: 0.8rem;
+}
+
+.sidebar textarea {
+    font-family: monospace;
+}
+
+.sidebar button {
+    padding: 0.4rem 0.6rem;
+    background: var(--accent-blue);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    margin-bottom: 0.4rem;
+}
+
+.sidebar button:hover {
+    background: #357ABD;
+}
+
+.sidebar button.full-width {
+    width: 100%;
+}
+
+.sidebar button.secondary {
+    background: var(--accent-green);
+}
+
+.sidebar button.secondary:hover {
+    background: #689F38;
+}
+
+.section {
+    margin-bottom: 1rem;
+}
+
+/* ========== フィルターボタン ========== */
+.filter-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.75rem;
+}
+
+.filter-buttons button {
+    flex: 1 1 calc(50% - 0.15rem);
+    min-width: 0;
+    font-size: 0.7rem;
+    padding: 0.35rem 0.4rem;
+}
+
+.filter-buttons button.active {
+    box-shadow: 0 0 0 2px #fff;
+}
+
+.btn-paper { background: var(--accent-blue) !important; }
+.btn-method { background: var(--entity-method) !important; }
+.btn-dataset { background: var(--entity-dataset) !important; }
+.btn-benchmark { background: var(--entity-benchmark) !important; }
+.btn-task { background: var(--entity-task) !important; }
+.btn-challenge { background: var(--entity-challenge) !important; }
+.btn-cites { background: var(--citation-mentions) !important; }
+.btn-mentions { background: var(--accent-green) !important; }
+
+/* ========== 検索行 ========== */
+.search-row {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.search-row input {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.search-row button {
+    margin-bottom: 0;
+}
+
+/* ========== グラフエリア ========== */
+#graph {
+    flex: 1;
+    background: var(--bg-primary);
+}
+
+/* ========== 右パネル（分析結果・提案） ========== */
+.right-panel {
+    width: 350px;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--bg-tertiary);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.right-panel.collapsed {
+    width: 40px;
+}
+
+.right-panel-header {
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.right-panel-header h3 {
+    font-size: 0.9rem;
+    color: var(--accent-blue);
+}
+
+.right-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.75rem;
+}
+
+.toggle-panel-btn {
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+/* ========== ノード・エッジ情報パネル ========== */
+.node-info,
+.edge-info {
+    margin-top: 0.5rem;
+    padding: 0.6rem;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.node-info h3,
+.edge-info h3 {
+    color: var(--accent-blue);
+    margin-bottom: 0.4rem;
+    font-size: 0.8rem;
+}
+
+.node-info p,
+.edge-info p {
+    margin-bottom: 0.2rem;
+    word-wrap: break-word;
+}
+
+.edge-info {
+    border-left: 3px solid var(--citation-extends);
+}
+
+.edge-info h3 {
+    color: var(--citation-extends);
+}
+
+/* ========== 引用バッジ ========== */
+.citation-badge {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: bold;
+    margin-bottom: 0.4rem;
+}
+
+.importance-score {
+    color: #FFD700;
+    letter-spacing: 1px;
+}
+
+.context-section {
+    margin-top: 0.4rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--bg-tertiary);
+}
+
+.context-text {
+    color: #bbb;
+    font-style: italic;
+    line-height: 1.3;
+    margin-top: 0.2rem;
+}
+
+/* ========== ステータスバー ========== */
+.status {
+    padding: 0.4rem 1rem;
+    background: var(--bg-tertiary);
+    font-size: 0.8rem;
+    color: #aaa;
+    display: flex;
+    justify-content: space-between;
+}
+
+/* ========== 分析結果カード ========== */
+.analysis-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.path-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 0.6rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.path-card:hover {
+    border-color: var(--accent-blue);
+    transform: translateX(2px);
+}
+
+.path-card.selected {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 1px var(--accent-blue);
+}
+
+.path-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+}
+
+.path-rank {
+    font-weight: bold;
+    color: var(--accent-blue);
+    font-size: 0.85rem;
+}
+
+.path-score {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+}
+
+.path-score.high { background: var(--score-high); color: #000; }
+.path-score.medium { background: var(--score-medium); color: #000; }
+.path-score.low { background: var(--score-low); }
+
+.path-nodes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    color: #ccc;
+}
+
+.path-node {
+    background: var(--bg-primary);
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+}
+
+.path-arrow {
+    color: #666;
+}
+
+/* ========== スコアバー ========== */
+.score-bar {
+    height: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 2px;
+    margin-top: 0.4rem;
+    overflow: hidden;
+}
+
+.score-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--score-low), var(--score-medium), var(--score-high));
+    border-radius: 2px;
+    transition: width 0.3s;
+}
+
+/* ========== 提案カード ========== */
+.proposal-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.proposal-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.proposal-card-header {
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-tertiary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.proposal-title {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #fff;
+}
+
+.proposal-actions {
+    display: flex;
+    gap: 0.3rem;
+}
+
+.proposal-card-body {
+    padding: 0.75rem;
+}
+
+.proposal-section {
+    margin-bottom: 0.6rem;
+}
+
+.proposal-section-title {
+    font-size: 0.7rem;
+    color: var(--accent-green);
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+}
+
+.proposal-section-content {
+    font-size: 0.8rem;
+    color: #ccc;
+    line-height: 1.4;
+}
+
+/* ========== 評価（星） ========== */
+.rating {
+    display: flex;
+    gap: 0.15rem;
+}
+
+.rating-star {
+    cursor: pointer;
+    color: #444;
+    font-size: 1rem;
+}
+
+.rating-star.filled {
+    color: #FFD700;
+}
+
+.rating-star:hover {
+    color: #FFC107;
+}
+
+/* ========== 比較ビュー ========== */
+.comparison-view {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+}
+
+.comparison-view .proposal-card {
+    min-width: 280px;
+    flex-shrink: 0;
+}
+
+/* ========== モーダル ========== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-title {
+    font-size: 1.1rem;
+    color: #fff;
+}
+
+.modal-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    color: #fff;
+}
+
+.modal-body {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+/* ========== ボタン追加スタイル ========== */
+.btn-icon {
+    padding: 0.3rem;
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.btn-icon:hover {
+    color: #fff;
+}
+
+.btn-primary {
+    background: var(--accent-blue);
+    color: #fff;
+    padding: 0.4rem 0.8rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background: #357ABD;
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: #ccc;
+    padding: 0.4rem 0.8rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-secondary:hover {
+    background: #1a3a5c;
+}
+
+/* ========== 履歴リスト ========== */
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.6rem;
+    background: var(--card-bg);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.history-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.history-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.history-item-title {
+    font-size: 0.8rem;
+    color: #fff;
+}
+
+.history-item-date {
+    font-size: 0.7rem;
+    color: #888;
+}
+
+/* ========== 空状態 ========== */
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: #666;
+}
+
+.empty-state-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.empty-state-text {
+    font-size: 0.85rem;
+}
+
+/* ========== タブコンテンツ ========== */
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* ========== Mermaidダイアグラム ========== */
+.mermaid-container {
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+/* ========== ローディング ========== */
+.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem;
+}
+
+.loading-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--bg-tertiary);
+    border-top-color: var(--accent-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ========== ツールチップ ========== */
+.tooltip {
+    position: relative;
+}
+
+.tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.3rem 0.5rem;
+    background: #333;
+    color: #fff;
+    font-size: 0.7rem;
+    border-radius: 3px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.tooltip:hover::after {
+    opacity: 1;
+}

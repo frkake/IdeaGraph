@@ -5,10 +5,17 @@ import logging
 import sys
 from typing import NoReturn
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from tqdm import tqdm
 
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
+
+console = Console()
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -134,6 +141,225 @@ def _print_analysis_table(result: "AnalysisResult") -> None:
         print("No paths found.")
 
 
+def _print_analysis_rich(result: "AnalysisResult") -> None:
+    """分析結果をrich形式で出力"""
+    # ヘッダー
+    console.print()
+    console.print(Panel(
+        f"[bold blue]論文ID:[/] {result.target_paper_id}\n"
+        f"[bold blue]最大ホップ:[/] {result.multihop_k}",
+        title="[bold]分析結果[/]",
+        border_style="blue"
+    ))
+
+    paper_count = len(result.paper_paths) if result.paper_paths else 0
+    entity_count = len(result.entity_paths) if result.entity_paths else 0
+
+    console.print(f"\n[green]Paper引用パス:[/] {paper_count}件  [cyan]Entity関連パス:[/] {entity_count}件\n")
+
+    # Paper引用パス
+    if result.paper_paths:
+        console.print("[bold green]━━━ Paper引用パス ━━━[/]")
+        for i, path in enumerate(result.paper_paths, 1):
+            _print_path_rich(path, i, "paper")
+
+    # Entity関連パス
+    if result.entity_paths:
+        console.print("\n[bold cyan]━━━ Entity関連パス ━━━[/]")
+        for i, path in enumerate(result.entity_paths, 1):
+            _print_path_rich(path, i, "entity")
+
+    if not result.paper_paths and not result.entity_paths:
+        console.print("[yellow]パスが見つかりませんでした[/]")
+
+
+def _print_path_rich(path, index: int, path_type: str = "paper") -> None:
+    """単一パスをrich形式で表示"""
+    color = "green" if path_type == "paper" else "cyan"
+    max_score = 100.0  # スコアの正規化用
+
+    # スコアバー
+    score_percent = min(path.score / max_score * 100, 100) if max_score > 0 else 0
+    score_bar_len = int(score_percent / 5)
+    score_bar = "█" * score_bar_len + "░" * (20 - score_bar_len)
+
+    # スコアの色
+    if score_percent >= 70:
+        score_color = "green"
+    elif score_percent >= 40:
+        score_color = "yellow"
+    else:
+        score_color = "red"
+
+    console.print(f"\n[bold {color}]#{index}[/] [dim]Score:[/] [{score_color}]{path.score:.1f}[/]  [{score_color}]{score_bar}[/]")
+
+    # ノードパスを表示
+    path_parts = []
+    for j, node in enumerate(path.nodes):
+        if node.label == "Paper":
+            node_text = f"[blue]📄 {node.name[:40]}[/]"
+        else:
+            entity_type = node.entity_type or "Entity"
+            type_emoji = {
+                "Method": "🔧",
+                "Dataset": "📊",
+                "Benchmark": "📏",
+                "Task": "🎯",
+                "Framework": "🏗️",
+                "Metric": "📐",
+            }.get(entity_type, "📌")
+            node_text = f"[magenta]{type_emoji} {node.name[:35]}[/]"
+        path_parts.append(node_text)
+
+        if j < len(path.edges):
+            edge = path.edges[j]
+            edge_color = {
+                "CITES": "yellow",
+                "MENTIONS": "green",
+                "EXTENDS": "orange3",
+                "USES": "cyan",
+                "COMPARES": "blue",
+            }.get(edge.type, "white")
+            path_parts.append(f" [{edge_color}]→{edge.type}→[/] ")
+
+    console.print("  " + "".join(path_parts))
+
+    # スコア内訳をコンパクトに表示
+    if path.score_breakdown:
+        bd = path.score_breakdown
+        breakdown_parts = []
+
+        cite_score = bd.get('cite_importance_score', 0) + bd.get('cite_type_score', 0)
+        if cite_score > 0:
+            breakdown_parts.append(f"[yellow]引用:{cite_score:.1f}[/]")
+
+        entity_score = bd.get('mentions_score', 0) + bd.get('entity_relation_score', 0)
+        if entity_score > 0:
+            breakdown_parts.append(f"[cyan]Entity:{entity_score:.1f}[/]")
+
+        penalty = bd.get('length_penalty', 0)
+        if penalty != 0:
+            breakdown_parts.append(f"[red]距離:{penalty:.1f}[/]")
+
+        if breakdown_parts:
+            console.print(f"  [dim]スコア内訳:[/] {' | '.join(breakdown_parts)}")
+
+
+def _print_proposals_rich(result: "ProposalResult", compare: bool = False) -> None:
+    """提案結果をrich形式で出力"""
+    console.print()
+    console.print(Panel(
+        f"[bold blue]対象論文:[/] {result.target_paper_id}\n"
+        f"[bold blue]提案数:[/] {len(result.proposals)}件",
+        title="[bold]研究提案[/]",
+        border_style="blue"
+    ))
+
+    if compare:
+        _print_proposals_comparison(result)
+    else:
+        for i, proposal in enumerate(result.proposals, 1):
+            _print_proposal_card(proposal, i)
+
+
+def _print_proposal_card(proposal, index: int) -> None:
+    """提案をカード形式で表示"""
+    console.print()
+    console.print(Panel(
+        f"[bold]{proposal.title}[/]",
+        title=f"[bold cyan]提案 #{index}[/]",
+        border_style="cyan"
+    ))
+
+    # 動機
+    console.print(f"\n[bold green]📝 動機[/]")
+    console.print(f"  {proposal.motivation[:200]}..." if len(proposal.motivation) > 200 else f"  {proposal.motivation}")
+
+    # 手法
+    console.print(f"\n[bold yellow]🔧 手法[/]")
+    console.print(f"  {proposal.method[:200]}..." if len(proposal.method) > 200 else f"  {proposal.method}")
+
+    # 実験計画
+    console.print(f"\n[bold magenta]🧪 実験計画[/]")
+    exp = proposal.experiment
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("項目", style="dim")
+    table.add_column("内容")
+    table.add_row("データセット", ", ".join(exp.datasets[:3]) + ("..." if len(exp.datasets) > 3 else ""))
+    table.add_row("ベースライン", ", ".join(exp.baselines[:3]) + ("..." if len(exp.baselines) > 3 else ""))
+    table.add_row("評価指標", ", ".join(exp.metrics[:3]) + ("..." if len(exp.metrics) > 3 else ""))
+    console.print(table)
+
+    # 差異
+    console.print(f"\n[bold red]📌 既存研究との差異[/]")
+    for diff in proposal.differences[:3]:
+        console.print(f"  • {diff[:80]}..." if len(diff) > 80 else f"  • {diff}")
+
+
+def _print_proposals_comparison(result: "ProposalResult") -> None:
+    """提案を比較テーブルで表示"""
+    console.print("\n[bold]提案比較[/]\n")
+
+    # 比較テーブル
+    table = Table(title="提案の比較", show_lines=True)
+    table.add_column("項目", style="bold", width=15)
+
+    for i, proposal in enumerate(result.proposals, 1):
+        table.add_column(f"提案 #{i}", width=40)
+
+    # タイトル行
+    table.add_row(
+        "タイトル",
+        *[proposal.title[:38] + "..." if len(proposal.title) > 38 else proposal.title
+          for proposal in result.proposals]
+    )
+
+    # 動機行
+    table.add_row(
+        "動機",
+        *[proposal.motivation[:80] + "..." if len(proposal.motivation) > 80 else proposal.motivation
+          for proposal in result.proposals]
+    )
+
+    # 手法行
+    table.add_row(
+        "手法",
+        *[proposal.method[:80] + "..." if len(proposal.method) > 80 else proposal.method
+          for proposal in result.proposals]
+    )
+
+    # データセット行
+    table.add_row(
+        "データセット",
+        *[", ".join(proposal.experiment.datasets[:2]) + ("..." if len(proposal.experiment.datasets) > 2 else "")
+          for proposal in result.proposals]
+    )
+
+    # ベースライン行
+    table.add_row(
+        "ベースライン",
+        *[", ".join(proposal.experiment.baselines[:2]) + ("..." if len(proposal.experiment.baselines) > 2 else "")
+          for proposal in result.proposals]
+    )
+
+    # 評価指標行
+    table.add_row(
+        "評価指標",
+        *[", ".join(proposal.experiment.metrics[:2]) + ("..." if len(proposal.experiment.metrics) > 2 else "")
+          for proposal in result.proposals]
+    )
+
+    # 差異行
+    table.add_row(
+        "既存研究との差異",
+        *[proposal.differences[0][:60] + "..." if proposal.differences and len(proposal.differences[0]) > 60
+          else (proposal.differences[0] if proposal.differences else "N/A")
+          for proposal in result.proposals]
+    )
+
+    console.print(table)
+
+
 def _format_proposals_markdown(result: "ProposalResult") -> str:
     """提案結果をMarkdown形式でフォーマット"""
     lines = [
@@ -146,6 +372,12 @@ def _format_proposals_markdown(result: "ProposalResult") -> str:
     for i, proposal in enumerate(result.proposals, 1):
         lines.extend([
             f"## Proposal {i}: {proposal.title}",
+            "",
+            "### Rationale",
+            proposal.rationale,
+            "",
+            "### Research Trends",
+            proposal.research_trends,
             "",
             "### Motivation",
             proposal.motivation,
@@ -264,6 +496,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         if not result.success:
             progress.update_status(paper.paper_id, "failed", result.error_message)
             continue
+
+        # 公開日を保存
+        writer.update_paper_published_date(paper.paper_id, result.published_date)
 
         if args.skip_extract:
             progress.update_status(paper.paper_id, "completed")
@@ -393,9 +628,21 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         logging.error(str(e))
         return 1
 
+    # 結果を保存
+    if hasattr(args, 'save') and args.save:
+        from idea_graph.services.storage import StorageService
+        storage = StorageService()
+        saved = storage.save_analysis(
+            target_paper_id=args.paper_id,
+            analysis_result=result.model_dump(),
+        )
+        console.print(f"[green]分析結果を保存しました: {saved.id}[/]")
+
     # 結果表示
     if args.format == "json":
         _print_analysis_json(result)
+    elif args.format == "rich":
+        _print_analysis_rich(result)
     else:
         _print_analysis_table(result)
 
@@ -413,8 +660,8 @@ def cmd_propose(args: argparse.Namespace) -> int:
         return 1
 
     # APIキー確認
-    if not settings.google_api_key:
-        logging.error("GOOGLE_API_KEY is not set. Please set it in .env file.")
+    if not settings.openai_api_key:
+        logging.error("OPENAI_API_KEY is not set. Please set it in .env file.")
         return 1
 
     logging.info(f"Generating proposals for paper: {args.paper_id}")
@@ -456,18 +703,37 @@ def cmd_propose(args: argparse.Namespace) -> int:
         logging.error(f"Proposal generation failed: {e}")
         return 1
 
+    # 結果を保存
+    if hasattr(args, 'save') and args.save:
+        from idea_graph.services.storage import StorageService
+        storage = StorageService()
+        for proposal in proposal_result.proposals:
+            saved = storage.save_proposal(
+                target_paper_id=args.paper_id,
+                proposal=proposal.model_dump(),
+            )
+            console.print(f"[green]提案を保存しました: {saved.id} - {proposal.title[:40]}[/]")
+
     # Step 3: 結果出力
     if args.format == "json":
         output = proposal_result.model_dump_json(indent=2)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(output)
+            logging.info(f"Output written to: {args.output}")
+        else:
+            print(output)
+    elif args.format == "rich":
+        compare = hasattr(args, 'compare') and args.compare
+        _print_proposals_rich(proposal_result, compare=compare)
     else:
         output = _format_proposals_markdown(proposal_result)
-
-    if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(output)
-        logging.info(f"Output written to: {args.output}")
-    else:
-        print(output)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(output)
+            logging.info(f"Output written to: {args.output}")
+        else:
+            print(output)
 
     return 0
 
@@ -532,9 +798,14 @@ def main() -> int:
     )
     analyze_parser.add_argument(
         "--format",
-        choices=["table", "json"],
+        choices=["table", "json", "rich"],
         default="table",
         help="出力形式 (デフォルト: table)",
+    )
+    analyze_parser.add_argument(
+        "--save",
+        action="store_true",
+        help="分析結果を保存",
     )
 
     # propose コマンド
@@ -560,7 +831,7 @@ def main() -> int:
     )
     propose_parser.add_argument(
         "--format",
-        choices=["markdown", "json"],
+        choices=["markdown", "json", "rich"],
         default="markdown",
         help="出力形式 (デフォルト: markdown)",
     )
@@ -568,6 +839,16 @@ def main() -> int:
         "-o", "--output",
         type=str,
         help="出力ファイルパス（指定しない場合は標準出力）",
+    )
+    propose_parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="提案を比較テーブルで表示（--format richと組み合わせ）",
+    )
+    propose_parser.add_argument(
+        "--save",
+        action="store_true",
+        help="提案を保存",
     )
 
     args = parser.parse_args()

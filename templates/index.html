@@ -5,238 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IdeaGraph - AI論文ナレッジグラフ</title>
     <script src="https://unpkg.com/neovis.js@2.1.0"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
-            min-height: 100vh;
-        }
-        .container {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-        header {
-            background: #16213e;
-            padding: 1rem 2rem;
-            border-bottom: 1px solid #0f3460;
-            display: flex;
-            align-items: center;
-            gap: 2rem;
-        }
-        header h1 {
-            font-size: 1.5rem;
-            color: #4A90D9;
-        }
-        .legend {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            font-size: 0.75rem;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 0.3rem;
-        }
-        .legend-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-        .legend-diamond {
-            width: 10px;
-            height: 10px;
-            transform: rotate(45deg);
-        }
-        .main {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }
-        .sidebar {
-            width: 320px;
-            background: #16213e;
-            padding: 1rem;
-            overflow-y: auto;
-            border-right: 1px solid #0f3460;
-        }
-        .sidebar h2 {
-            font-size: 0.9rem;
-            margin-bottom: 0.75rem;
-            color: #7CB342;
-            border-bottom: 1px solid #0f3460;
-            padding-bottom: 0.5rem;
-        }
-        .sidebar label {
-            display: block;
-            margin-bottom: 0.3rem;
-            font-size: 0.8rem;
-            color: #aaa;
-        }
-        .sidebar input, .sidebar select, .sidebar textarea {
-            width: 100%;
-            padding: 0.5rem;
-            margin-bottom: 0.75rem;
-            border: 1px solid #0f3460;
-            border-radius: 4px;
-            background: #1a1a2e;
-            color: #eee;
-            font-size: 0.85rem;
-        }
-        .sidebar textarea {
-            font-family: monospace;
-        }
-        .sidebar button {
-            padding: 0.5rem 0.75rem;
-            background: #4A90D9;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            margin-bottom: 0.5rem;
-        }
-        .sidebar button:hover {
-            background: #357ABD;
-        }
-        .sidebar button.full-width {
-            width: 100%;
-        }
-        .sidebar button.secondary {
-            background: #7CB342;
-        }
-        .sidebar button.secondary:hover {
-            background: #689F38;
-        }
-        .filter-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.4rem;
-            margin-bottom: 1rem;
-        }
-        .filter-buttons button {
-            flex: 1 1 calc(50% - 0.2rem);
-            min-width: 0;
-            font-size: 0.75rem;
-            padding: 0.4rem 0.5rem;
-        }
-        .filter-buttons button.active {
-            box-shadow: 0 0 0 2px #fff;
-        }
-        .btn-paper { background: #4A90D9 !important; }
-        .btn-method { background: #FF9800 !important; }
-        .btn-dataset { background: #9C27B0 !important; }
-        .btn-benchmark { background: #00BCD4 !important; }
-        .btn-task { background: #E91E63 !important; }
-        .btn-challenge { background: #F44336 !important; }
-        .btn-cites { background: #607D8B !important; }
-        .btn-mentions { background: #7CB342 !important; }
-        #graph {
-            flex: 1;
-            background: #1a1a2e;
-        }
-        .status {
-            padding: 0.5rem 1rem;
-            background: #0f3460;
-            font-size: 0.85rem;
-            color: #aaa;
-            display: flex;
-            justify-content: space-between;
-        }
-        .node-info {
-            margin-top: 0.75rem;
-            padding: 0.75rem;
-            background: #1a1a2e;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        .node-info h3 {
-            color: #4A90D9;
-            margin-bottom: 0.5rem;
-            font-size: 0.85rem;
-        }
-        .node-info p {
-            margin-bottom: 0.25rem;
-            word-wrap: break-word;
-        }
-        /* Edge info panel */
-        .edge-info {
-            margin-top: 0.75rem;
-            padding: 0.75rem;
-            background: #1a1a2e;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            max-height: 250px;
-            overflow-y: auto;
-            border-left: 3px solid #FF5722;
-        }
-        .edge-info h3 {
-            color: #FF5722;
-            margin-bottom: 0.5rem;
-            font-size: 0.85rem;
-        }
-        .edge-info p {
-            margin-bottom: 0.25rem;
-            word-wrap: break-word;
-        }
-        .citation-badge {
-            display: inline-block;
-            padding: 0.2rem 0.5rem;
-            border-radius: 3px;
-            color: white;
-            font-size: 0.75rem;
-            font-weight: bold;
-            margin-bottom: 0.5rem;
-        }
-        .importance-score {
-            color: #FFD700;
-            letter-spacing: 2px;
-        }
-        .context-section {
-            margin-top: 0.5rem;
-            padding-top: 0.5rem;
-            border-top: 1px solid #0f3460;
-        }
-        .context-text {
-            color: #bbb;
-            font-style: italic;
-            line-height: 1.4;
-            margin-top: 0.25rem;
-        }
-        .legend-line {
-            width: 20px;
-            height: 3px;
-            border-radius: 1px;
-        }
-        .section {
-            margin-bottom: 1.25rem;
-        }
-        .search-row {
-            display: flex;
-            gap: 0.5rem;
-        }
-        .search-row input {
-            flex: 1;
-            margin-bottom: 0;
-        }
-        .search-row button {
-            margin-bottom: 0;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>IdeaGraph</h1>
+            <!-- タブナビゲーション -->
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-tab="explore">探索</button>
+                <button class="nav-tab" data-tab="analyze">分析</button>
+                <button class="nav-tab" data-tab="propose">提案</button>
+                <button class="nav-tab" data-tab="history">履歴</button>
+            </div>
+            <!-- 凡例 -->
             <div class="legend">
                 <div class="legend-item">
                     <div class="legend-dot" style="background: #4A90D9;"></div>
@@ -258,15 +40,7 @@
                     <div class="legend-diamond" style="background: #E91E63;"></div>
                     <span>Task</span>
                 </div>
-                <div class="legend-item">
-                    <div class="legend-diamond" style="background: #F44336;"></div>
-                    <span>Challenge</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-diamond" style="background: #7CB342;"></div>
-                    <span>Other</span>
-                </div>
-                <span style="margin-left: 1rem; color: #666;">|</span>
+                <span style="margin-left: 0.5rem; color: #666;">|</span>
                 <div class="legend-item">
                     <div class="legend-line" style="background: #FF5722;"></div>
                     <span>Extends</span>
@@ -279,13 +53,11 @@
                     <div class="legend-line" style="background: #4CAF50;"></div>
                     <span>Uses</span>
                 </div>
-                <div class="legend-item">
-                    <div class="legend-line" style="background: #9E9E9E;"></div>
-                    <span>Background</span>
-                </div>
             </div>
         </header>
+
         <div class="main">
+            <!-- 左サイドバー -->
             <div class="sidebar">
                 <!-- クイックフィルター -->
                 <div class="section">
@@ -314,7 +86,7 @@
                 <!-- Cypherクエリ -->
                 <div class="section">
                     <h2>Cypher クエリ</h2>
-                    <textarea id="query" rows="4">MATCH (p:Paper)-[r]->(n) RETURN p, r, n LIMIT 50</textarea>
+                    <textarea id="query" rows="3">MATCH (p:Paper)-[r]->(n) RETURN p, r, n LIMIT 50</textarea>
                     <button class="full-width" onclick="runQuery()">クエリ実行</button>
                 </div>
 
@@ -322,7 +94,7 @@
                 <div class="section">
                     <h2>マルチホップ分析</h2>
                     <label for="paperId">論文ID</label>
-                    <input type="text" id="paperId" placeholder="論文IDを入力（ノードクリックで自動入力）">
+                    <input type="text" id="paperId" placeholder="ノードをクリックで自動入力">
                     <label for="hopK">ホップ数</label>
                     <input type="number" id="hopK" value="2" min="1" max="5">
                     <button class="full-width secondary" onclick="runAnalysis()">分析実行</button>
@@ -340,416 +112,33 @@
                     <div id="edgeDetails"></div>
                 </div>
             </div>
+
+            <!-- グラフエリア -->
             <div id="graph"></div>
+
+            <!-- 右パネル（分析結果・提案） -->
+            <div id="rightPanel" class="right-panel" style="display: none;">
+                <div class="right-panel-header">
+                    <h3>分析結果</h3>
+                    <button class="toggle-panel-btn" onclick="toggleRightPanel()" title="パネルを閉じる">
+                        ✕
+                    </button>
+                </div>
+                <div id="rightPanelContent" class="right-panel-content">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <div class="empty-state-text">分析結果がありません<br>論文を選択して分析を実行してください</div>
+                    </div>
+                </div>
+            </div>
         </div>
+
         <div class="status">
             <span id="status">準備完了</span>
             <span id="stats"></span>
         </div>
     </div>
 
-    <script>
-        let viz = null;
-        let neo4jPassword = null;
-
-        // Entity タイプ別の色マッピング
-        const entityColors = {
-            'Method': '#FF9800',
-            'Approach': '#FFC107',      // アンバー - 手法名なしのアプローチ
-            'Framework': '#8BC34A',     // ライトグリーン - フレームワーク
-            'Finding': '#03A9F4',       // ライトブルー - 発見・知見
-            'Dataset': '#9C27B0',
-            'Benchmark': '#00BCD4',
-            'Task': '#E91E63',
-            'Challenge': '#F44336',
-            'Metric': '#795548',
-            'Representation': '#3F51B5',
-            'Feature': '#009688',
-        };
-        const defaultEntityColor = '#7CB342';
-
-        // 引用タイプ別の色マッピング
-        const citationTypeColors = {
-            'EXTENDS': '#FF5722',      // オレンジ - 拡張
-            'COMPARES': '#2196F3',     // 青 - 比較
-            'USES': '#4CAF50',         // 緑 - 使用
-            'BACKGROUND': '#9E9E9E',   // グレー - 背景
-            'MENTIONS': '#607D8B',     // 青グレー - 言及
-        };
-        const defaultCitationColor = '#607D8B';
-
-        function getCitationColor(citationType) {
-            return citationTypeColors[citationType] || defaultCitationColor;
-        }
-
-        function truncateText(text, maxLength) {
-            if (!text) return '';
-            return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
-        }
-
-        // クイックフィルターのクエリ
-        const filterQueries = {
-            'all': 'MATCH (p:Paper)-[r]->(n) RETURN p, r, n LIMIT 100',
-            'papers': 'MATCH (p:Paper)-[r:CITES]->(q:Paper) RETURN p, r, q LIMIT 100',
-            'method': 'MATCH (p:Paper)-[r:MENTIONS]->(e:Entity {type: "Method"}) RETURN p, r, e LIMIT 100',
-            'dataset': 'MATCH (p:Paper)-[r:MENTIONS]->(e:Entity {type: "Dataset"}) RETURN p, r, e LIMIT 100',
-            'benchmark': 'MATCH (p:Paper)-[r:MENTIONS]->(e:Entity {type: "Benchmark"}) RETURN p, r, e LIMIT 100',
-            'task': 'MATCH (p:Paper)-[r:MENTIONS]->(e:Entity {type: "Task"}) RETURN p, r, e LIMIT 100',
-            'cites': 'MATCH (p:Paper)-[r:CITES]->(q:Paper) RETURN p, r, q LIMIT 100',
-            'mentions': 'MATCH (p:Paper)-[r:MENTIONS]->(e:Entity) RETURN p, r, e LIMIT 100',
-        };
-
-        function getEntityColor(type) {
-            return entityColors[type] || defaultEntityColor;
-        }
-
-        async function initGraph() {
-            try {
-                const response = await fetch('/api/visualization/config');
-                const config = await response.json();
-
-                neo4jPassword = prompt('Neo4jパスワードを入力してください:', 'password') || 'password';
-
-                const neovisConfig = {
-                    containerId: "graph",
-                    neo4j: {
-                        serverUrl: config.neo4j_uri.replace('bolt://', 'neo4j://'),
-                        serverUser: config.user,
-                        serverPassword: neo4jPassword,
-                    },
-                    visConfig: {
-                        nodes: {
-                            font: {
-                                size: 12,
-                                color: '#333333',
-                                strokeWidth: 3,
-                                strokeColor: '#ffffff',
-                            },
-                        },
-                        edges: {
-                            font: { size: 10, color: '#aaaaaa' },
-                            arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-                        },
-                        physics: {
-                            solver: 'forceAtlas2Based',
-                            forceAtlas2Based: {
-                                gravitationalConstant: -50,
-                                centralGravity: 0.01,
-                                springLength: 100,
-                                springConstant: 0.08,
-                            },
-                        },
-                    },
-                    labels: {
-                        Paper: {
-                            label: "title",
-                            [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                static: {
-                                    color: "#4A90D9",
-                                    shape: "dot",
-                                    size: 20,
-                                },
-                            },
-                        },
-                        Entity: {
-                            label: "name",
-                            [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                function: {
-                                    color: (node) => getEntityColor(node.properties.type),
-                                },
-                                static: {
-                                    shape: "diamond",
-                                    size: 15,
-                                },
-                            },
-                        },
-                    },
-                    relationships: {
-                        CITES: {
-                            [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                function: {
-                                    // 引用タイプによる動的な色分け
-                                    color: (edge) => {
-                                        const citationType = edge.properties?.citation_type;
-                                        return getCitationColor(citationType);
-                                    },
-                                    // 重要度による動的な太さ
-                                    width: (edge) => {
-                                        const score = edge.properties?.importance_score || 1;
-                                        return Math.max(1, Math.min(5, score));
-                                    },
-                                    // 引用タイプをラベルに表示
-                                    label: (edge) => {
-                                        const citationType = edge.properties?.citation_type;
-                                        return citationType || 'CITES';
-                                    },
-                                },
-                            },
-                        },
-                        MENTIONS: {
-                            [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                static: {
-                                    label: "MENTIONS",
-                                    color: "#7CB342",
-                                },
-                            },
-                        },
-                        EXTENDS: {
-                            [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                static: {
-                                    label: "EXTENDS",
-                                    color: "#FF9800",
-                                    dashes: true,
-                                },
-                            },
-                        },
-                        COMPONENT_OF: {
-                            [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                static: {
-                                    label: "COMPONENT",
-                                    color: "#9C27B0",
-                                    dashes: true,
-                                },
-                            },
-                        },
-                        ALIAS_OF: {
-                            [NeoVis.NEOVIS_ADVANCED_CONFIG]: {
-                                static: {
-                                    label: "ALIAS",
-                                    color: "#00BCD4",
-                                    dashes: true,
-                                },
-                            },
-                        },
-                    },
-                    initialCypher: config.initial_cypher,
-                };
-
-                viz = new NeoVis.default(neovisConfig);
-                viz.render();
-                updateStatus('グラフを読み込み中...');
-
-                viz.registerOnEvent("completed", () => {
-                    const nodeCount = viz.nodes ? viz.nodes.length : 0;
-                    const edgeCount = viz.edges ? viz.edges.length : 0;
-                    updateStatus('読み込み完了');
-                    updateStats(`ノード: ${nodeCount}, エッジ: ${edgeCount}`);
-                });
-
-                viz.registerOnEvent("clickNode", (event) => {
-                    showNodeInfo(event.node);
-                });
-
-                viz.registerOnEvent("clickEdge", (event) => {
-                    showEdgeInfo(event.edge);
-                });
-
-            } catch (error) {
-                console.error('Graph initialization failed:', error);
-                updateStatus('グラフの初期化に失敗しました: ' + error.message);
-            }
-        }
-
-        function filterBy(type) {
-            const query = filterQueries[type];
-            if (query && viz) {
-                document.getElementById('query').value = query;
-                updateStatus(`フィルター: ${type}`);
-                viz.renderWithCypher(query);
-            }
-        }
-
-        function searchKeyword() {
-            const keyword = document.getElementById('keyword').value.trim();
-            if (!keyword) {
-                alert('キーワードを入力してください');
-                return;
-            }
-
-            const query = `
-                MATCH (n)
-                WHERE (n:Paper AND toLower(n.title) CONTAINS toLower("${keyword}"))
-                   OR (n:Entity AND toLower(n.name) CONTAINS toLower("${keyword}"))
-                OPTIONAL MATCH (n)-[r]-(m)
-                RETURN n, r, m LIMIT 50
-            `;
-            document.getElementById('query').value = query;
-            updateStatus(`検索: "${keyword}"`);
-            if (viz) {
-                viz.renderWithCypher(query);
-            }
-        }
-
-        async function runQuery() {
-            const query = document.getElementById('query').value;
-            updateStatus('クエリを実行中...');
-
-            try {
-                if (viz) {
-                    viz.renderWithCypher(query);
-                }
-            } catch (error) {
-                updateStatus('クエリ実行エラー: ' + error.message);
-            }
-        }
-
-        async function runAnalysis() {
-            const paperId = document.getElementById('paperId').value;
-            const hopK = parseInt(document.getElementById('hopK').value);
-
-            if (!paperId) {
-                alert('論文IDを入力してください');
-                return;
-            }
-
-            updateStatus('分析を実行中...');
-
-            try {
-                const response = await fetch('/api/analyze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        target_paper_id: paperId,
-                        multihop_k: hopK,
-                        top_n: 10,
-                    }),
-                });
-
-                if (!response.ok) {
-                    throw new Error(await response.text());
-                }
-
-                const result = await response.json();
-                updateStatus(`分析完了: ${result.candidates.length}件の候補`);
-
-                // 結果をグラフに表示
-                const cypher = `
-                    MATCH path = (p:Paper {id: "${paperId}"})-[*1..${hopK}]-(n)
-                    RETURN path LIMIT 50
-                `;
-                document.getElementById('query').value = cypher;
-                if (viz) {
-                    viz.renderWithCypher(cypher);
-                }
-
-            } catch (error) {
-                updateStatus('分析エラー: ' + error.message);
-            }
-        }
-
-        function showNodeInfo(node) {
-            const infoDiv = document.getElementById('nodeInfo');
-            const detailsDiv = document.getElementById('nodeDetails');
-
-            if (node && node.raw) {
-                const props = node.raw.properties || {};
-                const labels = node.raw.labels || [];
-
-                // Paper の場合は ID を自動入力
-                if (labels.includes('Paper') && props.id) {
-                    document.getElementById('paperId').value = props.id;
-                }
-
-                let html = `<p><strong>ラベル:</strong> ${labels.join(', ')}</p>`;
-                for (const [key, value] of Object.entries(props)) {
-                    let displayValue = value;
-                    if (Array.isArray(value)) {
-                        displayValue = value.join(', ');
-                    } else if (typeof value === 'object') {
-                        displayValue = JSON.stringify(value);
-                    }
-                    // 長いテキストは省略
-                    if (typeof displayValue === 'string' && displayValue.length > 100) {
-                        displayValue = displayValue.substring(0, 100) + '...';
-                    }
-                    html += `<p><strong>${key}:</strong> ${displayValue}</p>`;
-                }
-                detailsDiv.innerHTML = html || '<p>プロパティなし</p>';
-                infoDiv.style.display = 'block';
-                // エッジ情報を非表示
-                document.getElementById('edgeInfo').style.display = 'none';
-            } else {
-                infoDiv.style.display = 'none';
-            }
-        }
-
-        function showEdgeInfo(edge) {
-            const infoDiv = document.getElementById('edgeInfo');
-            const detailsDiv = document.getElementById('edgeDetails');
-
-            if (edge && edge.raw) {
-                const props = edge.raw.properties || {};
-                const relType = edge.raw.type || 'Unknown';
-
-                // 引用関係のプロパティを抽出
-                const citationType = props.citation_type || 'Unknown';
-                const importanceScore = props.importance_score || 0;
-                const context = props.context || '情報なし';
-
-                // 引用元・引用先のノード情報を取得
-                let sourceTitle = '不明';
-                let targetTitle = '不明';
-
-                if (viz.nodes) {
-                    const sourceNode = viz.nodes.get(edge.from);
-                    const targetNode = viz.nodes.get(edge.to);
-                    if (sourceNode && sourceNode.raw) {
-                        sourceTitle = sourceNode.raw.properties?.title || sourceNode.label || '不明';
-                    }
-                    if (targetNode && targetNode.raw) {
-                        targetTitle = targetNode.raw.properties?.title || targetNode.label || '不明';
-                    }
-                }
-
-                // 重要度の星表示
-                const scoreStars = importanceScore > 0
-                    ? '★'.repeat(importanceScore) + '☆'.repeat(5 - importanceScore)
-                    : '未評価';
-
-                // 引用タイプの色
-                const citationColor = getCitationColor(citationType);
-
-                let html = `
-                    <div style="margin-bottom: 0.5rem;">
-                        <span class="citation-badge" style="background-color: ${citationColor};">
-                            ${citationType}
-                        </span>
-                    </div>
-                    <p><strong>関係タイプ:</strong> ${relType}</p>
-                    <p><strong>重要度:</strong> <span class="importance-score">${scoreStars}</span> (${importanceScore}/5)</p>
-                    <p><strong>引用元:</strong> ${truncateText(sourceTitle, 60)}</p>
-                    <p><strong>引用先:</strong> ${truncateText(targetTitle, 60)}</p>
-                    <div class="context-section">
-                        <strong>引用コンテキスト:</strong>
-                        <p class="context-text">${context}</p>
-                    </div>
-                `;
-
-                detailsDiv.innerHTML = html;
-                infoDiv.style.display = 'block';
-                // ノード情報を非表示
-                document.getElementById('nodeInfo').style.display = 'none';
-            } else {
-                infoDiv.style.display = 'none';
-            }
-        }
-
-        function updateStatus(message) {
-            document.getElementById('status').textContent = message;
-        }
-
-        function updateStats(message) {
-            document.getElementById('stats').textContent = message;
-        }
-
-        // Enter キーで検索
-        document.addEventListener('DOMContentLoaded', () => {
-            initGraph();
-
-            document.getElementById('keyword').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') searchKeyword();
-            });
-        });
-    </script>
+    <script src="/static/js/app.js"></script>
 </body>
 </html>
