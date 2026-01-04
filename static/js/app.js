@@ -478,8 +478,300 @@ function selectPath(index) {
     const card = document.querySelector(`.path-card[data-index="${index}"]`);
     if (card) card.classList.add('selected');
 
-    // パスをグラフ上でハイライト（将来実装）
-    // highlightPathOnGraph(AppState.analysisResult.candidates[index]);
+    // パスデータを取得
+    const result = AppState.analysisResult;
+    const candidates = result?.candidates || [];
+    const paperPaths = result?.paper_paths || [];
+    const entityPaths = result?.entity_paths || [];
+    const allPaths = candidates.length > 0 ? candidates : [...paperPaths, ...entityPaths];
+    const path = allPaths[index];
+
+    if (!path) return;
+
+    // パス詳細を表示
+    showPathDetail(path, index);
+
+    // グラフ上でハイライト
+    highlightPathOnGraph(path);
+}
+
+function showPathDetail(path, index) {
+    const nodes = path.nodes || [];
+    const edges = path.edges || [];
+
+    let detailHtml = `
+        <div id="pathDetailPanel" style="
+            position: fixed;
+            bottom: 60px;
+            right: 370px;
+            width: 400px;
+            max-height: 300px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--bg-tertiary);
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            z-index: 1000;
+            overflow: hidden;
+        ">
+            <div style="
+                padding: 0.75rem;
+                background: var(--bg-tertiary);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            ">
+                <span style="font-weight: bold; color: var(--accent-blue);">パス #${index + 1} 詳細</span>
+                <button onclick="closePathDetail()" style="
+                    background: none;
+                    border: none;
+                    color: #888;
+                    cursor: pointer;
+                    font-size: 1.2rem;
+                ">✕</button>
+            </div>
+            <div style="padding: 0.75rem; overflow-y: auto; max-height: 240px;">
+                <div style="font-size: 0.75rem; color: #888; margin-bottom: 0.5rem;">
+                    スコア: <span style="color: var(--score-high);">${path.score?.toFixed(2) || 'N/A'}</span>
+                </div>
+    `;
+
+    // パスの各ノードとエッジを表示
+    nodes.forEach((node, i) => {
+        const isFirst = i === 0;
+        const isLast = i === nodes.length - 1;
+        const nodeType = node.label || 'Node';
+        const nodeColor = nodeType === 'Paper' ? 'var(--accent-blue)' : 'var(--entity-method)';
+        const icon = nodeType === 'Paper' ? '📄' : '🔧';
+
+        detailHtml += `
+            <div style="
+                padding: 0.5rem;
+                margin: 0.25rem 0;
+                background: ${isFirst || isLast ? 'rgba(74, 144, 217, 0.15)' : 'var(--bg-primary)'};
+                border-radius: 4px;
+                border-left: 3px solid ${nodeColor};
+            ">
+                <div style="font-size: 0.7rem; color: #888;">${icon} ${nodeType}${node.entity_type ? ` (${node.entity_type})` : ''}</div>
+                <div style="font-size: 0.85rem; color: #fff;">${node.name || node.id || '不明'}</div>
+                ${node.description ? `<div style="font-size: 0.7rem; color: #aaa; margin-top: 0.25rem;">${truncateText(node.description, 80)}</div>` : ''}
+            </div>
+        `;
+
+        // エッジ情報
+        if (i < edges.length) {
+            const edge = edges[i];
+            const edgeColor = {
+                'CITES': 'var(--citation-extends)',
+                'MENTIONS': 'var(--accent-green)',
+                'EXTENDS': 'var(--entity-method)',
+                'USES': 'var(--citation-uses)',
+            }[edge.type] || '#888';
+
+            detailHtml += `
+                <div style="
+                    text-align: center;
+                    padding: 0.25rem;
+                    color: ${edgeColor};
+                    font-size: 0.75rem;
+                ">
+                    ↓ <strong>${edge.type}</strong>
+                    ${edge.importance_score ? ` (重要度: ${'★'.repeat(edge.importance_score)})` : ''}
+                </div>
+            `;
+
+            if (edge.context) {
+                detailHtml += `
+                    <div style="
+                        font-size: 0.7rem;
+                        color: #888;
+                        font-style: italic;
+                        padding: 0.25rem 0.5rem;
+                        background: rgba(0,0,0,0.2);
+                        border-radius: 3px;
+                        margin-bottom: 0.25rem;
+                    ">"${truncateText(edge.context, 100)}"</div>
+                `;
+            }
+        }
+    });
+
+    // スコア内訳
+    if (path.score_breakdown) {
+        const bd = path.score_breakdown;
+        detailHtml += `
+            <div style="margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--bg-tertiary);">
+                <div style="font-size: 0.75rem; color: #888; margin-bottom: 0.25rem;">スコア内訳:</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.7rem;">
+        `;
+        if (bd.cite_importance_score) detailHtml += `<span style="color: var(--citation-extends);">引用重要度: ${bd.cite_importance_score.toFixed(1)}</span>`;
+        if (bd.cite_type_score) detailHtml += `<span style="color: var(--citation-compares);">引用種別: ${bd.cite_type_score.toFixed(1)}</span>`;
+        if (bd.mentions_score) detailHtml += `<span style="color: var(--accent-green);">言及: ${bd.mentions_score.toFixed(1)}</span>`;
+        if (bd.entity_relation_score) detailHtml += `<span style="color: var(--entity-dataset);">Entity関係: ${bd.entity_relation_score.toFixed(1)}</span>`;
+        if (bd.length_penalty) detailHtml += `<span style="color: var(--score-low);">距離ペナルティ: ${bd.length_penalty.toFixed(1)}</span>`;
+        detailHtml += `</div></div>`;
+    }
+
+    detailHtml += `</div></div>`;
+
+    // 既存のパネルを削除
+    closePathDetail();
+
+    // 新しいパネルを追加
+    document.body.insertAdjacentHTML('beforeend', detailHtml);
+}
+
+function closePathDetail() {
+    const existing = document.getElementById('pathDetailPanel');
+    if (existing) existing.remove();
+}
+
+function highlightPathOnGraph(path) {
+    if (!AppState.viz) return;
+
+    const nodes = path.nodes || [];
+    const pathNodeIds = nodes.map(n => n.id).filter(id => id);
+    const pathNodeNames = nodes.map(n => n.name?.toLowerCase()).filter(n => n);
+
+    // vis.jsのノードとエッジを取得
+    const visNodes = AppState.viz.nodes;
+    const visEdges = AppState.viz.edges;
+    const network = AppState.viz.network;
+
+    if (!visNodes || !network) return;
+
+    // 全ノードを取得
+    const allNodeIds = visNodes.getIds();
+    const matchedNodeIds = [];
+
+    // パスに含まれるノードを探す
+    allNodeIds.forEach(nodeId => {
+        const node = visNodes.get(nodeId);
+        if (!node || !node.raw) return;
+
+        const props = node.raw.properties || {};
+        const nodeDbId = props.id;
+        const nodeName = (props.title || props.name || '').toLowerCase();
+
+        // IDまたは名前でマッチ
+        if (pathNodeIds.includes(nodeDbId) || pathNodeNames.some(pn => nodeName.includes(pn) || pn.includes(nodeName))) {
+            matchedNodeIds.push(nodeId);
+        }
+    });
+
+    if (matchedNodeIds.length === 0) {
+        updateStatus('パスのノードがグラフ上に見つかりません');
+        return;
+    }
+
+    // ハイライト前の状態を保存（初回のみ）
+    if (!AppState.originalNodeStyles) {
+        AppState.originalNodeStyles = {};
+        allNodeIds.forEach(nodeId => {
+            const node = visNodes.get(nodeId);
+            if (node) {
+                AppState.originalNodeStyles[nodeId] = {
+                    color: node.color,
+                    size: node.size,
+                    borderWidth: node.borderWidth,
+                    opacity: node.opacity
+                };
+            }
+        });
+    }
+
+    // 全ノードを暗くする
+    const updates = [];
+    allNodeIds.forEach(nodeId => {
+        const isHighlighted = matchedNodeIds.includes(nodeId);
+        updates.push({
+            id: nodeId,
+            opacity: isHighlighted ? 1 : 0.2,
+            borderWidth: isHighlighted ? 3 : 1,
+            color: isHighlighted ? {
+                border: '#FFD700',
+                background: visNodes.get(nodeId)?.color?.background || '#4A90D9',
+                highlight: { border: '#FFD700', background: '#FFD700' }
+            } : visNodes.get(nodeId)?.color
+        });
+    });
+
+    visNodes.update(updates);
+
+    // マッチしたノードを選択状態にしてフォーカス
+    network.selectNodes(matchedNodeIds);
+
+    // 最初のノードにフォーカス（ズームはしない）
+    if (matchedNodeIds.length > 0) {
+        network.focus(matchedNodeIds[0], {
+            scale: network.getScale(),
+            animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+        });
+    }
+
+    updateStatus(`パス: ${matchedNodeIds.length}/${nodes.length}ノードをハイライト`);
+
+    // 一定時間後にハイライトを解除するボタンを表示
+    showResetHighlightButton();
+}
+
+function showResetHighlightButton() {
+    // 既存のボタンを削除
+    const existing = document.getElementById('resetHighlightBtn');
+    if (existing) existing.remove();
+
+    const btn = document.createElement('button');
+    btn.id = 'resetHighlightBtn';
+    btn.innerHTML = '🔄 ハイライト解除';
+    btn.style.cssText = `
+        position: fixed;
+        bottom: 70px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 0.5rem 1rem;
+        background: var(--bg-tertiary);
+        color: #fff;
+        border: 1px solid var(--accent-blue);
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        z-index: 1000;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    `;
+    btn.onclick = resetHighlight;
+    document.body.appendChild(btn);
+}
+
+function resetHighlight() {
+    if (!AppState.viz || !AppState.viz.nodes || !AppState.originalNodeStyles) return;
+
+    const visNodes = AppState.viz.nodes;
+    const network = AppState.viz.network;
+
+    // 元のスタイルに戻す
+    const updates = [];
+    Object.keys(AppState.originalNodeStyles).forEach(nodeId => {
+        updates.push({
+            id: nodeId,
+            opacity: 1,
+            borderWidth: 1,
+        });
+    });
+
+    visNodes.update(updates);
+
+    // 選択解除
+    if (network) {
+        network.unselectAll();
+    }
+
+    // 保存したスタイルをクリア
+    AppState.originalNodeStyles = null;
+
+    // ボタンを削除
+    const btn = document.getElementById('resetHighlightBtn');
+    if (btn) btn.remove();
+
+    updateStatus('ハイライトを解除しました');
 }
 
 // ========== 提案生成 ==========
