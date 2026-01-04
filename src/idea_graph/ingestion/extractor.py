@@ -134,6 +134,7 @@ class ExtractorService:
             self._llm = ChatGoogleGenerativeAI(
                 model=self.model_name,
                 google_api_key=settings.google_api_key,
+                temperature=0.0,
             )
         return self._llm
 

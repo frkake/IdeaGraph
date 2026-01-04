@@ -33,7 +33,7 @@ class Settings(BaseModel):
     batch_size: int = Field(default=1000)
 
     # LLM settings
-    gemini_model: str = Field(default="gemini-2.5-flash")
+    gemini_model: str = Field(default="gemini-3-flash-preview")
 
     def ensure_cache_dirs(self) -> None:
         """キャッシュディレクトリを作成"""
