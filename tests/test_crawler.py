@@ -387,3 +387,53 @@ class TestCitationCrawler:
         assert "p1" in crawler._visited
         assert "p2" in crawler._visited
         assert "p3" not in crawler._visited
+
+    def test_get_queue_size(self):
+        """get_queue_size がキューサイズを返すこと"""
+        crawler, _, _, _, _ = self._create_crawler()
+
+        assert crawler.get_queue_size() == 0
+
+        target = create_target(paper_id="q1", title="Q1", depth=1)
+        heapq.heappush(crawler._queue, target)
+        assert crawler.get_queue_size() == 1
+
+        target2 = create_target(paper_id="q2", title="Q2", depth=1)
+        heapq.heappush(crawler._queue, target2)
+        assert crawler.get_queue_size() == 2
+
+    def test_get_total_estimate_with_crawl_limit(self):
+        """get_total_estimate が crawl_limit を考慮すること"""
+        crawler, _, _, _, _ = self._create_crawler(crawl_limit=3)
+
+        # キューに5件追加
+        for i in range(5):
+            target = create_target(paper_id=f"q{i}", title=f"Q{i}", depth=1)
+            heapq.heappush(crawler._queue, target)
+
+        # crawl_limit=3 なので 3 が返る
+        assert crawler.get_total_estimate() == 3
+
+    def test_get_total_estimate_without_crawl_limit(self):
+        """get_total_estimate が crawl_limit なしでキューサイズを返すこと"""
+        crawler, _, _, _, _ = self._create_crawler(crawl_limit=None)
+
+        # キューに5件追加
+        for i in range(5):
+            target = create_target(paper_id=f"q{i}", title=f"Q{i}", depth=1)
+            heapq.heappush(crawler._queue, target)
+
+        # crawl_limit なしなのでキューサイズ(5)が返る
+        assert crawler.get_total_estimate() == 5
+
+    def test_get_total_estimate_queue_smaller_than_limit(self):
+        """get_total_estimate がキューサイズが crawl_limit より小さい場合"""
+        crawler, _, _, _, _ = self._create_crawler(crawl_limit=10)
+
+        # キューに3件追加
+        for i in range(3):
+            target = create_target(paper_id=f"q{i}", title=f"Q{i}", depth=1)
+            heapq.heappush(crawler._queue, target)
+
+        # キューサイズ(3) < crawl_limit(10) なので 3 が返る
+        assert crawler.get_total_estimate() == 3

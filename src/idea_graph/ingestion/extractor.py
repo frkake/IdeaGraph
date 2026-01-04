@@ -226,7 +226,7 @@ class ExtractorService:
                     text_content = str(content[:10000])
 
             # テキストを制限（トークン制限対策）
-            max_chars = 100000
+            max_chars = 10000000
             if len(text_content) > max_chars:
                 text_content = text_content[:max_chars]
                 logger.info(f"Truncated LaTeX content to {max_chars} chars")

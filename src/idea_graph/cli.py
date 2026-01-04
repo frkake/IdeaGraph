@@ -71,21 +71,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     logging.info(f"Processing {len(papers_to_process)} papers")
 
     # Paper ノードを作成
-    if not args.skip_write:
-        logging.info("Writing Paper nodes...")
-        writer.write_papers(papers)
-
-        # 引用関係を作成
-        logging.info("Writing citation relationships...")
-        citations = []
-        for paper in papers:
-            for ref_title in paper.references:
-                # 参照論文のIDを生成
-                from idea_graph.ingestion.dataset_loader import generate_paper_id
-
-                ref_id = generate_paper_id(ref_title)
-                citations.append((paper.paper_id, ref_id, ref_title))
-        writer.write_citations(citations)
+    logging.info("Writing Paper nodes...")
+    writer.write_papers(papers)
 
     # 各論文を処理
     extractions = []
@@ -119,7 +106,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         progress.update_status(paper.paper_id, "completed")
 
     # 抽出結果をグラフに書き込み
-    if extractions and not args.skip_write:
+    if extractions:
         logging.info(f"Writing {len(extractions)} extractions to graph...")
         writer.write_extracted(extractions)
 
@@ -140,9 +127,12 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         )
         crawler.add_seeds(papers)
 
+        total_estimate = crawler.get_total_estimate()
         crawl_stats = {"completed": 0, "failed": 0, "not_found": 0, "skipped": 0}
-        for result in tqdm(crawler.crawl(), desc="Crawling citations"):
-            crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
+        with tqdm(total=total_estimate, desc="Crawling citations") as pbar:
+            for result in crawler.crawl():
+                crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
+                pbar.update(1)
 
         logging.info(f"Crawl completed: {crawl_stats}")
 

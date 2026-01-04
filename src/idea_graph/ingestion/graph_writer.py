@@ -76,6 +76,8 @@ class GraphWriterService:
                 total += len(batch)
 
         logger.info(f"Created/updated {total} Paper nodes")
+        for paper in papers:
+            logger.info(f"Paper: {paper.paper_id} {paper.title}")
         return total
 
     def write_citations(self, citations: Sequence[tuple[str, str, str]]) -> int:

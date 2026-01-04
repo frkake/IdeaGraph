@@ -297,3 +297,17 @@ class CitationCrawler:
             "crawl_limit": self.crawl_limit,
             "top_n_citations": self.top_n_citations,
         }
+
+    def get_queue_size(self) -> int:
+        """現在のキューサイズを取得"""
+        return len(self._queue)
+
+    def get_total_estimate(self) -> int:
+        """処理総数の推定値を取得
+
+        crawl_limit が設定されていればその値を、
+        設定されていなければ現在のキューサイズを返す。
+        """
+        if self.crawl_limit:
+            return min(self.crawl_limit, len(self._queue))
+        return len(self._queue)
