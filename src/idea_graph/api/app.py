@@ -1,6 +1,7 @@
 """FastAPI アプリケーション"""
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -161,7 +162,10 @@ class RankedPath(BaseModel):
     nodes: list[PathNode]
     edges: list[PathEdge]
     score: float
-    score_breakdown: dict[str, float] | None = None
+    # NOTE:
+    # `score_breakdown` には `rel_types: list[str]` のような非float値も含まれるため、
+    # dict[str, float] だと FastAPI のレスポンス検証で ResponseValidationError になる。
+    score_breakdown: dict[str, Any] | None = None
 
 
 class AnalysisResult(BaseModel):

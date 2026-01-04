@@ -37,6 +37,12 @@ class Proposal(BaseModel):
     """提案"""
 
     title: str = Field(description="仮タイトル")
+    rationale: str = Field(
+        description="提案理由（なぜこの提案を生成したか：知識グラフのどの接続・パスから着想したか、どの論文の組み合わせからインスピレーションを得たか）"
+    )
+    research_trends: str = Field(
+        description="研究動向（知識グラフから見える研究の流れ：どの技術が発展しているか、研究がどの方向に進んでいるか、関連手法の進化の系譜）"
+    )
     motivation: str = Field(description="動機（何が未解決で、なぜ重要か）")
     method: str = Field(description="手法（何をどう変えるか）")
     experiment: Experiment = Field(description="実験計画")
@@ -130,16 +136,25 @@ Key Entities: {', '.join([e['name'] for e in paper_context.get('entities', [])[:
 
 ## Requirements for each proposal
 1. **Title**: A concise, descriptive title for the research idea
-2. **Motivation**: What problem remains unsolved? Why is it important? Connect to the target paper and analysis results.
-3. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation)
-4. **Experiment Plan**:
+2. **Rationale (Why This Proposal)**: Explain WHY you are proposing this specific idea:
+   - Which path/connection in the knowledge graph led to this insight?
+   - Which combination of papers inspired this direction?
+   - What gap or opportunity did you identify from the multi-hop analysis?
+   - Why did you choose this approach over other possible directions?
+3. **Research Trends**: Describe the research trends observed from the knowledge graph:
+   - What technologies/methods are evolving and in which direction?
+   - What is the lineage of related techniques (e.g., A → B → C)?
+   - Where is the research heading based on citation patterns and entity relationships?
+4. **Motivation**: What problem remains unsolved? Why is it important? Connect to the target paper and analysis results.
+5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation)
+6. **Experiment Plan**:
    - Datasets to use (existing or new collection)
    - Baselines for comparison
    - Evaluation metrics
    - At least one ablation study
    - Expected results and failure interpretation
-5. **Grounding**: Which papers and entities support this idea
-6. **Differences**: How this differs from existing work (at least 1 point)
+7. **Grounding**: Which papers and entities support this idea
+8. **Differences**: How this differs from existing work (at least 1 point)
 
 Generate diverse ideas that don't overlap. Focus on practical, implementable research directions.
 """
