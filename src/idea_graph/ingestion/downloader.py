@@ -2,6 +2,7 @@
 
 import json
 import logging
+import random
 import shutil
 import time
 from datetime import datetime
@@ -129,16 +130,60 @@ class DownloaderService:
         Returns:
             検索結果、見つからなければ None
         """
-        client = arxiv.Client()
+        # arxiv.Client はバージョン差で引数が異なることがあるため、まずは安全に生成する
+        try:
+            client = arxiv.Client(delay_seconds=self.delay_seconds, num_retries=0, page_size=1)
+        except TypeError:
+            client = arxiv.Client()
+
         search = arxiv.Search(
             query=f'ti:"{title}"',
             max_results=1,
             sort_by=arxiv.SortCriterion.Relevance,
         )
 
-        results = list(client.results(search))
-        if results:
-            return results[0]
+        max_attempts = max(1, int(getattr(settings, "arxiv_search_max_retries", 3)))
+        base = float(getattr(settings, "arxiv_search_backoff_base_seconds", 2.0))
+        cap = float(getattr(settings, "arxiv_search_backoff_max_seconds", 60.0))
+        jitter = float(getattr(settings, "arxiv_search_jitter_seconds", 1.0))
+
+        last_err: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                results = list(client.results(search))
+                if results:
+                    return results[0]
+                return None
+            except arxiv.HTTPError as e:
+                # arxiv ライブラリは 429/503 などで HTTPError を投げる
+                last_err = e
+                status_code = getattr(e, "status_code", None)
+                retryable = status_code in (429, 500, 502, 503, 504) or status_code is None
+                if not retryable or attempt >= max_attempts - 1:
+                    raise
+
+                sleep_seconds = min(cap, base * (2**attempt))
+                sleep_seconds += random.uniform(0, max(0.0, jitter))
+                logger.warning(
+                    f"arXiv search rate-limited/temporary error (status={status_code}); "
+                    f"retrying in {sleep_seconds:.1f}s (attempt {attempt + 1}/{max_attempts})"
+                )
+                time.sleep(sleep_seconds)
+            except Exception as e:
+                # ネットワーク・パース等の一時的失敗はバックオフしてリトライ
+                last_err = e
+                if attempt >= max_attempts - 1:
+                    raise
+                sleep_seconds = min(cap, base * (2**attempt))
+                sleep_seconds += random.uniform(0, max(0.0, jitter))
+                logger.warning(
+                    f"arXiv search failed; retrying in {sleep_seconds:.1f}s "
+                    f"(attempt {attempt + 1}/{max_attempts}): {e}"
+                )
+                time.sleep(sleep_seconds)
+
+        if last_err:
+            raise last_err
         return None
 
     def _download_with_retry(
@@ -242,7 +287,17 @@ class DownloaderService:
             time.sleep(self.delay_seconds)
 
         # arXiv で検索
-        result = self._search_arxiv(title)
+        try:
+            result = self._search_arxiv(title)
+        except Exception as e:
+            # 検索エラー（429/503など）でパイプライン全体を落とさず、失敗として記録できるようにする
+            return DownloadResult(
+                paper_id=paper_id,
+                file_path=None,
+                file_type=None,
+                success=False,
+                error_message=f"arXiv search failed: {e}",
+            )
         if not result:
             return DownloadResult(
                 paper_id=paper_id,

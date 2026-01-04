@@ -139,6 +139,11 @@ class CitationCrawler:
 
             # 既に処理済みかチェック（progressから）
             if self.progress.is_completed(target.paper_id):
+                # 途中再開時の取りこぼし防止:
+                # 完了済みの論文でも、最大深度に達していなければ引用先の enqueue は行う。
+                # これにより「前回完了してスキップされたノード配下」が再開時に探索される。
+                if target.depth < self.max_depth:
+                    self._enqueue_citations(target.paper_id, target.depth + 1)
                 yield CrawlResult(
                     paper_id=target.paper_id,
                     title=target.title,
@@ -314,3 +319,25 @@ class CitationCrawler:
         if self.crawl_limit:
             return min(self.crawl_limit, len(self._queue))
         return len(self._queue)
+
+    def get_planned_total(self, seed_count: int) -> int:
+        """実行条件から「事前に決められる」上限 total を返す。
+
+        重要: 実際の探索では重複/既完了(skip)/未発見(not_found)などにより、
+        この上限より少ない件数で終了することがある（=100%に届かない可能性）。
+        その場合は呼び出し側で total を実績値に合わせて閉じること。
+        """
+        if self.crawl_limit is not None:
+            return max(0, int(self.crawl_limit))
+        if self.max_depth <= 0 or seed_count <= 0 or self.top_n_citations <= 0:
+            return 0
+
+        # depth=1..max_depth の各レベルで最大 top_n_citations^depth 分岐し得る上限
+        top = int(self.top_n_citations)
+        total = 0
+        # 最大処理論文数 = $ Sigma_{depth=1..max_depth} seed_count * top_n_citations^depth $
+        # 合計する理由：
+        # 葉ノードだけでなく、その親ノードも処理対象にカウントされるため
+        for depth in range(1, int(self.max_depth) + 1):
+            total += int(seed_count) * (top**depth)
+        return max(0, int(total))

@@ -32,6 +32,19 @@ class Settings(BaseModel):
     download_delay_seconds: float = Field(default=3.0)
     max_download_retries: int = Field(default=3)
 
+    # arXiv API settings (rate limit / retry)
+    # NOTE: arXiv API は 429/503 を返すことがあるため、検索側にもバックオフを入れる
+    arxiv_search_max_retries: int = Field(default_factory=lambda: int(os.getenv("ARXIV_SEARCH_MAX_RETRIES", "6")))
+    arxiv_search_backoff_base_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("ARXIV_SEARCH_BACKOFF_BASE_SECONDS", "2.0"))
+    )
+    arxiv_search_backoff_max_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("ARXIV_SEARCH_BACKOFF_MAX_SECONDS", "60.0"))
+    )
+    arxiv_search_jitter_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("ARXIV_SEARCH_JITTER_SECONDS", "1.0"))
+    )
+
     # Batch settings
     batch_size: int = Field(default=1000)
 

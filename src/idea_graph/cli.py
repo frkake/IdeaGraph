@@ -3,7 +3,7 @@
 import argparse
 import logging
 import sys
-from typing import NoReturn
+from typing import NoReturn, TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
@@ -11,11 +11,16 @@ from rich.table import Table
 from rich.text import Text
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
 
 console = Console()
+
+if TYPE_CHECKING:
+    from idea_graph.services.analysis import AnalysisResult
+    from idea_graph.services.proposal import ProposalResult
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -463,18 +468,19 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     # データセットの読み込み
     logging.info("Loading dataset...")
     papers = list(loader.load())
-    progress.set_total(len(papers))
     logging.info(f"Found {len(papers)} papers")
 
     # 制限がある場合
     if args.limit:
         papers = papers[: args.limit]
         logging.info(f"Limited to {args.limit} papers")
+    progress.set_total(len(papers))
 
     # 完了済みをスキップ
-    completed = progress.get_completed_papers()
-    papers_to_process = [p for p in papers if p.paper_id not in completed]
-    logging.info(f"Skipping {len(completed)} already processed papers")
+    completed_all = progress.get_completed_papers()
+    completed_in_scope = {p.paper_id for p in papers if p.paper_id in completed_all}
+    papers_to_process = [p for p in papers if p.paper_id not in completed_in_scope]
+    logging.info(f"Skipping {len(completed_in_scope)} already processed papers")
     logging.info(f"Processing {len(papers_to_process)} papers")
 
     # Paper ノードを作成
@@ -483,37 +489,52 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
     # 各論文を処理
     extractions = []
-    for paper in tqdm(papers_to_process, desc="Processing papers"):
-        progress.register_paper(paper.paper_id, paper.title)
+    with logging_redirect_tqdm():
+        with tqdm(
+            total=len(papers),
+            initial=len(completed_in_scope),
+            desc="Processing papers",
+            unit="paper",
+            dynamic_ncols=True,
+            leave=True,
+        ) as pbar:
+            for paper in papers_to_process:
+                progress.register_paper(paper.paper_id, paper.title)
 
-        if args.skip_download:
-            continue
+                if args.skip_download:
+                    # ループは進むが「完了」ではないので status は触らない
+                    pbar.update(1)
+                    continue
 
-        # ダウンロード
-        progress.update_status(paper.paper_id, "downloading")
-        result = downloader.download(paper.paper_id, paper.title)
+                # ダウンロード
+                progress.update_status(paper.paper_id, "downloading")
+                result = downloader.download(paper.paper_id, paper.title)
 
-        if not result.success:
-            progress.update_status(paper.paper_id, "failed", result.error_message)
-            continue
+                if not result.success:
+                    progress.update_status(paper.paper_id, "failed", result.error_message)
+                    pbar.update(1)
+                    continue
 
-        # 公開日を保存
-        writer.update_paper_published_date(paper.paper_id, result.published_date)
+                # 公開日を保存
+                writer.update_paper_published_date(paper.paper_id, result.published_date)
 
-        if args.skip_extract:
-            progress.update_status(paper.paper_id, "completed")
-            continue
+                if args.skip_extract:
+                    progress.update_status(paper.paper_id, "completed")
+                    pbar.update(1)
+                    continue
 
-        # 抽出
-        progress.update_status(paper.paper_id, "extracting")
-        extracted = extractor.extract(paper.paper_id, result.file_path, result.file_type)
+                # 抽出
+                progress.update_status(paper.paper_id, "extracting")
+                extracted = extractor.extract(paper.paper_id, result.file_path, result.file_type)
 
-        if extracted is None:
-            progress.update_status(paper.paper_id, "failed", "Extraction failed")
-            continue
+                if extracted is None:
+                    progress.update_status(paper.paper_id, "failed", "Extraction failed")
+                    pbar.update(1)
+                    continue
 
-        extractions.append(extracted)
-        progress.update_status(paper.paper_id, "completed")
+                extractions.append(extracted)
+                progress.update_status(paper.paper_id, "completed")
+                pbar.update(1)
 
     # 抽出結果をグラフに書き込み
     if extractions:
@@ -537,12 +558,39 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         )
         crawler.add_seeds(papers)
 
-        total_estimate = crawler.get_total_estimate()
         crawl_stats = {"completed": 0, "failed": 0, "not_found": 0, "skipped": 0}
-        with tqdm(total=total_estimate, desc="Crawling citations") as pbar:
-            for result in crawler.crawl():
-                crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
-                pbar.update(1)
+        with logging_redirect_tqdm():
+            # total は条件から事前に決める（ETAを安定させる）
+            planned_total = crawler.get_planned_total(seed_count=len(papers))
+            # crawl_limit がある場合は「実際に処理した件数（skipped除外）」を進捗として扱う
+            limit = args.crawl_limit
+            with tqdm(
+                total=(limit if limit is not None else planned_total),
+                desc="Crawling citations",
+                unit="paper",
+                dynamic_ncols=True,
+                leave=True,
+            ) as pbar:
+                for result in crawler.crawl():
+                    crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
+
+                    if limit:
+                        if result.status != "skipped":
+                            pbar.update(1)
+                    else:
+                        pbar.update(1)
+
+                    pbar.set_postfix(
+                        completed=crawl_stats["completed"],
+                        failed=crawl_stats["failed"],
+                        not_found=crawl_stats["not_found"],
+                        skipped=crawl_stats["skipped"],
+                        queued=crawler.get_queue_size(),
+                    )
+                # 上限 total より少ない件数で終わった場合、見た目上も 100% で閉じる
+                if limit is None and pbar.total is not None and pbar.n < pbar.total:
+                    pbar.total = pbar.n
+                    pbar.refresh()
 
         logging.info(f"Crawl completed: {crawl_stats}")
 
@@ -659,6 +707,14 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"Failed: {summary['failed']}")
     print(f"Pending: {summary['pending']}")
     print(f"Last updated: {summary['last_updated']}")
+    if "known_total" in summary:
+        print("\n=== Progress (including citations) ===")
+        print(f"Known total: {summary['known_total']}")
+        print(f"Completed: {summary['known_completed']}")
+        print(f"Failed: {summary['known_failed']}")
+        print(f"Not found: {summary['known_not_found']}")
+        print(f"In progress: {summary['known_in_progress']}")
+        print(f"Pending: {summary['known_pending']}")
 
     # Neo4j 接続確認
     print("\n=== Neo4j Connection ===")

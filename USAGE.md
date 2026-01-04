@@ -111,7 +111,22 @@ uv run idea-graph ingest --crawl-limit 100
 **進捗管理:**
 
 - 処理は中断しても `cache/progress.json` に保存され、再実行時に続きから処理
-- 失敗した論文はスキップされ、理由が記録される
+- 失敗した論文は `failed` として理由が記録される（再実行時は **再試行** される）
+- arXiv 側の一時的エラー（HTTP 429/503 等）は検索時に指数バックオフでリトライ（必要に応じて環境変数で調整可能）
+
+**arXiv リトライ設定（任意）:**
+
+```bash
+# 検索リトライ回数（デフォルト: 6）
+ARXIV_SEARCH_MAX_RETRIES=6
+
+# バックオフ設定（秒）
+ARXIV_SEARCH_BACKOFF_BASE_SECONDS=2.0
+ARXIV_SEARCH_BACKOFF_MAX_SECONDS=60.0
+
+# ジッター（秒）
+ARXIV_SEARCH_JITTER_SECONDS=1.0
+```
 
 ### `idea-graph serve` - Web サーバー起動
 
