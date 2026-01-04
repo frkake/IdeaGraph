@@ -67,12 +67,17 @@ Please extract:
 1. **paper_summary**: A concise summary of the paper (1-3 sentences) focusing on the main contribution.
 2. **claims**: List of main claims/contributions made by the paper (short sentences).
 3. **entities**: Key entities mentioned in the paper with their types:
-   - Method: Algorithms, models, architectures (e.g., "Transformer", "BERT", "Adam optimizer")
+   - Method: Named algorithms, models, architectures with explicit names (e.g., "Transformer", "BERT", "Adam optimizer")
+   - Approach: Research approaches or techniques WITHOUT a specific name (e.g., "attention mechanism", "contrastive learning", "multi-task learning")
+   - Framework: Conceptual or analytical frameworks (e.g., "reinforcement learning from human feedback", "chain-of-thought prompting")
+   - Finding: Key empirical findings or insights (e.g., "scaling laws", "in-context learning emerges at scale")
    - Dataset: Datasets used or created (e.g., "ImageNet", "COCO")
    - Benchmark: Evaluation benchmarks (e.g., "GLUE", "SQuAD")
    - Challenge: Problems or challenges addressed (e.g., "vanishing gradient", "long-range dependencies")
    - Task: ML/AI tasks (e.g., "image classification", "machine translation")
    - Metric: Evaluation metrics (e.g., "BLEU score", "F1 score")
+
+   Note: For survey/analysis papers without novel methods, focus on extracting Approach, Framework, Finding, Challenge, and Task entities instead of Method.
 4. **cited_papers**: Important cited papers with their relevance to this work (top 10-15 most important):
    - title: The exact title of the cited paper
    - citation_type: The type of citation relationship (see below)

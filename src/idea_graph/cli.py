@@ -21,6 +21,103 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
+def _print_analysis_json(result: "AnalysisResult") -> None:
+    """分析結果をJSON形式で出力"""
+    print(result.model_dump_json(indent=2))
+
+
+def _print_analysis_table(result: "AnalysisResult") -> None:
+    """分析結果をテーブル形式で出力"""
+    print(f"\n=== Analysis Results for {result.target_paper_id} ===")
+    print(f"Max hops: {result.multihop_k}")
+    print(f"Found {len(result.candidates)} paths\n")
+
+    if not result.candidates:
+        print("No paths found.")
+        return
+
+    for i, path in enumerate(result.candidates, 1):
+        print(f"--- Path {i} (Score: {path.score:.1f}) ---")
+
+        # ノードパスを表示
+        node_names = [n.name[:40] for n in path.nodes]
+        edge_types = [e.type for e in path.edges]
+
+        path_str = ""
+        for j, node_name in enumerate(node_names):
+            path_str += node_name
+            if j < len(edge_types):
+                path_str += f" --[{edge_types[j]}]--> "
+
+        print(f"Path: {path_str}")
+
+        if path.score_breakdown:
+            print(f"Score breakdown: {path.score_breakdown}")
+        print()
+
+
+def _format_proposals_markdown(result: "ProposalResult") -> str:
+    """提案結果をMarkdown形式でフォーマット"""
+    lines = [
+        f"# Research Proposals for {result.target_paper_id}",
+        "",
+        f"Generated {len(result.proposals)} proposals.",
+        "",
+    ]
+
+    for i, proposal in enumerate(result.proposals, 1):
+        lines.extend([
+            f"## Proposal {i}: {proposal.title}",
+            "",
+            "### Motivation",
+            proposal.motivation,
+            "",
+            "### Method",
+            proposal.method,
+            "",
+            "### Experiment Plan",
+            "",
+            "**Datasets:**",
+            *[f"- {ds}" for ds in proposal.experiment.datasets],
+            "",
+            "**Baselines:**",
+            *[f"- {bl}" for bl in proposal.experiment.baselines],
+            "",
+            "**Metrics:**",
+            *[f"- {m}" for m in proposal.experiment.metrics],
+            "",
+            "**Ablation Studies:**",
+            *[f"- {ab}" for ab in proposal.experiment.ablations],
+            "",
+            "**Expected Results:**",
+            proposal.experiment.expected_results,
+            "",
+            "**Failure Interpretation:**",
+            proposal.experiment.failure_interpretation,
+            "",
+            "### Grounding",
+            "",
+            "**Related Papers:**",
+            *[f"- {p}" for p in proposal.grounding.papers],
+            "",
+            "**Related Entities:**",
+            *[f"- {e}" for e in proposal.grounding.entities],
+            "",
+            "**Knowledge Graph Path:**",
+            "```mermaid",
+            proposal.grounding.path_mermaid,
+            "```",
+            "",
+            "### Key Differences from Existing Work",
+            *[f"- {d}" for d in proposal.differences],
+            "",
+            "---",
+            "",
+        ])
+
+    return "\n".join(lines)
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     """インジェストコマンド"""
     from idea_graph.ingestion import (
@@ -194,6 +291,109 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """分析コマンド"""
+    from idea_graph.services.analysis import AnalysisService
+
+    # Neo4j接続確認
+    if not Neo4jConnection.verify_connectivity():
+        logging.error("Neo4j is not connected. Run: docker compose up -d")
+        return 1
+
+    logging.info(f"Analyzing paper: {args.paper_id}")
+    logging.info(f"Max hops: {args.max_hops}, Top K: {args.top_k}")
+
+    service = AnalysisService()
+
+    try:
+        result = service.analyze(
+            target_paper_id=args.paper_id,
+            multihop_k=args.max_hops,
+            top_n=args.top_k,
+        )
+    except ValueError as e:
+        logging.error(str(e))
+        return 1
+
+    # 結果表示
+    if args.format == "json":
+        _print_analysis_json(result)
+    else:
+        _print_analysis_table(result)
+
+    return 0
+
+
+def cmd_propose(args: argparse.Namespace) -> int:
+    """提案コマンド"""
+    from idea_graph.services.analysis import AnalysisService
+    from idea_graph.services.proposal import ProposalService
+
+    # Neo4j接続確認
+    if not Neo4jConnection.verify_connectivity():
+        logging.error("Neo4j is not connected. Run: docker compose up -d")
+        return 1
+
+    # APIキー確認
+    if not settings.google_api_key:
+        logging.error("GOOGLE_API_KEY is not set. Please set it in .env file.")
+        return 1
+
+    logging.info(f"Generating proposals for paper: {args.paper_id}")
+
+    # Step 1: 分析を実行
+    logging.info("Running analysis...")
+    analysis_service = AnalysisService()
+
+    try:
+        analysis_result = analysis_service.analyze(
+            target_paper_id=args.paper_id,
+            multihop_k=args.max_hops,
+            top_n=args.top_k,
+        )
+    except ValueError as e:
+        logging.error(str(e))
+        return 1
+
+    if not analysis_result.candidates:
+        logging.error("No analysis candidates found. Cannot generate proposals.")
+        return 1
+
+    logging.info(f"Found {len(analysis_result.candidates)} paths")
+
+    # Step 2: 提案を生成
+    logging.info(f"Generating {args.num_proposals} proposals...")
+    proposal_service = ProposalService()
+
+    try:
+        proposal_result = proposal_service.propose(
+            target_paper_id=args.paper_id,
+            analysis_result=analysis_result,
+            num_proposals=args.num_proposals,
+        )
+    except ValueError as e:
+        logging.error(str(e))
+        return 1
+    except Exception as e:
+        logging.error(f"Proposal generation failed: {e}")
+        return 1
+
+    # Step 3: 結果出力
+    if args.format == "json":
+        output = proposal_result.model_dump_json(indent=2)
+    else:
+        output = _format_proposals_markdown(proposal_result)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(output)
+        logging.info(f"Output written to: {args.output}")
+    else:
+        print(output)
+
+    return 0
+
+
 def main() -> int:
     """メイン関数"""
     parser = argparse.ArgumentParser(
@@ -237,6 +437,61 @@ def main() -> int:
     # status コマンド
     subparsers.add_parser("status", help="ステータスを表示")
 
+    # analyze コマンド
+    analyze_parser = subparsers.add_parser("analyze", help="論文のマルチホップ分析を実行")
+    analyze_parser.add_argument("paper_id", type=str, help="ターゲット論文のID")
+    analyze_parser.add_argument(
+        "--max-hops",
+        type=int,
+        default=3,
+        help="最大ホップ数 (デフォルト: 3)",
+    )
+    analyze_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=10,
+        help="返すパス数 (デフォルト: 10)",
+    )
+    analyze_parser.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="出力形式 (デフォルト: table)",
+    )
+
+    # propose コマンド
+    propose_parser = subparsers.add_parser("propose", help="研究アイデアを提案")
+    propose_parser.add_argument("paper_id", type=str, help="ターゲット論文のID")
+    propose_parser.add_argument(
+        "--num-proposals",
+        type=int,
+        default=3,
+        help="生成する提案数 (デフォルト: 3)",
+    )
+    propose_parser.add_argument(
+        "--max-hops",
+        type=int,
+        default=3,
+        help="分析時の最大ホップ数 (デフォルト: 3)",
+    )
+    propose_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=10,
+        help="分析時に使用するパス数 (デフォルト: 10)",
+    )
+    propose_parser.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="出力形式 (デフォルト: markdown)",
+    )
+    propose_parser.add_argument(
+        "-o", "--output",
+        type=str,
+        help="出力ファイルパス（指定しない場合は標準出力）",
+    )
+
     args = parser.parse_args()
     setup_logging(args.verbose)
 
@@ -246,6 +501,10 @@ def main() -> int:
         cmd_serve(args)
     elif args.command == "status":
         return cmd_status(args)
+    elif args.command == "analyze":
+        return cmd_analyze(args)
+    elif args.command == "propose":
+        return cmd_propose(args)
     else:
         parser.print_help()
         return 0
