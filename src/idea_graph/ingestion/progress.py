@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -47,13 +49,16 @@ class ProgressManager:
         """
         self.progress_file = progress_file or settings.cache_dir / "progress.json"
         self._progress: PipelineProgress | None = None
+        # 並列 ingest 時の progress.json 破損を防ぐ
+        self._lock = threading.RLock()
 
     @property
     def progress(self) -> PipelineProgress:
         """進捗を取得（遅延ロード）"""
-        if self._progress is None:
-            self._progress = self._load()
-        return self._progress
+        with self._lock:
+            if self._progress is None:
+                self._progress = self._load()
+            return self._progress
 
     def _load(self) -> PipelineProgress:
         """進捗をファイルから読み込み"""
@@ -67,13 +72,19 @@ class ProgressManager:
 
     def _save(self) -> None:
         """進捗をファイルに保存"""
-        self.progress_file.parent.mkdir(parents=True, exist_ok=True)
-        # カウンタは「状態から再計算」してズレ/二重カウントを防ぐ
-        processed, failed = self._recompute_counters()
-        self._progress.processed_papers = processed
-        self._progress.failed_papers = failed
-        self._progress.last_updated = datetime.now().isoformat()
-        self.progress_file.write_text(self._progress.model_dump_json(indent=2))
+        with self._lock:
+            self.progress_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # カウンタは「状態から再計算」してズレ/二重カウントを防ぐ
+            processed, failed = self._recompute_counters()
+            self._progress.processed_papers = processed
+            self._progress.failed_papers = failed
+            self._progress.last_updated = datetime.now().isoformat()
+
+            # 途中書き込み/破損を防ぐため atomic write (tmp -> replace)
+            tmp_path = self.progress_file.with_name(self.progress_file.name + ".tmp")
+            tmp_path.write_text(self._progress.model_dump_json(indent=2), encoding="utf-8")
+            os.replace(tmp_path, self.progress_file)
 
     def _recompute_counters(self) -> tuple[int, int]:
         """papers の状態から processed/failed を再計算する。
@@ -94,8 +105,9 @@ class ProgressManager:
 
     def set_total(self, total: int) -> None:
         """総論文数を設定"""
-        self.progress.total_papers = total
-        self._save()
+        with self._lock:
+            self.progress.total_papers = total
+            self._save()
 
     def get_pending_papers(self) -> list[str]:
         """未処理の論文IDリストを取得"""
@@ -134,14 +146,15 @@ class ProgressManager:
             depth: 探索深度（0=シード論文）
             source: ソース（"dataset" or "citation"）
         """
-        if paper_id not in self.progress.papers:
-            self.progress.papers[paper_id] = PaperProgress(
-                paper_id=paper_id,
-                title=title,
-                depth=depth,
-                source=source,
-            )
-            self._save()
+        with self._lock:
+            if paper_id not in self.progress.papers:
+                self.progress.papers[paper_id] = PaperProgress(
+                    paper_id=paper_id,
+                    title=title,
+                    depth=depth,
+                    source=source,
+                )
+                self._save()
 
     def update_status(
         self,
@@ -150,28 +163,29 @@ class ProgressManager:
         error_message: str | None = None,
     ) -> None:
         """論文のステータスを更新"""
-        if paper_id not in self.progress.papers:
-            logger.warning(f"Paper {paper_id} not registered")
-            return
+        with self._lock:
+            if paper_id not in self.progress.papers:
+                logger.warning(f"Paper {paper_id} not registered")
+                return
 
-        paper = self.progress.papers[paper_id]
-        prev_status = paper.status
-        paper.status = status
+            paper = self.progress.papers[paper_id]
+            prev_status = paper.status
+            paper.status = status
 
-        if status == "downloading" and paper.started_at is None:
-            paper.started_at = datetime.now().isoformat()
+            if status == "downloading" and paper.started_at is None:
+                paper.started_at = datetime.now().isoformat()
 
-        if status == "completed" and paper.completed_at is None:
-            paper.completed_at = datetime.now().isoformat()
+            if status == "completed" and paper.completed_at is None:
+                paper.completed_at = datetime.now().isoformat()
 
-        if status in ("failed", "not_found"):
-            paper.error_message = error_message
-        else:
-            # 失敗からの復旧などで error_message が残るのを避ける
-            if prev_status in ("failed", "not_found") and status not in ("failed", "not_found"):
-                paper.error_message = None
+            if status in ("failed", "not_found"):
+                paper.error_message = error_message
+            else:
+                # 失敗からの復旧などで error_message が残るのを避ける
+                if prev_status in ("failed", "not_found") and status not in ("failed", "not_found"):
+                    paper.error_message = None
 
-        self._save()
+            self._save()
 
     def get_summary(self) -> dict[str, Any]:
         """進捗サマリーを取得"""
