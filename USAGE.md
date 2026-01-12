@@ -26,6 +26,10 @@ NEO4J_PASSWORD=password
 
 # Google Gemini API キー（情報抽出に必要）
 GOOGLE_API_KEY=your-api-key-here
+
+# OpenAI API キー（研究アイデア提案に必要）
+OPENAI_API_KEY=your-openai-api-key-here
+OPENAI_MODEL=gpt-4o  # オプション: 使用するモデル
 ```
 
 ### 2. Neo4j の起動
@@ -185,6 +189,117 @@ Relationship counts:
   MENTIONS: 3500
 ```
 
+### `idea-graph rebuild` - グラフ再構築
+
+`cache/extractions` から Neo4j グラフを再構築する。DB をリセットした後、LLM 抽出をやり直さずにグラフを復元したい場合に使用。
+
+```bash
+uv run idea-graph rebuild [オプション]
+```
+
+**オプション:**
+
+| オプション | 説明 |
+|-----------|------|
+| `--limit N` | 処理するアイテム数を制限 |
+| `--batch-size N` | 書き込みバッチサイズ（デフォルト: 200）|
+
+**例:**
+
+```bash
+# キャッシュから全件再構築
+uv run idea-graph rebuild
+
+# 100件だけ再構築
+uv run idea-graph rebuild --limit 100
+```
+
+### `idea-graph analyze` - マルチホップ分析
+
+指定した論文に対してグラフ上のマルチホップ分析を実行し、関連する論文・エンティティのパスを取得する。
+
+```bash
+uv run idea-graph analyze <paper_id> [オプション]
+```
+
+**引数:**
+
+| 引数 | 説明 |
+|------|------|
+| `paper_id` | 分析対象の論文ID（必須）|
+
+**オプション:**
+
+| オプション | 説明 |
+|-----------|------|
+| `--max-hops N` | 最大ホップ数（デフォルト: 3）|
+| `--top-k N` | 返すパス数（デフォルト: 10）|
+| `--format FORMAT` | 出力形式: `table`, `json`, `rich`（デフォルト: table）|
+| `--save` | 分析結果をデータベースに保存 |
+
+**例:**
+
+```bash
+# 基本的な分析
+uv run idea-graph analyze abc123def456
+
+# 詳細な分析（5ホップ、上位20パス）
+uv run idea-graph analyze abc123def456 --max-hops 5 --top-k 20
+
+# JSON形式で出力
+uv run idea-graph analyze abc123def456 --format json
+
+# リッチ表示で結果を保存
+uv run idea-graph analyze abc123def456 --format rich --save
+```
+
+### `idea-graph propose` - 研究アイデア提案
+
+分析結果をもとに LLM（OpenAI）を使って研究アイデアを生成する。
+
+```bash
+uv run idea-graph propose <paper_id> [オプション]
+```
+
+**引数:**
+
+| 引数 | 説明 |
+|------|------|
+| `paper_id` | 対象論文ID（必須）|
+
+**オプション:**
+
+| オプション | 説明 |
+|-----------|------|
+| `--num-proposals N` | 生成する提案数（デフォルト: 3）|
+| `--max-hops N` | 分析時の最大ホップ数（デフォルト: 3）|
+| `--top-k N` | 分析で使用するパス数（デフォルト: 10）|
+| `--format FORMAT` | 出力形式: `markdown`, `json`, `rich`（デフォルト: markdown）|
+| `-o, --output FILE` | 出力ファイルパス（指定しない場合は標準出力）|
+| `--compare` | 比較テーブル形式で表示（`--format rich` と併用）|
+| `--save` | 提案をデータベースに保存 |
+
+**例:**
+
+```bash
+# 基本的な提案生成
+uv run idea-graph propose abc123def456
+
+# 5件の提案を生成してファイルに保存
+uv run idea-graph propose abc123def456 --num-proposals 5 -o proposals.md
+
+# JSON形式で出力
+uv run idea-graph propose abc123def456 --format json
+
+# リッチ表示で比較テーブルを表示
+uv run idea-graph propose abc123def456 --format rich --compare
+
+# 結果をデータベースに保存
+uv run idea-graph propose abc123def456 --save
+```
+
+**注意:** このコマンドは OpenAI API を使用します。環境変数 `OPENAI_API_KEY` の設定が必要です。
+
 ## Web UI
 
 ### アクセス
@@ -285,18 +400,38 @@ Content-Type: application/json
   "target_paper_id": "abc123def456",
   "candidates": [
     {
-      "path": [...],
-      "score": 0.85,
+      "nodes": [
+        {"id": "paper1", "label": "Paper", "name": "論文タイトル"},
+        {"id": "entity1", "label": "Entity", "name": "Transformer"}
+      ],
+      "edges": [
+        {"type": "MENTIONS"}
+      ],
+      "score": 85.0,
       "score_breakdown": {
-        "cites_count": 3,
-        "mentions_count": 5,
-        "path_length": 2
+        "cite_importance_score": 15.0,
+        "cite_type_score": 20.0,
+        "mentions_score": 9.0,
+        "entity_relation_score": 0.0,
+        "length_penalty": -4.0,
+        "base": 100
       }
     }
   ],
   "multihop_k": 3
 }
 ```
+
+**スコアリング:**
+
+| 要素 | 説明 |
+|------|------|
+| `cite_importance_score` | LLM抽出の重要度（1-5）× 3.0 |
+| `cite_type_score` | 引用タイプ別重み（EXTENDS=20, COMPARES=15, USES=12 等）|
+| `mentions_score` | エンティティ言及数 × 3.0 |
+| `entity_relation_score` | エンティティ関係タイプ別重み |
+| `length_penalty` | パス長ペナルティ（-2.0/ホップ）|
+| `base` | 基本スコア（100）|
 
 ### 研究アイデア提案
 
@@ -319,9 +454,144 @@ Content-Type: application/json
 | パラメータ | 型 | 説明 |
 |-----------|-----|------|
 | `target_paper_id` | string | 対象論文ID |
-| `analysis_result` | object | `/api/analyze` の結果 |
+| `analysis_result` | object | `/api/analyze` の結果（必須）|
 | `num_proposals` | int | 生成する提案数（デフォルト: 3）|
 | `constraints` | object | 制約条件（オプション）|
+
+**レスポンス:**
+
+```json
+{
+  "target_paper_id": "abc123def456",
+  "proposals": [
+    {
+      "title": "提案タイトル",
+      "motivation": "この研究の動機...",
+      "method": "提案手法の説明...",
+      "experiment": {
+        "datasets": ["ImageNet", "COCO"],
+        "baselines": ["ResNet", "ViT"],
+        "metrics": ["Accuracy", "F1-score"],
+        "ablations": ["モジュールAの除去", "モジュールBの変更"],
+        "expected_results": "期待される結果の説明",
+        "failure_interpretation": "失敗時の解釈"
+      },
+      "grounding": {
+        "papers": ["参照論文1", "参照論文2"],
+        "entities": ["関連エンティティ1", "関連エンティティ2"],
+        "path_mermaid": "graph LR\\n  A[Paper] --> B[Entity]"
+      },
+      "differences": [
+        "既存手法との差異1",
+        "既存手法との差異2"
+      ]
+    }
+  ]
+}
+```
+
+**注意:** このエンドポイントは OpenAI API を使用します。環境変数 `OPENAI_API_KEY` の設定が必要です。
+
+### 分析結果の保存・取得
+
+#### 分析結果の保存
+
+```
+POST /api/storage/analyses
+Content-Type: application/json
+
+{
+  "target_paper_id": "abc123def456",
+  "candidates": [...],
+  "multihop_k": 3
+}
+```
+
+#### 分析結果一覧の取得
+
+```
+GET /api/storage/analyses?target_paper_id=abc123def456&limit=50
+```
+
+| パラメータ | 型 | 説明 |
+|-----------|-----|------|
+| `target_paper_id` | string | フィルタ用論文ID（オプション）|
+| `limit` | int | 取得件数（デフォルト: 50）|
+
+#### 特定の分析結果を取得
+
+```
+GET /api/storage/analyses/{analysis_id}
+```
+
+#### 分析結果の削除
+
+```
+DELETE /api/storage/analyses/{analysis_id}
+```
+
+### 提案の保存・取得
+
+#### 提案の保存
+
+```
+POST /api/storage/proposals
+Content-Type: application/json
+
+{
+  "target_paper_id": "abc123def456",
+  "proposals": [...],
+  "rating": 4,
+  "notes": "メモ"
+}
+```
+
+| パラメータ | 型 | 説明 |
+|-----------|-----|------|
+| `rating` | int | 評価（1-5、オプション）|
+| `notes` | string | メモ（オプション）|
+
+#### 提案一覧の取得
+
+```
+GET /api/storage/proposals?target_paper_id=abc123def456&limit=50
+```
+
+#### 特定の提案を取得
+
+```
+GET /api/storage/proposals/{proposal_id}
+```
+
+#### 提案の評価・メモを更新
+
+```
+PATCH /api/storage/proposals/{proposal_id}
+Content-Type: application/json
+
+{
+  "rating": 5,
+  "notes": "更新されたメモ"
+}
+```
+
+#### 提案の削除
+
+```
+DELETE /api/storage/proposals/{proposal_id}
+```
+
+### 提案のエクスポート
+
+```
+GET /api/storage/export/proposals?format=markdown&target_paper_id=abc123def456
+```
+
+| パラメータ | 型 | 説明 |
+|-----------|-----|------|
+| `format` | string | `markdown` または `json`（デフォルト: markdown）|
+| `target_paper_id` | string | フィルタ用論文ID（オプション）|
+| `proposal_ids` | string | カンマ区切りの提案ID（オプション）|
 
 ## 出力ファイルの場所
 
@@ -455,16 +725,36 @@ uv run idea-graph ingest
 # 2. マルチホップ分析を実行
 curl -X POST http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
-  -d '{"target_paper_id": "abc123def456", "multihop_k": 3, "top_n": 10}'
+  -d '{"target_paper_id": "abc123def456", "multihop_k": 3, "top_n": 10}' \
+  -o analysis.json
 
-# 3. 分析結果を使って研究アイデアを生成
+# 3. 分析結果を保存（オプション）
+curl -X POST http://localhost:8000/api/storage/analyses \
+  -H "Content-Type: application/json" \
+  -d @analysis.json
+
+# 4. 分析結果を使って研究アイデアを生成
 curl -X POST http://localhost:8000/api/propose \
   -H "Content-Type: application/json" \
   -d '{
     "target_paper_id": "abc123def456",
-    "analysis_result": { ... },
+    "analysis_result": '"$(cat analysis.json)"',
     "num_proposals": 3
+  }' -o proposals.json
+
+# 5. 提案を保存（評価・メモ付き）
+curl -X POST http://localhost:8000/api/storage/proposals \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_paper_id": "abc123def456",
+    "proposals": '"$(cat proposals.json | jq '.proposals')"',
+    "rating": 4,
+    "notes": "有望な提案"
   }'
+
+# 6. 提案をMarkdownでエクスポート
+curl "http://localhost:8000/api/storage/export/proposals?format=markdown" \
+  -o proposals_export.md
 ```
 
 ### キャッシュを使った再処理
