@@ -417,7 +417,7 @@ class PromptContextBuilder:
         if "importance_score" in edge_fields and edge.importance_score is not None:
             details.append(f"importance_score={edge.importance_score}")
         if "context" in edge_fields and edge.context:
-            details.append("context=...")
+            details.append(f"context={edge.context}")
         if not details:
             return ""
         return "{" + ", ".join(details) + "}"

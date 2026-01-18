@@ -241,7 +241,6 @@ function getPromptOptionsFromUI() {
     const maxNodesEl = document.getElementById('promptMaxNodes');
     const maxEdgesEl = document.getElementById('promptMaxEdges');
     const neighborEl = document.getElementById('promptNeighborK');
-    const inlineEdgesEl = document.getElementById('promptInlineEdges');
 
     const maxPathsRaw = maxPathsEl?.value?.trim();
     const maxNodesRaw = maxNodesEl?.value?.trim();
@@ -261,7 +260,7 @@ function getPromptOptionsFromUI() {
         max_nodes: maxNodes,
         max_edges: maxEdges,
         neighbor_k: neighborK,
-        include_inline_edges: inlineEdgesEl ? inlineEdgesEl.checked : true,
+        include_inline_edges: true,
     };
 
     const invalid = [];
@@ -871,17 +870,16 @@ function renderAnalysisResults() {
                 <div class="prompt-options-help">
                     空欄時の自動値: パス ${promptDefaults.max_paths} / ノード ${promptDefaults.max_nodes} / エッジ ${promptDefaults.max_edges} / k-hop ${promptDefaults.neighbor_k} ${defaultsSourceNote}
                 </div>
-                <label class="prompt-options-toggle">
-                    <input type="checkbox" id="promptInlineEdges" ${promptOptions.include_inline_edges ? 'checked' : ''}>
-                    A -(REL)-> B 形式でエッジを表示
-                </label>
                 <div class="prompt-preview-actions" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
                     <button class="btn-secondary" onclick="previewPrompt()" style="width: 100%; padding: 0.5rem;">
                         プロンプトを作成
                     </button>
                 </div>
                 <div id="promptPreviewContainer" style="display: none; margin-top: 0.5rem;">
-                    <div id="promptStats" style="font-size: 0.7rem; color: #888; margin-bottom: 0.25rem; display: flex; gap: 1rem;"></div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem;">
+                        <div id="promptStats" style="font-size: 0.7rem; color: #888; display: flex; gap: 1rem;"></div>
+                        <button id="promptPreviewCopy" class="btn-secondary" type="button" onclick="copyPromptPreview()" style="padding: 0.3rem 0.5rem; font-size: 0.65rem;" disabled>コピー</button>
+                    </div>
                     <pre class="prompt-preview-content" style="max-height: 300px; overflow: auto; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem; white-space: pre-wrap; word-break: break-word;"></pre>
                 </div>
             </div>
@@ -1249,6 +1247,7 @@ async function previewPrompt() {
 
     const container = document.getElementById('promptPreviewContainer');
     const previewContent = container?.querySelector('.prompt-preview-content');
+    const statsEl = document.getElementById('promptStats');
     if (!container || !previewContent) return;
 
     // トグル動作: 表示中なら閉じる
@@ -1260,6 +1259,8 @@ async function previewPrompt() {
     // ローディング表示
     container.style.display = 'block';
     previewContent.textContent = 'プロンプトを生成中...';
+    if (statsEl) statsEl.textContent = '';
+    updatePromptPreviewCopyButton('loading');
 
     try {
         const promptOptions = getPromptOptionsFromUI();
@@ -1283,9 +1284,9 @@ async function previewPrompt() {
         const result = await response.json();
         const promptText = result.prompt || '';
         previewContent.textContent = promptText || 'プロンプトが生成されませんでした';
+        updatePromptPreviewCopyButton(promptText ? 'ready' : 'disabled');
 
         // 行数・文字数を表示
-        const statsEl = document.getElementById('promptStats');
         if (statsEl && promptText) {
             const lineCount = promptText.split('\n').length;
             const charCount = promptText.length;
@@ -1295,7 +1296,72 @@ async function previewPrompt() {
         updateStatus('プロンプトを生成しました');
     } catch (error) {
         previewContent.textContent = 'エラー: ' + error.message;
+        updatePromptPreviewCopyButton('disabled');
         updateStatus('プロンプト生成エラー: ' + error.message);
+    }
+}
+
+function updatePromptPreviewCopyButton(state) {
+    const button = document.getElementById('promptPreviewCopy');
+    if (!button) return;
+
+    if (state === 'ready') {
+        button.disabled = false;
+        button.textContent = 'コピー';
+        return;
+    }
+    if (state === 'loading') {
+        button.disabled = true;
+        button.textContent = 'コピー準備中';
+        return;
+    }
+    if (state === 'copied') {
+        button.disabled = false;
+        button.textContent = 'コピーしました';
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = 'コピー';
+}
+
+async function copyPromptPreview() {
+    const container = document.getElementById('promptPreviewContainer');
+    const previewContent = container?.querySelector('.prompt-preview-content');
+    if (!previewContent) return;
+
+    const promptText = previewContent.textContent || '';
+    const trimmed = promptText.trim();
+    if (!trimmed || trimmed === 'プロンプトを生成中...' || trimmed === 'プロンプトが生成されませんでした' || trimmed.startsWith('エラー:')) {
+        updateStatus('コピーするプロンプトがありません');
+        return;
+    }
+
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(promptText);
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = promptText;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.top = '-1000px';
+            textarea.style.left = '-1000px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            textarea.setSelectionRange(0, textarea.value.length);
+            const success = document.execCommand('copy');
+            document.body.removeChild(textarea);
+            if (!success) {
+                throw new Error('コピーに失敗しました');
+            }
+        }
+
+        updatePromptPreviewCopyButton('copied');
+        updateStatus('プロンプトをコピーしました');
+        setTimeout(() => updatePromptPreviewCopyButton('ready'), 1200);
+    } catch (error) {
+        updateStatus('コピーに失敗しました: ' + (error?.message || String(error)));
     }
 }
 
