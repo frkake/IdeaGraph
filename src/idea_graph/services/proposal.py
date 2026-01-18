@@ -124,12 +124,6 @@ class ProposalService:
 
         prompt = f"""You are an AI research advisor. Based on the following analysis of research papers, propose {num_proposals} novel research ideas.
 
-## Target Paper
-Title: {paper_context.get('title', 'Unknown')}
-Summary: {paper_context.get('summary', 'No summary available')}
-Claims: {', '.join(paper_context.get('claims', [])[:3])}
-Key Entities: {', '.join([e['name'] for e in paper_context.get('entities', [])[:5]])}
-
 ## Related Papers/Entities (from multi-hop analysis)
 {chr(10).join(candidates_text)}
 

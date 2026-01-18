@@ -1,0 +1,827 @@
+"""評価サービス"""
+
+import json
+import logging
+from datetime import datetime
+from itertools import combinations
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
+
+from idea_graph.config import settings
+from idea_graph.models.evaluation import (
+    EvaluationMetric,
+    EvaluationResult,
+    ExperimentMetric,
+    ExperimentMetricScore,
+    EloRatings,
+    MetricScore,
+    PairwiseResult,
+    RankingEntry,
+    Winner,
+)
+
+if TYPE_CHECKING:
+    from idea_graph.services.proposal import Proposal
+
+logger = logging.getLogger(__name__)
+
+
+class EloRatingCalculator:
+    """ELOレーティング計算機"""
+
+    def __init__(
+        self,
+        initial_rating: float = 1000.0,
+        k_factor: float = 32.0,
+    ) -> None:
+        """初期化
+
+        Args:
+            initial_rating: 初期レーティング値
+            k_factor: K-factor（変動率）
+        """
+        self.initial_rating = initial_rating
+        self.k_factor = k_factor
+
+    def _update_rating(
+        self,
+        rating_a: float,
+        rating_b: float,
+        score: float,
+    ) -> tuple[float, float]:
+        """ELOレーティングを更新
+
+        Args:
+            rating_a: Aの現在レーティング
+            rating_b: Bの現在レーティング
+            score: 勝敗スコア（1=A勝ち, 0.5=引き分け, 0=A負け）
+
+        Returns:
+            更新後の(A, B)レーティング
+        """
+        # 期待勝率を計算
+        expected_a = 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
+        expected_b = 1.0 - expected_a
+
+        # レーティングを更新
+        new_a = rating_a + self.k_factor * (score - expected_a)
+        new_b = rating_b + self.k_factor * ((1.0 - score) - expected_b)
+
+        return new_a, new_b
+
+    def calculate(
+        self,
+        pairwise_results: list[PairwiseResult],
+        idea_ids: list[str],
+    ) -> EloRatings:
+        """ペアワイズ比較結果からELOレーティングを算出
+
+        Args:
+            pairwise_results: 全ペアの比較結果
+            idea_ids: アイデアIDリスト
+
+        Returns:
+            ELOレーティング（各指標および総合）
+        """
+        # 各指標ごとのレーティングを初期化
+        ratings_by_metric: dict[EvaluationMetric, dict[str, float]] = {}
+        for metric in EvaluationMetric:
+            ratings_by_metric[metric] = {
+                idea_id: self.initial_rating for idea_id in idea_ids
+            }
+
+        # 各ペアワイズ比較結果を処理
+        for result in pairwise_results:
+            for score in result.scores:
+                metric = score.metric
+                winner = score.winner
+
+                # 現在のレーティングを取得
+                rating_a = ratings_by_metric[metric][result.idea_a_id]
+                rating_b = ratings_by_metric[metric][result.idea_b_id]
+
+                # 勝敗スコアに変換
+                elo_score = winner.to_score_for_a()
+
+                # レーティングを更新
+                new_a, new_b = self._update_rating(rating_a, rating_b, elo_score)
+                ratings_by_metric[metric][result.idea_a_id] = new_a
+                ratings_by_metric[metric][result.idea_b_id] = new_b
+
+        # 総合レーティングを計算（各指標の平均）
+        overall_ratings: dict[str, float] = {}
+        for idea_id in idea_ids:
+            total = sum(
+                ratings_by_metric[metric][idea_id] for metric in EvaluationMetric
+            )
+            overall_ratings[idea_id] = total / len(EvaluationMetric)
+
+        return EloRatings(
+            ratings_by_metric=ratings_by_metric,
+            overall_ratings=overall_ratings,
+        )
+
+    def generate_ranking(self, ratings: EloRatings) -> list[RankingEntry]:
+        """ELOレーティングからランキング表を生成
+
+        Args:
+            ratings: ELOレーティング
+
+        Returns:
+            ランキングエントリのリスト（順位順）
+        """
+        # 総合スコアでソート
+        sorted_ids = sorted(
+            ratings.overall_ratings.keys(),
+            key=lambda x: ratings.overall_ratings[x],
+            reverse=True,
+        )
+
+        ranking = []
+        for rank, idea_id in enumerate(sorted_ids, 1):
+            scores_by_metric = {
+                metric: ratings.ratings_by_metric[metric][idea_id]
+                for metric in EvaluationMetric
+                if metric in ratings.ratings_by_metric
+            }
+            entry = RankingEntry(
+                rank=rank,
+                idea_id=idea_id,
+                overall_score=ratings.overall_ratings[idea_id],
+                scores_by_metric=scores_by_metric,
+            )
+            ranking.append(entry)
+
+        return ranking
+
+
+class RawComparisonResult(BaseModel):
+    """LLMからの生の比較結果（swap test用）"""
+
+    scores: dict[EvaluationMetric, tuple[int, str]] = Field(
+        description="各指標の評価結果（スコア, 理由）。スコア: 0=A優位, 1=B優位, 2=同等"
+    )
+
+
+# LLM用の構造化出力モデル
+class LLMComparisonOutput(BaseModel):
+    """LLMからの構造化出力用モデル"""
+
+    novelty_score: int = Field(description="Novelty score: 0=A wins, 1=B wins, 2=tie")
+    novelty_reasoning: str = Field(description="Reasoning for novelty comparison")
+    significance_score: int = Field(description="Significance score: 0=A wins, 1=B wins, 2=tie")
+    significance_reasoning: str = Field(description="Reasoning for significance comparison")
+    feasibility_score: int = Field(description="Feasibility score: 0=A wins, 1=B wins, 2=tie")
+    feasibility_reasoning: str = Field(description="Reasoning for feasibility comparison")
+    clarity_score: int = Field(description="Clarity score: 0=A wins, 1=B wins, 2=tie")
+    clarity_reasoning: str = Field(description="Reasoning for clarity comparison")
+    effectiveness_score: int = Field(description="Effectiveness score: 0=A wins, 1=B wins, 2=tie")
+    effectiveness_reasoning: str = Field(description="Reasoning for effectiveness comparison")
+
+    def to_raw_comparison_result(self) -> "RawComparisonResult":
+        """RawComparisonResultに変換"""
+        return RawComparisonResult(
+            scores={
+                EvaluationMetric.NOVELTY: (self.novelty_score, self.novelty_reasoning),
+                EvaluationMetric.SIGNIFICANCE: (self.significance_score, self.significance_reasoning),
+                EvaluationMetric.FEASIBILITY: (self.feasibility_score, self.feasibility_reasoning),
+                EvaluationMetric.CLARITY: (self.clarity_score, self.clarity_reasoning),
+                EvaluationMetric.EFFECTIVENESS: (self.effectiveness_score, self.effectiveness_reasoning),
+            }
+        )
+
+
+class PairwiseComparator:
+    """ペアワイズ比較サービス"""
+
+    EVALUATION_PROMPT_TEMPLATE = """You are an expert research proposal evaluator. Compare two research ideas and determine which is better for each evaluation metric.
+
+## Evaluation Metrics
+
+1. **Novelty**: Is the problem or approach new? Is it a new combination of known techniques? Is the difference from prior work clear?
+2. **Significance**: Is the idea important? Will other researchers use or build upon it? Does it solve a difficult problem better?
+3. **Feasibility**: Can it be implemented with existing technology? Are there no major technical difficulties? Is the logic clear and implementable?
+4. **Clarity**: Is the description clear and well-organized? Does it appropriately inform the reader?
+5. **Effectiveness**: Is the proposed idea likely to work? Is it better than existing methods?
+
+## IMPORTANT: Position Bias Warning
+Do NOT let the order of presentation influence your judgment. Evaluate each idea on its own merits regardless of whether it is presented first or second.
+
+## Idea A: {idea_a_title}
+
+**Motivation**: {idea_a_motivation}
+
+**Method**: {idea_a_method}
+
+**Key Differences from Existing Work**: {idea_a_differences}
+
+## Idea B: {idea_b_title}
+
+**Motivation**: {idea_b_motivation}
+
+**Method**: {idea_b_method}
+
+**Key Differences from Existing Work**: {idea_b_differences}
+
+## Instructions
+For each metric, provide:
+- A score: 0 if Idea A is better, 1 if Idea B is better, 2 if they are equal
+- A brief reasoning (1-2 sentences) explaining your decision
+
+Focus on substantive differences, not superficial ones."""
+
+    def __init__(self, model_name: str | None = None) -> None:
+        """初期化
+
+        Args:
+            model_name: 使用するLLMモデル名
+        """
+        self.model_name = model_name or settings.openai_model
+        self._llm = None
+
+    @property
+    def llm(self) -> ChatOpenAI:
+        """LLMインスタンスを取得"""
+        if self._llm is None:
+            self._llm = ChatOpenAI(
+                model=self.model_name,
+                api_key=settings.openai_api_key,
+                temperature=0.0,
+            )
+        return self._llm
+
+    def _build_evaluation_prompt(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+    ) -> str:
+        """評価プロンプトを構築
+
+        Args:
+            idea_a: 1つ目のアイデア
+            idea_b: 2つ目のアイデア
+
+        Returns:
+            評価プロンプト
+        """
+        return self.EVALUATION_PROMPT_TEMPLATE.format(
+            idea_a_title=idea_a.title,
+            idea_a_motivation=idea_a.motivation,
+            idea_a_method=idea_a.method,
+            idea_a_differences=", ".join(idea_a.differences),
+            idea_b_title=idea_b.title,
+            idea_b_motivation=idea_b.motivation,
+            idea_b_method=idea_b.method,
+            idea_b_differences=", ".join(idea_b.differences),
+        )
+
+    def _evaluate_pair(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+    ) -> RawComparisonResult:
+        """単一順序での評価実行
+
+        Args:
+            idea_a: 1つ目のアイデア
+            idea_b: 2つ目のアイデア
+
+        Returns:
+            生の比較結果
+        """
+        prompt = self._build_evaluation_prompt(idea_a, idea_b)
+        structured_llm = self.llm.with_structured_output(LLMComparisonOutput)
+        message = HumanMessage(content=prompt)
+        result: LLMComparisonOutput = structured_llm.invoke([message])
+        return result.to_raw_comparison_result()
+
+    def _resolve_swap_test(
+        self,
+        result_ab: RawComparisonResult,
+        result_ba: RawComparisonResult,
+        idea_a_id: str,
+        idea_b_id: str,
+    ) -> PairwiseResult:
+        """swap test結果を統合、不一致時はtie
+
+        Args:
+            result_ab: A→Bの順序での評価結果
+            result_ba: B→Aの順序での評価結果
+            idea_a_id: アイデアAのID
+            idea_b_id: アイデアBのID
+
+        Returns:
+            統合されたペアワイズ比較結果
+        """
+        scores = []
+
+        for metric in EvaluationMetric:
+            score_ab, reasoning_ab = result_ab.scores[metric]
+            score_ba, reasoning_ba = result_ba.scores[metric]
+
+            # swap testの解決
+            # score_ab: 0=A wins, 1=B wins, 2=tie
+            # score_ba: 0=B wins (in swapped order), 1=A wins (in swapped order), 2=tie
+            # つまり、score_baを元の順序に変換: 0→1, 1→0, 2→2
+            if score_ba == 0:
+                score_ba_normalized = 1  # Bが勝ち = Aが負け
+            elif score_ba == 1:
+                score_ba_normalized = 0  # Aが勝ち
+            else:
+                score_ba_normalized = 2  # tie
+
+            # 一貫性チェック
+            if score_ab == score_ba_normalized:
+                # 一貫している場合
+                if score_ab == 0:
+                    winner = Winner.IDEA_A
+                elif score_ab == 1:
+                    winner = Winner.IDEA_B
+                else:
+                    winner = Winner.TIE
+                reasoning = reasoning_ab
+            else:
+                # 不一致の場合はTIE
+                winner = Winner.TIE
+                reasoning = f"Inconsistent results (AB: {reasoning_ab}, BA: {reasoning_ba})"
+
+            scores.append(
+                MetricScore(
+                    metric=metric,
+                    winner=winner,
+                    reasoning=reasoning,
+                )
+            )
+
+        return PairwiseResult(
+            idea_a_id=idea_a_id,
+            idea_b_id=idea_b_id,
+            scores=scores,
+        )
+
+    def compare(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+        idea_a_id: str,
+        idea_b_id: str,
+    ) -> PairwiseResult:
+        """2つのアイデアを5指標で比較（swap test付き）
+
+        Args:
+            idea_a: 1つ目のアイデア
+            idea_b: 2つ目のアイデア
+            idea_a_id: アイデアAのID
+            idea_b_id: アイデアBのID
+
+        Returns:
+            比較結果（各指標の勝敗、理由）
+        """
+        logger.info(f"Comparing {idea_a_id} vs {idea_b_id}")
+
+        # 順序A→Bで評価
+        result_ab = self._evaluate_pair(idea_a, idea_b)
+
+        # 順序B→Aで評価（swap test）
+        result_ba = self._evaluate_pair(idea_b, idea_a)
+
+        # swap test結果を統合
+        return self._resolve_swap_test(result_ab, result_ba, idea_a_id, idea_b_id)
+
+
+class LLMExperimentComparisonOutput(BaseModel):
+    """実験計画比較用のLLM構造化出力"""
+
+    feasibility_score: int = Field(description="Feasibility score: 0=A wins, 1=B wins, 2=tie")
+    feasibility_reasoning: str = Field(description="Reasoning for feasibility comparison")
+    quality_score: int = Field(description="Quality score: 0=A wins, 1=B wins, 2=tie")
+    quality_reasoning: str = Field(description="Reasoning for quality comparison")
+    clarity_score: int = Field(description="Clarity score: 0=A wins, 1=B wins, 2=tie")
+    clarity_reasoning: str = Field(description="Reasoning for clarity comparison")
+
+
+class ExperimentComparator:
+    """実験計画の比較サービス"""
+
+    EXPERIMENT_PROMPT_TEMPLATE = """You are an expert research proposal evaluator. Compare the experiment plans of two research ideas and determine which is better for each metric.
+
+## Evaluation Metrics
+
+1. **Feasibility**: Can the experiment be technically executed? Are the required resources, datasets, and computational requirements realistic?
+2. **Quality**: Is the experiment design logical and rigorous? Does it properly test the hypothesis? Are there appropriate controls and baselines?
+3. **Clarity**: Is the experiment plan clearly described with sufficient detail? Can it be reproduced from the description?
+
+## IMPORTANT: Position Bias Warning
+Do NOT let the order of presentation influence your judgment. Evaluate each experiment plan on its own merits.
+
+## Experiment Plan A: {idea_a_title}
+
+**Datasets**: {idea_a_datasets}
+**Baselines**: {idea_a_baselines}
+**Metrics**: {idea_a_metrics}
+**Ablation Studies**: {idea_a_ablations}
+**Expected Results**: {idea_a_expected}
+
+## Experiment Plan B: {idea_b_title}
+
+**Datasets**: {idea_b_datasets}
+**Baselines**: {idea_b_baselines}
+**Metrics**: {idea_b_metrics}
+**Ablation Studies**: {idea_b_ablations}
+**Expected Results**: {idea_b_expected}
+
+## Instructions
+For each metric, provide:
+- A score: 0 if Experiment A is better, 1 if Experiment B is better, 2 if they are equal
+- A brief reasoning (1-2 sentences) explaining your decision"""
+
+    def __init__(self, model_name: str | None = None) -> None:
+        """初期化"""
+        self.model_name = model_name or settings.openai_model
+        self._llm = None
+
+    @property
+    def llm(self) -> ChatOpenAI:
+        """LLMインスタンスを取得"""
+        if self._llm is None:
+            self._llm = ChatOpenAI(
+                model=self.model_name,
+                api_key=settings.openai_api_key,
+                temperature=0.0,
+            )
+        return self._llm
+
+    def _build_experiment_prompt(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+    ) -> str:
+        """実験計画比較プロンプトを構築"""
+        return self.EXPERIMENT_PROMPT_TEMPLATE.format(
+            idea_a_title=idea_a.title,
+            idea_a_datasets=", ".join(idea_a.experiment.datasets),
+            idea_a_baselines=", ".join(idea_a.experiment.baselines),
+            idea_a_metrics=", ".join(idea_a.experiment.metrics),
+            idea_a_ablations=", ".join(idea_a.experiment.ablations),
+            idea_a_expected=idea_a.experiment.expected_results,
+            idea_b_title=idea_b.title,
+            idea_b_datasets=", ".join(idea_b.experiment.datasets),
+            idea_b_baselines=", ".join(idea_b.experiment.baselines),
+            idea_b_metrics=", ".join(idea_b.experiment.metrics),
+            idea_b_ablations=", ".join(idea_b.experiment.ablations),
+            idea_b_expected=idea_b.experiment.expected_results,
+        )
+
+    def compare(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+    ) -> list[ExperimentMetricScore]:
+        """2つのアイデアの実験計画を3指標で比較
+
+        Args:
+            idea_a: 1つ目のアイデア
+            idea_b: 2つ目のアイデア
+
+        Returns:
+            実験計画の評価スコアリスト
+        """
+        logger.info(f"Comparing experiment plans: {idea_a.title} vs {idea_b.title}")
+
+        # 順序A→Bで評価
+        prompt_ab = self._build_experiment_prompt(idea_a, idea_b)
+        structured_llm = self.llm.with_structured_output(LLMExperimentComparisonOutput)
+        result_ab: LLMExperimentComparisonOutput = structured_llm.invoke([HumanMessage(content=prompt_ab)])
+
+        # 順序B→Aで評価（swap test）
+        prompt_ba = self._build_experiment_prompt(idea_b, idea_a)
+        result_ba: LLMExperimentComparisonOutput = structured_llm.invoke([HumanMessage(content=prompt_ba)])
+
+        # swap test結果を統合
+        scores = []
+        for metric, (score_ab, reasoning_ab), (score_ba, reasoning_ba) in [
+            (ExperimentMetric.FEASIBILITY,
+             (result_ab.feasibility_score, result_ab.feasibility_reasoning),
+             (result_ba.feasibility_score, result_ba.feasibility_reasoning)),
+            (ExperimentMetric.QUALITY,
+             (result_ab.quality_score, result_ab.quality_reasoning),
+             (result_ba.quality_score, result_ba.quality_reasoning)),
+            (ExperimentMetric.CLARITY,
+             (result_ab.clarity_score, result_ab.clarity_reasoning),
+             (result_ba.clarity_score, result_ba.clarity_reasoning)),
+        ]:
+            # score_baを正規化
+            if score_ba == 0:
+                score_ba_normalized = 1
+            elif score_ba == 1:
+                score_ba_normalized = 0
+            else:
+                score_ba_normalized = 2
+
+            if score_ab == score_ba_normalized:
+                if score_ab == 0:
+                    winner = Winner.IDEA_A
+                elif score_ab == 1:
+                    winner = Winner.IDEA_B
+                else:
+                    winner = Winner.TIE
+                reasoning = reasoning_ab
+            else:
+                winner = Winner.TIE
+                reasoning = f"Inconsistent results"
+
+            scores.append(
+                ExperimentMetricScore(
+                    metric=metric,
+                    winner=winner,
+                    reasoning=reasoning,
+                )
+            )
+
+        return scores
+
+
+class LLMIdeaExtraction(BaseModel):
+    """論文からのアイデア抽出用の構造化出力"""
+
+    title: str = Field(description="The main idea/contribution of the paper in 1-2 sentences")
+    motivation: str = Field(description="The problem being addressed and why it matters")
+    method: str = Field(description="The proposed approach/solution")
+    key_differences: list[str] = Field(description="Key differences from prior work (3-5 items)")
+
+
+class IdeaExtractor:
+    """論文からアイデアを抽出するサービス（比較評価用）"""
+
+    EXTRACTION_PROMPT_TEMPLATE = """You are an expert AI research paper analyzer. Extract the core research idea from the following paper.
+
+Focus on:
+1. **title**: A concise description of the main contribution (1-2 sentences)
+2. **motivation**: The problem being addressed and its significance
+3. **method**: The proposed approach or solution
+4. **key_differences**: How this work differs from prior approaches (3-5 bullet points)
+
+Paper content:
+{content}
+
+Extract the research idea:"""
+
+    def __init__(self, model_name: str | None = None) -> None:
+        """初期化"""
+        self.model_name = model_name or settings.openai_model
+        self._llm = None
+
+    @property
+    def llm(self) -> ChatOpenAI:
+        """LLMインスタンスを取得"""
+        if self._llm is None:
+            self._llm = ChatOpenAI(
+                model=self.model_name,
+                api_key=settings.openai_api_key,
+                temperature=0.0,
+            )
+        return self._llm
+
+    def extract_from_text(self, paper_content: str) -> LLMIdeaExtraction:
+        """論文テキストからアイデアを抽出
+
+        Args:
+            paper_content: 論文の本文テキスト
+
+        Returns:
+            抽出されたアイデア情報
+        """
+        # テキストを適切な長さに制限
+        max_chars = 50000
+        if len(paper_content) > max_chars:
+            paper_content = paper_content[:max_chars]
+
+        prompt = self.EXTRACTION_PROMPT_TEMPLATE.format(content=paper_content)
+        structured_llm = self.llm.with_structured_output(LLMIdeaExtraction)
+        message = HumanMessage(content=prompt)
+
+        return structured_llm.invoke([message])
+
+
+class EvaluationService:
+    """評価サービス（オーケストレーション）"""
+
+    def __init__(
+        self,
+        model_name: str | None = None,
+        output_dir: Path | None = None,
+    ) -> None:
+        """初期化
+
+        Args:
+            model_name: 使用するLLMモデル名
+            output_dir: 評価結果の出力ディレクトリ
+        """
+        self.model_name = model_name or settings.openai_model
+        self.output_dir = output_dir or (settings.cache_dir / "evaluations")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        self._comparator = None
+        self._experiment_comparator = None
+        self._elo_calculator = None
+
+    @property
+    def comparator(self) -> PairwiseComparator:
+        """ペアワイズ比較器を取得"""
+        if self._comparator is None:
+            self._comparator = PairwiseComparator(model_name=self.model_name)
+        return self._comparator
+
+    @property
+    def experiment_comparator(self) -> ExperimentComparator:
+        """実験計画比較器を取得"""
+        if self._experiment_comparator is None:
+            self._experiment_comparator = ExperimentComparator(model_name=self.model_name)
+        return self._experiment_comparator
+
+    @property
+    def elo_calculator(self) -> EloRatingCalculator:
+        """ELOレーティング計算機を取得"""
+        if self._elo_calculator is None:
+            self._elo_calculator = EloRatingCalculator()
+        return self._elo_calculator
+
+    def _generate_idea_id(self, index: int, proposal: "Proposal") -> str:
+        """アイデアIDを生成"""
+        # タイトルから安全なID部分を生成
+        safe_title = "".join(c if c.isalnum() else "_" for c in proposal.title[:30])
+        return f"idea_{index}_{safe_title}"
+
+    def evaluate(
+        self,
+        proposals: list["Proposal"],
+        include_experiment: bool = True,
+    ) -> EvaluationResult:
+        """提案群を評価してランキングを生成
+
+        Args:
+            proposals: 評価対象のProposalリスト
+            include_experiment: 実験計画評価を含めるかどうか
+
+        Returns:
+            評価結果
+        """
+        logger.info(f"Starting evaluation of {len(proposals)} proposals")
+
+        # アイデアIDを生成
+        idea_ids = [self._generate_idea_id(i, p) for i, p in enumerate(proposals)]
+        proposal_map = dict(zip(idea_ids, proposals))
+
+        # ラウンドロビン方式で全ペア比較
+        pairwise_results: list[PairwiseResult] = []
+        pairs = list(combinations(enumerate(zip(idea_ids, proposals)), 2))
+
+        for (i, (id_a, proposal_a)), (j, (id_b, proposal_b)) in pairs:
+            logger.info(f"Comparing pair {i+1} vs {j+1} ({len(pairwise_results)+1}/{len(pairs)})")
+
+            # アイデア比較
+            result = self.comparator.compare(proposal_a, proposal_b, id_a, id_b)
+
+            # 実験計画比較（オプション）
+            if include_experiment:
+                exp_scores = self.experiment_comparator.compare(proposal_a, proposal_b)
+                result.experiment_scores = exp_scores
+
+            pairwise_results.append(result)
+
+        # ELOレーティングを計算
+        elo_ratings = self.elo_calculator.calculate(pairwise_results, idea_ids)
+
+        # ランキングを生成
+        ranking = self.elo_calculator.generate_ranking(elo_ratings)
+
+        # タイトルを設定
+        for entry in ranking:
+            if entry.idea_id in proposal_map:
+                entry.idea_title = proposal_map[entry.idea_id].title
+
+        # 評価結果を作成
+        result = EvaluationResult(
+            evaluated_at=datetime.now(),
+            model_name=self.model_name,
+            proposals=proposals,
+            pairwise_results=pairwise_results,
+            elo_ratings=elo_ratings,
+            ranking=ranking,
+        )
+
+        logger.info(f"Evaluation completed. Top ranked: {ranking[0].idea_title if ranking else 'N/A'}")
+
+        return result
+
+    def save_result(self, result: EvaluationResult, filename: str | None = None) -> Path:
+        """評価結果をJSONファイルに保存
+
+        Args:
+            result: 評価結果
+            filename: ファイル名（省略時は日時から生成）
+
+        Returns:
+            保存先のパス
+        """
+        if filename is None:
+            timestamp = result.evaluated_at.strftime("%Y%m%d_%H%M%S")
+            filename = f"evaluation_{timestamp}.json"
+
+        output_path = self.output_dir / filename
+        output_path.write_text(
+            result.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+        logger.info(f"Saved evaluation result to {output_path}")
+        return output_path
+
+    def load_result(self, path: Path) -> EvaluationResult:
+        """評価結果をJSONファイルから読み込み
+
+        Args:
+            path: ファイルパス
+
+        Returns:
+            評価結果
+        """
+        return EvaluationResult.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def generate_markdown_report(self, result: EvaluationResult) -> str:
+        """評価結果をMarkdownレポートとして生成
+
+        Args:
+            result: 評価結果
+
+        Returns:
+            Markdownテキスト
+        """
+        lines = [
+            "# Idea Evaluation Report",
+            "",
+            f"**Evaluated at**: {result.evaluated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**Model**: {result.model_name}",
+            f"**Number of proposals**: {len(result.proposals)}",
+            "",
+            "## Rankings",
+            "",
+            "| Rank | Title | Overall Score |",
+            "|------|-------|---------------|",
+        ]
+
+        for entry in result.ranking:
+            title = entry.idea_title or entry.idea_id
+            lines.append(f"| {entry.rank} | {title} | {entry.overall_score:.1f} |")
+
+        lines.extend([
+            "",
+            "## Detailed Scores by Metric",
+            "",
+        ])
+
+        for entry in result.ranking:
+            title = entry.idea_title or entry.idea_id
+            lines.append(f"### {entry.rank}. {title}")
+            lines.append("")
+            lines.append("| Metric | Score |")
+            lines.append("|--------|-------|")
+            for metric, score in entry.scores_by_metric.items():
+                lines.append(f"| {metric.value.capitalize()} | {score:.1f} |")
+            lines.append("")
+
+        lines.extend([
+            "## Pairwise Comparison Summary",
+            "",
+            f"Total comparisons: {len(result.pairwise_results)}",
+            "",
+        ])
+
+        return "\n".join(lines)
+
+    def save_markdown_report(self, result: EvaluationResult, filename: str | None = None) -> Path:
+        """Markdownレポートを保存
+
+        Args:
+            result: 評価結果
+            filename: ファイル名（省略時は日時から生成）
+
+        Returns:
+            保存先のパス
+        """
+        if filename is None:
+            timestamp = result.evaluated_at.strftime("%Y%m%d_%H%M%S")
+            filename = f"evaluation_{timestamp}.md"
+
+        output_path = self.output_dir / filename
+        output_path.write_text(
+            self.generate_markdown_report(result),
+            encoding="utf-8",
+        )
+
+        logger.info(f"Saved markdown report to {output_path}")
+        return output_path

@@ -882,6 +882,135 @@ def cmd_propose(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_evaluation_rich(result) -> None:
+    """評価結果をリッチフォーマットで表示"""
+    console.print()
+    console.print(Panel(
+        f"[bold]Evaluation Results[/bold]\n"
+        f"Model: {result.model_name}\n"
+        f"Proposals: {len(result.proposals)}\n"
+        f"Evaluated at: {result.evaluated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        title="Idea Evaluation Report",
+        border_style="green",
+    ))
+
+    # ランキングテーブル
+    table = Table(title="Rankings", show_header=True, header_style="bold magenta")
+    table.add_column("Rank", style="dim", width=6)
+    table.add_column("Title", style="cyan")
+    table.add_column("Overall", justify="right")
+    table.add_column("Novelty", justify="right")
+    table.add_column("Significance", justify="right")
+    table.add_column("Feasibility", justify="right")
+    table.add_column("Clarity", justify="right")
+    table.add_column("Effectiveness", justify="right")
+
+    from idea_graph.models.evaluation import EvaluationMetric
+
+    for entry in result.ranking:
+        title = (entry.idea_title or entry.idea_id)[:40]
+        table.add_row(
+            str(entry.rank),
+            title,
+            f"{entry.overall_score:.1f}",
+            f"{entry.scores_by_metric.get(EvaluationMetric.NOVELTY, 0):.1f}",
+            f"{entry.scores_by_metric.get(EvaluationMetric.SIGNIFICANCE, 0):.1f}",
+            f"{entry.scores_by_metric.get(EvaluationMetric.FEASIBILITY, 0):.1f}",
+            f"{entry.scores_by_metric.get(EvaluationMetric.CLARITY, 0):.1f}",
+            f"{entry.scores_by_metric.get(EvaluationMetric.EFFECTIVENESS, 0):.1f}",
+        )
+
+    console.print(table)
+    console.print()
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    """評価コマンド"""
+    import json
+    from pathlib import Path
+    from idea_graph.services.evaluation import EvaluationService
+    from idea_graph.services.proposal import Proposal
+
+    # APIキー確認
+    if not settings.openai_api_key:
+        logging.error("OPENAI_API_KEY is not set. Please set it in .env file.")
+        return 1
+
+    # 入力ファイルの読み込み
+    proposals_path = Path(args.proposals_file)
+    if not proposals_path.exists():
+        logging.error(f"Proposals file not found: {proposals_path}")
+        return 1
+
+    logging.info(f"Loading proposals from: {proposals_path}")
+
+    try:
+        data = json.loads(proposals_path.read_text(encoding="utf-8"))
+
+        # ProposalResult形式（proposalsフィールドあり）またはProposalリスト
+        if "proposals" in data:
+            proposals_data = data["proposals"]
+        elif isinstance(data, list):
+            proposals_data = data
+        else:
+            logging.error("Invalid proposals file format. Expected ProposalResult or list of Proposals.")
+            return 1
+
+        proposals = [Proposal(**p) for p in proposals_data]
+        logging.info(f"Loaded {len(proposals)} proposals")
+    except Exception as e:
+        logging.error(f"Failed to load proposals: {e}")
+        return 1
+
+    if len(proposals) < 2:
+        logging.error("At least 2 proposals are required for evaluation.")
+        return 1
+
+    # 評価サービスの初期化
+    service = EvaluationService(model_name=args.model)
+
+    # 評価実行
+    logging.info("Starting evaluation...")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Evaluating proposals...", total=None)
+        result = service.evaluate(
+            proposals=proposals,
+            include_experiment=not args.no_experiment,
+        )
+        progress.update(task, completed=True)
+
+    # 結果出力
+    if args.format == "json":
+        output = result.model_dump_json(indent=2)
+        if args.output:
+            Path(args.output).write_text(output, encoding="utf-8")
+            logging.info(f"Output written to: {args.output}")
+        else:
+            print(output)
+    elif args.format == "markdown":
+        output = service.generate_markdown_report(result)
+        if args.output:
+            Path(args.output).write_text(output, encoding="utf-8")
+            logging.info(f"Output written to: {args.output}")
+        else:
+            print(output)
+    else:  # rich
+        _print_evaluation_rich(result)
+
+    # 結果を自動保存
+    json_path = service.save_result(result)
+    md_path = service.save_markdown_report(result)
+    console.print(f"[green]Results saved to:[/]")
+    console.print(f"  JSON: {json_path}")
+    console.print(f"  Markdown: {md_path}")
+
+    return 0
+
+
 def main() -> int:
     """メイン関数"""
     parser = argparse.ArgumentParser(
@@ -1012,6 +1141,35 @@ def main() -> int:
         help="提案を保存",
     )
 
+    # evaluate コマンド
+    evaluate_parser = subparsers.add_parser("evaluate", help="提案をペアワイズ比較評価")
+    evaluate_parser.add_argument(
+        "proposals_file",
+        type=str,
+        help="評価対象のProposalを含むJSONファイル",
+    )
+    evaluate_parser.add_argument(
+        "--format",
+        choices=["markdown", "json", "rich"],
+        default="rich",
+        help="出力形式 (デフォルト: rich)",
+    )
+    evaluate_parser.add_argument(
+        "-o", "--output",
+        type=str,
+        help="出力ファイルパス（指定しない場合は標準出力）",
+    )
+    evaluate_parser.add_argument(
+        "--no-experiment",
+        action="store_true",
+        help="実験計画の評価をスキップ",
+    )
+    evaluate_parser.add_argument(
+        "--model",
+        type=str,
+        help="使用するLLMモデル（デフォルト: 設定ファイルのopenai_model）",
+    )
+
     args = parser.parse_args()
     setup_logging(args.verbose)
 
@@ -1027,6 +1185,8 @@ def main() -> int:
         return cmd_analyze(args)
     elif args.command == "propose":
         return cmd_propose(args)
+    elif args.command == "evaluate":
+        return cmd_evaluate(args)
     else:
         parser.print_help()
         return 0

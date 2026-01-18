@@ -160,3 +160,254 @@ class TestProposeAPI:
 
         assert response.status_code == 400
         assert "no candidates" in response.json()["detail"].lower()
+
+
+class TestEvaluateAPI:
+    """評価 API のテスト"""
+
+    def test_evaluate_empty_proposals(self):
+        """提案が空の場合"""
+        from idea_graph.api.app import app
+
+        client = TestClient(app)
+        response = client.post(
+            "/api/evaluate",
+            json={
+                "proposals": [],
+            },
+        )
+
+        assert response.status_code == 400
+        assert "at least 2 proposals" in response.json()["detail"].lower()
+
+    def test_evaluate_single_proposal(self):
+        """提案が1つだけの場合"""
+        from idea_graph.api.app import app
+
+        client = TestClient(app)
+        response = client.post(
+            "/api/evaluate",
+            json={
+                "proposals": [
+                    {
+                        "title": "Single Idea",
+                        "rationale": "R",
+                        "research_trends": "T",
+                        "motivation": "M",
+                        "method": "Method description",
+                        "experiment": {
+                            "datasets": ["d"],
+                            "baselines": ["b"],
+                            "metrics": ["m"],
+                            "ablations": ["a"],
+                            "expected_results": "e",
+                            "failure_interpretation": "f",
+                        },
+                        "grounding": {
+                            "papers": ["p"],
+                            "entities": ["e"],
+                            "path_mermaid": "g",
+                        },
+                        "differences": ["d"],
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == 400
+        assert "at least 2 proposals" in response.json()["detail"].lower()
+
+    def test_evaluate_valid_request(self):
+        """有効なリクエスト（モック使用）"""
+        from datetime import datetime
+        from idea_graph.models.evaluation import (
+            EvaluationResult,
+            EloRatings,
+            RankingEntry,
+            EvaluationMetric,
+        )
+
+        mock_result = EvaluationResult(
+            evaluated_at=datetime(2026, 1, 18, 12, 0, 0),
+            model_name="gpt-4o-mini",
+            proposals=[],
+            pairwise_results=[],
+            elo_ratings=EloRatings(
+                ratings_by_metric={},
+                overall_ratings={"idea_0": 1016.0, "idea_1": 984.0},
+            ),
+            ranking=[
+                RankingEntry(
+                    rank=1,
+                    idea_id="idea_0",
+                    idea_title="Idea A",
+                    overall_score=1016.0,
+                    scores_by_metric={EvaluationMetric.NOVELTY: 1016.0},
+                ),
+                RankingEntry(
+                    rank=2,
+                    idea_id="idea_1",
+                    idea_title="Idea B",
+                    overall_score=984.0,
+                    scores_by_metric={EvaluationMetric.NOVELTY: 984.0},
+                ),
+            ],
+        )
+
+        with patch("idea_graph.api.app.EvaluationService") as mock_service_class:
+            mock_service = MagicMock()
+            mock_service.evaluate.return_value = mock_result
+            mock_service_class.return_value = mock_service
+
+            from idea_graph.api.app import app
+
+            client = TestClient(app)
+            response = client.post(
+                "/api/evaluate",
+                json={
+                    "proposals": [
+                        {
+                            "title": "Idea A",
+                            "rationale": "R",
+                            "research_trends": "T",
+                            "motivation": "M",
+                            "method": "Method A",
+                            "experiment": {
+                                "datasets": ["d"],
+                                "baselines": ["b"],
+                                "metrics": ["m"],
+                                "ablations": ["a"],
+                                "expected_results": "e",
+                                "failure_interpretation": "f",
+                            },
+                            "grounding": {
+                                "papers": ["p"],
+                                "entities": ["e"],
+                                "path_mermaid": "g",
+                            },
+                            "differences": ["d"],
+                        },
+                        {
+                            "title": "Idea B",
+                            "rationale": "R",
+                            "research_trends": "T",
+                            "motivation": "M",
+                            "method": "Method B",
+                            "experiment": {
+                                "datasets": ["d"],
+                                "baselines": ["b"],
+                                "metrics": ["m"],
+                                "ablations": ["a"],
+                                "expected_results": "e",
+                                "failure_interpretation": "f",
+                            },
+                            "grounding": {
+                                "papers": ["p"],
+                                "entities": ["e"],
+                                "path_mermaid": "g",
+                            },
+                            "differences": ["d"],
+                        },
+                    ],
+                    "include_experiment": False,
+                },
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "ranking" in data
+            assert len(data["ranking"]) == 2
+            assert data["ranking"][0]["rank"] == 1
+            assert data["ranking"][0]["idea_title"] == "Idea A"
+
+    def test_evaluate_with_model_option(self):
+        """モデル指定オプション"""
+        from datetime import datetime
+        from idea_graph.models.evaluation import (
+            EvaluationResult,
+            EloRatings,
+            RankingEntry,
+            EvaluationMetric,
+        )
+
+        mock_result = EvaluationResult(
+            evaluated_at=datetime(2026, 1, 18, 12, 0, 0),
+            model_name="gpt-4o",
+            proposals=[],
+            pairwise_results=[],
+            elo_ratings=EloRatings(
+                ratings_by_metric={},
+                overall_ratings={"idea_0": 1000.0, "idea_1": 1000.0},
+            ),
+            ranking=[
+                RankingEntry(
+                    rank=1,
+                    idea_id="idea_0",
+                    idea_title="A",
+                    overall_score=1000.0,
+                    scores_by_metric={},
+                ),
+                RankingEntry(
+                    rank=2,
+                    idea_id="idea_1",
+                    idea_title="B",
+                    overall_score=1000.0,
+                    scores_by_metric={},
+                ),
+            ],
+        )
+
+        with patch("idea_graph.api.app.EvaluationService") as mock_service_class:
+            mock_service = MagicMock()
+            mock_service.evaluate.return_value = mock_result
+            mock_service_class.return_value = mock_service
+
+            from idea_graph.api.app import app
+
+            client = TestClient(app)
+            response = client.post(
+                "/api/evaluate",
+                json={
+                    "proposals": [
+                        {
+                            "title": "A",
+                            "rationale": "R",
+                            "research_trends": "T",
+                            "motivation": "M",
+                            "method": "M",
+                            "experiment": {
+                                "datasets": ["d"],
+                                "baselines": ["b"],
+                                "metrics": ["m"],
+                                "ablations": ["a"],
+                                "expected_results": "e",
+                                "failure_interpretation": "f",
+                            },
+                            "grounding": {"papers": ["p"], "entities": ["e"], "path_mermaid": "g"},
+                            "differences": ["d"],
+                        },
+                        {
+                            "title": "B",
+                            "rationale": "R",
+                            "research_trends": "T",
+                            "motivation": "M",
+                            "method": "M",
+                            "experiment": {
+                                "datasets": ["d"],
+                                "baselines": ["b"],
+                                "metrics": ["m"],
+                                "ablations": ["a"],
+                                "expected_results": "e",
+                                "failure_interpretation": "f",
+                            },
+                            "grounding": {"papers": ["p"], "entities": ["e"], "path_mermaid": "g"},
+                            "differences": ["d"],
+                        },
+                    ],
+                    "model_name": "gpt-4o",
+                },
+            )
+
+            assert response.status_code == 200
+            # EvaluationService が指定されたモデル名で初期化されることを確認
+            mock_service_class.assert_called_once_with(model_name="gpt-4o")

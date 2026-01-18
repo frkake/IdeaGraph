@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
+from idea_graph.services.evaluation import EvaluationService
 
 # パス設定
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -430,6 +431,145 @@ def export_proposals(
             proposal_ids=ids, target_paper_id=target_paper_id
         )
         return PlainTextResponse(content, media_type="text/markdown")
+
+
+# ========== 評価 API ==========
+
+
+class EvaluateProposal(BaseModel):
+    """評価対象の提案"""
+
+    title: str
+    rationale: str
+    research_trends: str
+    motivation: str
+    method: str
+    experiment: Experiment
+    grounding: Grounding
+    differences: list[str]
+
+
+class EvaluateRequest(BaseModel):
+    """評価リクエスト"""
+
+    proposals: list[EvaluateProposal]
+    include_experiment: bool = True
+    model_name: str | None = None
+
+
+class MetricScoreResponse(BaseModel):
+    """指標スコアレスポンス"""
+
+    metric: str
+    winner: int
+    reasoning: str
+
+
+class PairwiseResultResponse(BaseModel):
+    """ペアワイズ比較結果レスポンス"""
+
+    idea_a_id: str
+    idea_b_id: str
+    scores: list[MetricScoreResponse]
+
+
+class RankingEntryResponse(BaseModel):
+    """ランキングエントリレスポンス"""
+
+    rank: int
+    idea_id: str
+    idea_title: str | None
+    overall_score: float
+    scores_by_metric: dict[str, float]
+
+
+class EvaluateResponse(BaseModel):
+    """評価レスポンス"""
+
+    evaluated_at: str
+    model_name: str
+    ranking: list[RankingEntryResponse]
+    pairwise_results: list[PairwiseResultResponse]
+
+
+@app.post("/api/evaluate")
+def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
+    """提案をペアワイズ比較して評価"""
+    from idea_graph.services.proposal import Proposal as ProposalModel
+    from idea_graph.services.proposal import Experiment as ExperimentModel
+    from idea_graph.services.proposal import Grounding as GroundingModel
+
+    # バリデーション
+    if len(request.proposals) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 2 proposals are required for pairwise comparison"
+        )
+
+    # リクエストをProposalモデルに変換
+    proposals = []
+    for p in request.proposals:
+        proposal = ProposalModel(
+            title=p.title,
+            rationale=p.rationale,
+            research_trends=p.research_trends,
+            motivation=p.motivation,
+            method=p.method,
+            experiment=ExperimentModel(
+                datasets=p.experiment.datasets,
+                baselines=p.experiment.baselines,
+                metrics=p.experiment.metrics,
+                ablations=p.experiment.ablations,
+                expected_results=p.experiment.expected_results,
+                failure_interpretation=p.experiment.failure_interpretation,
+            ),
+            grounding=GroundingModel(
+                papers=p.grounding.papers,
+                entities=p.grounding.entities,
+                path_mermaid=p.grounding.path_mermaid,
+            ),
+            differences=p.differences,
+        )
+        proposals.append(proposal)
+
+    # 評価を実行
+    service = EvaluationService(model_name=request.model_name)
+    result = service.evaluate(proposals, include_experiment=request.include_experiment)
+
+    # レスポンスを構築
+    ranking_response = [
+        RankingEntryResponse(
+            rank=entry.rank,
+            idea_id=entry.idea_id,
+            idea_title=entry.idea_title,
+            overall_score=entry.overall_score,
+            scores_by_metric={m.value: s for m, s in entry.scores_by_metric.items()},
+        )
+        for entry in result.ranking
+    ]
+
+    pairwise_response = [
+        PairwiseResultResponse(
+            idea_a_id=pr.idea_a_id,
+            idea_b_id=pr.idea_b_id,
+            scores=[
+                MetricScoreResponse(
+                    metric=ms.metric.value,
+                    winner=ms.winner.value,
+                    reasoning=ms.reasoning,
+                )
+                for ms in pr.scores
+            ],
+        )
+        for pr in result.pairwise_results
+    ]
+
+    return EvaluateResponse(
+        evaluated_at=result.evaluated_at.isoformat(),
+        model_name=result.model_name,
+        ranking=ranking_response,
+        pairwise_results=pairwise_response,
+    )
 
 
 # ========== フロントエンド ==========

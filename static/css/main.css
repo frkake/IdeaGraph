@@ -958,3 +958,223 @@ header h1 {
 .tooltip:hover::after {
     opacity: 1;
 }
+
+/* ========== 評価機能 ========== */
+.btn-evaluate {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    color: #000;
+    padding: 0.4rem 0.8rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.btn-evaluate:hover {
+    background: linear-gradient(135deg, #FFC107, #FF9800);
+}
+
+.evaluation-ranking {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.evaluation-rank-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    transition: all 0.2s;
+}
+
+.evaluation-rank-card:hover {
+    border-color: var(--accent-blue);
+}
+
+.evaluation-rank-card.gold {
+    border-color: #FFD700;
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+.evaluation-rank-card.silver {
+    border-color: #C0C0C0;
+    box-shadow: 0 0 8px rgba(192, 192, 192, 0.3);
+}
+
+.evaluation-rank-card.bronze {
+    border-color: #CD7F32;
+    box-shadow: 0 0 6px rgba(205, 127, 50, 0.3);
+}
+
+.rank-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.rank-badge {
+    font-size: 0.85rem;
+    font-weight: bold;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: #fff;
+}
+
+.rank-badge.gold {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    color: #000;
+}
+
+.rank-badge.silver {
+    background: linear-gradient(135deg, #E8E8E8, #B0B0B0);
+    color: #333;
+}
+
+.rank-badge.bronze {
+    background: linear-gradient(135deg, #CD7F32, #A0522D);
+    color: #fff;
+}
+
+.rank-title {
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: #fff;
+}
+
+.rank-scores {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.rank-score-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--bg-primary);
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    min-width: 60px;
+}
+
+.rank-score-item .score-label {
+    font-size: 0.65rem;
+    color: #888;
+    margin-bottom: 0.15rem;
+}
+
+.rank-score-item .score-value {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: var(--accent-blue);
+}
+
+.rank-score-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--bg-tertiary);
+}
+
+.score-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.score-bar-label {
+    font-size: 0.7rem;
+    color: #888;
+    width: 70px;
+    flex-shrink: 0;
+}
+
+.score-bar-container {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.score-bar-container .score-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+
+.score-bar-container .score-bar-fill.high {
+    background: var(--score-high);
+}
+
+.score-bar-container .score-bar-fill.medium {
+    background: var(--score-medium);
+}
+
+.score-bar-container .score-bar-fill.low {
+    background: var(--score-low);
+}
+
+.score-bar-value {
+    font-size: 0.7rem;
+    color: #ccc;
+    width: 30px;
+    text-align: right;
+}
+
+/* 比較詳細 */
+.comparison-details {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+}
+
+.comparison-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.comparison-item {
+    background: var(--bg-primary);
+    border-radius: 4px;
+    padding: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.comparison-matchup {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.comparison-matchup .vs {
+    color: #666;
+    font-size: 0.65rem;
+}
+
+.comparison-matchup .winner {
+    color: var(--score-high);
+    font-weight: bold;
+}
+
+.comparison-winner {
+    color: var(--accent-blue);
+    font-size: 0.7rem;
+    margin-bottom: 0.25rem;
+}
+
+.comparison-reasoning {
+    color: #999;
+    font-size: 0.7rem;
+    font-style: italic;
+    line-height: 1.3;
+}
