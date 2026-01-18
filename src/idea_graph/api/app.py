@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
@@ -142,6 +142,8 @@ class AnalyzeRequest(BaseModel):
     target_paper_id: str
     multihop_k: int = 3
     top_n: int = 10
+    response_limit: int | None = None
+    save: bool = False
 
 
 class PathNode(BaseModel):
@@ -188,6 +190,7 @@ class AnalysisResult(BaseModel):
     total_paths: int | None = None
     total_paper_paths: int | None = None
     total_entity_paths: int | None = None
+    analysis_id: str | None = None
 
 
 @app.post("/api/analyze")
@@ -202,7 +205,27 @@ def analyze_paper(request: AnalyzeRequest) -> AnalysisResult:
             multihop_k=request.multihop_k,
             top_n=request.top_n,
         )
-        return result
+        analysis_id = None
+        if request.save:
+            from idea_graph.services.storage import StorageService
+
+            storage = StorageService()
+            saved = storage.save_analysis(
+                target_paper_id=request.target_paper_id,
+                analysis_result=result.model_dump(),
+            )
+            analysis_id = saved.id
+
+        response_result = result
+        if request.response_limit is not None:
+            limit = max(0, request.response_limit)
+            response_result = result.model_copy(update={
+                "candidates": result.candidates[:limit],
+            })
+
+        payload = response_result.model_dump()
+        payload["analysis_id"] = analysis_id
+        return payload
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -214,7 +237,8 @@ class ProposeRequest(BaseModel):
     """提案リクエスト"""
 
     target_paper_id: str
-    analysis_result: AnalysisResult
+    analysis_id: str | None = None
+    analysis_result: AnalysisResult | None = None
     num_proposals: int = 3
     constraints: dict | None = None
     prompt_options: PromptExpansionOptions | None = None
@@ -263,19 +287,35 @@ class ProposalResult(BaseModel):
 @app.post("/api/propose")
 def propose_ideas(request: ProposeRequest) -> ProposalResult:
     """研究アイデアを提案"""
+    from idea_graph.services.analysis import AnalysisResult as ServiceAnalysisResult
     from idea_graph.services.proposal import ProposalService
 
     service = ProposalService()
     try:
+        analysis_result = None
+        if request.analysis_id:
+            from idea_graph.services.storage import StorageService
+
+            storage = StorageService()
+            saved = storage.load_analysis(request.analysis_id)
+            if saved is None:
+                raise HTTPException(status_code=404, detail="Analysis not found")
+            analysis_result = ServiceAnalysisResult.model_validate(saved.data)
+        elif request.analysis_result:
+            analysis_payload = request.analysis_result.model_dump(exclude={"analysis_id"})
+            analysis_result = ServiceAnalysisResult.model_validate(analysis_payload)
+        else:
+            raise HTTPException(status_code=400, detail="analysis_id or analysis_result is required")
+
         result = service.propose(
             target_paper_id=request.target_paper_id,
-            analysis_result=request.analysis_result,
+            analysis_result=analysis_result,
             num_proposals=request.num_proposals,
             constraints=request.constraints,
             prompt_options=request.prompt_options,
         )
         return result
-    except ValueError as e:
+    except (ValueError, ValidationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -283,7 +323,8 @@ class PromptPreviewRequest(BaseModel):
     """プロンプトプレビューリクエスト"""
 
     target_paper_id: str
-    analysis_result: dict[str, Any]
+    analysis_id: str | None = None
+    analysis_result: dict[str, Any] | None = None
     num_proposals: int = 3
     constraints: dict | None = None
     prompt_options: PromptExpansionOptions | None = None
@@ -303,8 +344,21 @@ def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResult:
 
     service = ProposalService()
     try:
-        # dict を ServiceAnalysisResult に変換
-        analysis_result = ServiceAnalysisResult(**request.analysis_result)
+        if request.analysis_id:
+            from idea_graph.services.storage import StorageService
+
+            storage = StorageService()
+            saved = storage.load_analysis(request.analysis_id)
+            if saved is None:
+                raise HTTPException(status_code=404, detail="Analysis not found")
+            analysis_result = ServiceAnalysisResult.model_validate(saved.data)
+        elif request.analysis_result:
+            analysis_payload = dict(request.analysis_result)
+            analysis_payload.pop("analysis_id", None)
+            analysis_result = ServiceAnalysisResult.model_validate(analysis_payload)
+        else:
+            raise HTTPException(status_code=400, detail="analysis_id or analysis_result is required")
+
         prompt = service.build_prompt_preview(
             target_paper_id=request.target_paper_id,
             analysis_result=analysis_result,
@@ -313,7 +367,7 @@ def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResult:
             prompt_options=request.prompt_options,
         )
         return PromptPreviewResult(prompt=prompt)
-    except ValueError as e:
+    except (ValueError, ValidationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -372,7 +426,7 @@ def list_saved_analyses(target_paper_id: str | None = None, limit: int = 50):
 
 
 @app.get("/api/storage/analyses/{analysis_id}")
-def get_saved_analysis(analysis_id: str):
+def get_saved_analysis(analysis_id: str, preview_limit: int | None = None):
     """保存された分析結果を取得"""
     from idea_graph.services.storage import StorageService
 
@@ -380,7 +434,17 @@ def get_saved_analysis(analysis_id: str):
     analysis = service.load_analysis(analysis_id)
     if analysis is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    return analysis
+    if preview_limit is None:
+        return analysis
+
+    limit = max(0, preview_limit)
+    analysis_copy = analysis.model_copy(deep=True)
+    data = analysis_copy.data
+    candidates = data.get("candidates")
+    if isinstance(candidates, list):
+        data["candidates"] = candidates[:limit]
+    analysis_copy.data = data
+    return analysis_copy
 
 
 @app.delete("/api/storage/analyses/{analysis_id}")

@@ -382,7 +382,9 @@ Content-Type: application/json
 {
   "target_paper_id": "abc123def456",
   "multihop_k": 3,
-  "top_n": 10
+  "top_n": 10,
+  "response_limit": 20,
+  "save": true
 }
 ```
 
@@ -393,6 +395,8 @@ Content-Type: application/json
 | `target_paper_id` | string | 分析対象の論文ID |
 | `multihop_k` | int | 探索するホップ数（デフォルト: 3）|
 | `top_n` | int | 表示用のパス上限（`paper_paths` / `entity_paths` の件数、デフォルト: 10）|
+| `response_limit` | int | レスポンスで返す `candidates` の上限（省略時は全件）|
+| `save` | bool | 分析結果を保存して `analysis_id` を返す（デフォルト: false）|
 
 **レスポンス:**
 ```json
@@ -419,6 +423,7 @@ Content-Type: application/json
     }
   ],
   "multihop_k": 3,
+  "analysis_id": "a1b2c3d4",
   "total_paths": 42,
   "total_paper_paths": 30,
   "total_entity_paths": 12
@@ -426,9 +431,9 @@ Content-Type: application/json
 ```
 
 **補足:**
-- `candidates` は全パス（ホップ条件に合致する全件）
+- `candidates` は全パス（`response_limit` 指定時はプレビュー件数）
 - `paper_paths` / `entity_paths` は `top_n` で表示件数を制限
-- `total_paths` は全件数（`candidates` と同じ）
+- `total_paths` は全件数（`response_limit` に関係なく全体数）
 - `total_paper_paths` は Paper引用パスの合計件数
 - `total_entity_paths` は Entity関連パスの合計件数
 
@@ -451,7 +456,7 @@ Content-Type: application/json
 
 {
   "target_paper_id": "abc123def456",
-  "analysis_result": { ... },
+  "analysis_id": "a1b2c3d4",
   "num_proposals": 3,
   "constraints": {
     "compute_budget": "medium"
@@ -464,7 +469,8 @@ Content-Type: application/json
 | パラメータ | 型 | 説明 |
 |-----------|-----|------|
 | `target_paper_id` | string | 対象論文ID |
-| `analysis_result` | object | `/api/analyze` の結果（必須）|
+| `analysis_id` | string | 保存済み分析のID（指定時は `analysis_result` 不要）|
+| `analysis_result` | object | `/api/analyze` の結果（`analysis_id` 未指定時に必須）|
 | `num_proposals` | int | 生成する提案数（デフォルト: 3）|
 | `constraints` | object | 制約条件（オプション）|
 
@@ -512,8 +518,7 @@ Content-Type: application/json
 
 {
   "target_paper_id": "abc123def456",
-  "candidates": [...],
-  "multihop_k": 3
+  "analysis_result": { ... }
 }
 ```
 
@@ -531,8 +536,12 @@ GET /api/storage/analyses?target_paper_id=abc123def456&limit=50
 #### 特定の分析結果を取得
 
 ```
-GET /api/storage/analyses/{analysis_id}
+GET /api/storage/analyses/{analysis_id}?preview_limit=20
 ```
+
+| パラメータ | 型 | 説明 |
+|-----------|-----|------|
+| `preview_limit` | int | `candidates` をプレビュー件数に制限（オプション）|
 
 #### 分析結果の削除
 
@@ -735,20 +744,18 @@ uv run idea-graph ingest
 # 2. マルチホップ分析を実行
 curl -X POST http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
-  -d '{"target_paper_id": "abc123def456", "multihop_k": 3, "top_n": 10}' \
+  -d '{"target_paper_id": "abc123def456", "multihop_k": 3, "top_n": 10, "response_limit": 20, "save": true}' \
   -o analysis.json
 
-# 3. 分析結果を保存（オプション）
-curl -X POST http://localhost:8000/api/storage/analyses \
-  -H "Content-Type: application/json" \
-  -d @analysis.json
+# 3. 保存された分析IDを取得
+analysis_id=$(jq -r '.analysis_id' analysis.json)
 
 # 4. 分析結果を使って研究アイデアを生成
 curl -X POST http://localhost:8000/api/propose \
   -H "Content-Type: application/json" \
   -d '{
     "target_paper_id": "abc123def456",
-    "analysis_result": '"$(cat analysis.json)"',
+    "analysis_id": "'"$analysis_id"'",
     "num_proposals": 3
   }' -o proposals.json
 

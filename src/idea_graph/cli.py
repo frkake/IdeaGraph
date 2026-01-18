@@ -1374,14 +1374,14 @@ def main() -> int:
     propose_parser.add_argument(
         "--prompt-max-paths",
         type=int,
-        default=5,
-        help="展開するパス数上限 (デフォルト: 5)",
+        default=10,
+        help="展開するパス数上限 (デフォルト: 10)",
     )
     propose_parser.add_argument(
         "--prompt-max-nodes",
         type=int,
-        default=50,
-        help="展開するノード数上限 (デフォルト: 50)",
+        default=100,
+        help="展開するノード数上限 (デフォルト: 100)",
     )
     propose_parser.add_argument(
         "--prompt-max-edges",
@@ -1392,8 +1392,8 @@ def main() -> int:
     propose_parser.add_argument(
         "--prompt-neighbor-k",
         type=int,
-        default=2,
-        help="k-hop 近傍の深さ (デフォルト: 2)",
+        default=5,
+        help="k-hop 近傍の深さ (デフォルト: 5)",
     )
     propose_parser.add_argument(
         "--prompt-inline-edges",

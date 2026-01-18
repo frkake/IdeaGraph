@@ -74,6 +74,7 @@ const AppState = {
     currentTab: 'explore',
     selectedPaperId: null,
     selectedPaperTitle: null,
+    analysisId: null,
     analysisResult: null,
     proposals: [],
     proposalPrompt: '',
@@ -81,10 +82,10 @@ const AppState = {
         scope: 'path_plus_k_hop',
         node_type_fields: buildDefaultNodeTypeFields(),
         edge_type_fields: buildDefaultEdgeTypeFields(),
-        max_paths: 5,
-        max_nodes: 50,
+        max_paths: 10,
+        max_nodes: 100,
         max_edges: 100,
-        neighbor_k: 2,
+        neighbor_k: 5,
         include_inline_edges: true,
     },
     evaluationResult: null,
@@ -650,6 +651,8 @@ async function runAnalysis() {
                 target_paper_id: paperId,
                 multihop_k: hopK,
                 top_n: ANALYSIS_DISPLAY_LIMIT,
+                response_limit: ANALYSIS_DISPLAY_LIMIT,
+                save: true,
             }),
         });
 
@@ -660,6 +663,7 @@ async function runAnalysis() {
         const result = await response.json();
         AppState.analysisResult = result;
         AppState.selectedPaperId = paperId;
+        AppState.analysisId = result.analysis_id || null;
 
         const totalCount = Number.isFinite(result.total_paths)
             ? result.total_paths
@@ -683,8 +687,9 @@ async function runAnalysis() {
         // 分析タブに切り替えて結果表示
         switchTab('analyze');
 
-        // 自動保存
-        await saveAnalysis();
+        if (AppState.analysisId) {
+            await loadSavedHistory();
+        }
 
     } catch (error) {
         updateStatus('分析エラー: ' + error.message);
@@ -816,6 +821,7 @@ function renderAnalysisResults() {
                     </button>
                 </div>
                 <div id="promptPreviewContainer" style="display: none; margin-top: 0.5rem;">
+                    <div id="promptStats" style="font-size: 0.7rem; color: #888; margin-bottom: 0.25rem; display: flex; gap: 1rem;"></div>
                     <pre class="prompt-preview-content" style="max-height: 300px; overflow: auto; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem; white-space: pre-wrap; word-break: break-word;"></pre>
                 </div>
             </div>
@@ -1203,7 +1209,8 @@ async function previewPrompt() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 target_paper_id: AppState.selectedPaperId,
-                analysis_result: AppState.analysisResult,
+                analysis_id: AppState.analysisId || null,
+                analysis_result: AppState.analysisId ? null : AppState.analysisResult,
                 num_proposals: 3,
                 prompt_options: promptOptions,
             }),
@@ -1214,7 +1221,17 @@ async function previewPrompt() {
         }
 
         const result = await response.json();
-        previewContent.textContent = result.prompt || 'プロンプトが生成されませんでした';
+        const promptText = result.prompt || '';
+        previewContent.textContent = promptText || 'プロンプトが生成されませんでした';
+
+        // 行数・文字数を表示
+        const statsEl = document.getElementById('promptStats');
+        if (statsEl && promptText) {
+            const lineCount = promptText.split('\n').length;
+            const charCount = promptText.length;
+            statsEl.innerHTML = `<span>📝 ${lineCount.toLocaleString()} 行</span><span>📏 ${charCount.toLocaleString()} 文字</span>`;
+        }
+
         updateStatus('プロンプトを生成しました');
     } catch (error) {
         previewContent.textContent = 'エラー: ' + error.message;
@@ -1262,7 +1279,8 @@ async function generateProposals() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 target_paper_id: AppState.selectedPaperId,
-                analysis_result: AppState.analysisResult,
+                analysis_id: AppState.analysisId || null,
+                analysis_result: AppState.analysisId ? null : AppState.analysisResult,
                 num_proposals: 3,
                 prompt_options: promptOptions,
             }),
@@ -2181,6 +2199,7 @@ async function saveAllProposals() {
                 body: JSON.stringify({
                     target_paper_id: AppState.selectedPaperId,
                     target_paper_title: AppState.selectedPaperTitle,
+                    analysis_id: AppState.analysisId || null,
                     proposal: proposal,
                     prompt: AppState.proposalPrompt || null,
                     rating: proposal.rating || null,
@@ -2263,13 +2282,14 @@ async function loadAnalysis(index) {
     if (!saved) return;
 
     try {
-        const response = await fetch(`/api/storage/analyses/${saved.id}`);
+        const response = await fetch(`/api/storage/analyses/${saved.id}?preview_limit=${ANALYSIS_DISPLAY_LIMIT}`);
         if (!response.ok) throw new Error('読み込みに失敗しました');
 
         const analysis = await response.json();
         AppState.analysisResult = analysis.data;
         AppState.selectedPaperId = analysis.target_paper_id;
         AppState.selectedPaperTitle = analysis.target_paper_title;
+        AppState.analysisId = analysis.id || null;
         switchTab('analyze');
         updateStatus(`分析を読み込みました: ${analysis.target_paper_id}`);
     } catch (error) {
