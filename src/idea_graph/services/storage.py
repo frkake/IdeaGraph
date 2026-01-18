@@ -19,6 +19,9 @@ class SavedAnalysis(BaseModel):
     target_paper_title: str | None = None
     multihop_k: int
     candidates_count: int
+    total_paths: int | None = None
+    total_paper_paths: int | None = None
+    total_entity_paths: int | None = None
     saved_at: str
     data: dict[str, Any]
 
@@ -104,6 +107,9 @@ class StorageService:
             target_paper_title=target_paper_title,
             multihop_k=analysis_result.get("multihop_k", 0),
             candidates_count=len(analysis_result.get("candidates", [])),
+            total_paths=analysis_result.get("total_paths"),
+            total_paper_paths=analysis_result.get("total_paper_paths"),
+            total_entity_paths=analysis_result.get("total_entity_paths"),
             saved_at=saved_at,
             data=analysis_result,
         )

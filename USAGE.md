@@ -233,7 +233,7 @@ uv run idea-graph analyze <paper_id> [オプション]
 | オプション | 説明 |
 |-----------|------|
 | `--max-hops N` | 最大ホップ数（デフォルト: 3）|
-| `--top-k N` | 返すパス数（デフォルト: 10）|
+| `--top-k N` | 表示用のパス上限（`paper_paths` / `entity_paths` の件数、デフォルト: 10）|
 | `--format FORMAT` | 出力形式: `table`, `json`, `rich`（デフォルト: table）|
 | `--save` | 分析結果をデータベースに保存 |
 
@@ -243,7 +243,7 @@ uv run idea-graph analyze <paper_id> [オプション]
 # 基本的な分析
 uv run idea-graph analyze abc123def456
 
-# 詳細な分析（5ホップ、上位20パス）
+# 詳細な分析（5ホップ、表示上位20パス）
 uv run idea-graph analyze abc123def456 --max-hops 5 --top-k 20
 
 # JSON形式で出力
@@ -273,7 +273,7 @@ uv run idea-graph propose <paper_id> [オプション]
 |-----------|------|
 | `--num-proposals N` | 生成する提案数（デフォルト: 3）|
 | `--max-hops N` | 分析時の最大ホップ数（デフォルト: 3）|
-| `--top-k N` | 分析で使用するパス数（デフォルト: 10）|
+| `--top-k N` | 表示用のパス上限（`paper_paths` / `entity_paths` の件数、デフォルト: 10）|
 | `--format FORMAT` | 出力形式: `markdown`, `json`, `rich`（デフォルト: markdown）|
 | `-o, --output FILE` | 出力ファイルパス（指定しない場合は標準出力）|
 | `--compare` | 比較テーブル形式で表示（`--format rich` と併用）|
@@ -392,7 +392,7 @@ Content-Type: application/json
 |-----------|-----|------|
 | `target_paper_id` | string | 分析対象の論文ID |
 | `multihop_k` | int | 探索するホップ数（デフォルト: 3）|
-| `top_n` | int | 返す候補数（デフォルト: 10）|
+| `top_n` | int | 表示用のパス上限（`paper_paths` / `entity_paths` の件数、デフォルト: 10）|
 
 **レスポンス:**
 ```json
@@ -418,9 +418,19 @@ Content-Type: application/json
       }
     }
   ],
-  "multihop_k": 3
+  "multihop_k": 3,
+  "total_paths": 42,
+  "total_paper_paths": 30,
+  "total_entity_paths": 12
 }
 ```
+
+**補足:**
+- `candidates` は全パス（ホップ条件に合致する全件）
+- `paper_paths` / `entity_paths` は `top_n` で表示件数を制限
+- `total_paths` は全件数（`candidates` と同じ）
+- `total_paper_paths` は Paper引用パスの合計件数
+- `total_entity_paths` は Entity関連パスの合計件数
 
 **スコアリング:**
 

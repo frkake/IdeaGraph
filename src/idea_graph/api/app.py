@@ -182,7 +182,12 @@ class AnalysisResult(BaseModel):
 
     target_paper_id: str
     candidates: list[RankedPath]
+    paper_paths: list[RankedPath] | None = None
+    entity_paths: list[RankedPath] | None = None
     multihop_k: int
+    total_paths: int | None = None
+    total_paper_paths: int | None = None
+    total_entity_paths: int | None = None
 
 
 @app.post("/api/analyze")

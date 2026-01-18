@@ -118,6 +118,7 @@ const CITATION_TYPE_COLORS = {
     'MENTIONS': '#607D8B',
 };
 const DEFAULT_CITATION_COLOR = '#607D8B';
+const ANALYSIS_DISPLAY_LIMIT = 20;
 
 const FILTER_QUERIES = {
     'all': 'MATCH (p:Paper)-[r]->(n) RETURN p, r, n LIMIT 100',
@@ -648,7 +649,7 @@ async function runAnalysis() {
             body: JSON.stringify({
                 target_paper_id: paperId,
                 multihop_k: hopK,
-                top_n: 10,
+                top_n: ANALYSIS_DISPLAY_LIMIT,
             }),
         });
 
@@ -660,7 +661,14 @@ async function runAnalysis() {
         AppState.analysisResult = result;
         AppState.selectedPaperId = paperId;
 
-        updateStatus(`分析完了: ${result.candidates ? result.candidates.length : 0}件のパス`);
+        const totalCount = Number.isFinite(result.total_paths)
+            ? result.total_paths
+            : (result.candidates ? result.candidates.length : 0);
+        const displayLimit = Math.min(ANALYSIS_DISPLAY_LIMIT, totalCount);
+        const countLabel = totalCount > displayLimit
+            ? `${totalCount}件 (表示${displayLimit}件)`
+            : `${totalCount}件`;
+        updateStatus(`分析完了: ${countLabel}のパス`);
 
         // 結果をグラフに表示
         const cypher = `
@@ -699,6 +707,11 @@ function renderAnalysisResults() {
     // candidatesまたはpaper_paths/entity_pathsをチェック
     const result = AppState.analysisResult;
     const allPaths = getAnalysisPaths(result);
+    const totalPaths = Number.isFinite(result?.total_paths) ? result.total_paths : allPaths.length;
+    const displayPaths = allPaths.slice(0, ANALYSIS_DISPLAY_LIMIT);
+    const pathCountLabel = totalPaths !== null
+        ? `${displayPaths.length} / ${totalPaths} パス`
+        : `${displayPaths.length} パス`;
 
     if (!result || allPaths.length === 0) {
         content.innerHTML = `
@@ -710,7 +723,9 @@ function renderAnalysisResults() {
         return;
     }
 
-    const maxScore = Math.max(...allPaths.map(c => c.score || 0), 1);
+    const maxScore = displayPaths.length > 0
+        ? Math.max(...displayPaths.map(c => c.score || 0), 1)
+        : 1;
     const { nodeTypes, edgeTypes } = collectPromptTypes(allPaths);
     const promptOptions = ensurePromptOptionsForTypes(AppState.promptOptions, nodeTypes, edgeTypes);
     AppState.promptOptions = promptOptions;
@@ -812,7 +827,7 @@ function renderAnalysisResults() {
             <div style="font-size: 0.75rem; color: #888;">対象論文</div>
             <div style="font-size: 0.9rem; color: #fff; font-weight: bold;">${truncateText(AppState.selectedPaperId, 35)}</div>
             <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">
-                ${allPaths.length} パス (${result.multihop_k || 3} ホップ)
+                ${pathCountLabel} (${result.multihop_k || 3} ホップ)
             </div>
         </div>
         ${promptOptionsHtml}
@@ -825,7 +840,7 @@ function renderAnalysisResults() {
         <div class="analysis-results">
     `;
 
-    allPaths.forEach((path, index) => {
+    displayPaths.forEach((path, index) => {
         const scorePercent = maxScore > 0 ? (path.score / maxScore) * 100 : 0;
         const scoreClass = getScoreClass(path.score / maxScore);
         const nodes = path.nodes || [];
@@ -2014,11 +2029,16 @@ function renderHistory() {
         AppState.savedAnalyses.forEach((analysis, i) => {
             const title = analysis.target_paper_title || analysis.target_paper_id || '不明';
             const date = analysis.saved_at ? new Date(analysis.saved_at).toLocaleString('ja-JP', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
+            const totalPaths = Number.isFinite(analysis.total_paths) ? analysis.total_paths : null;
+            const candidatesCount = Number.isFinite(analysis.candidates_count) ? analysis.candidates_count : null;
+            const countLabel = totalPaths !== null && candidatesCount !== null
+                ? `${candidatesCount}/${totalPaths}パス`
+                : `${candidatesCount ?? '?'}パス`;
             html += `
                 <div class="history-item">
                     <div class="history-item-info" onclick="loadAnalysis(${i})" style="flex: 1; cursor: pointer;">
                         <div class="history-item-title">${truncateText(title, 24)}</div>
-                        <div class="history-item-date">${date} · ${analysis.candidates_count || '?'}パス</div>
+                        <div class="history-item-date">${date} · ${countLabel}</div>
                     </div>
                     <button class="btn-icon" onclick="event.stopPropagation(); deleteAnalysis('${analysis.id}')" title="削除" style="color: #888;">✕</button>
                 </div>

@@ -49,6 +49,9 @@ class AnalysisResult(BaseModel):
     paper_paths: list[RankedPath] | None = None  # Paper引用パス
     entity_paths: list[RankedPath] | None = None  # Entity関連パス
     multihop_k: int
+    total_paths: int | None = None
+    total_paper_paths: int | None = None
+    total_entity_paths: int | None = None
 
 
 class AnalysisService:
@@ -71,12 +74,18 @@ class AnalysisService:
         self,
         target_paper_id: str,
         multihop_k: int,
-        top_n: int,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """マルチホップパスを探索（Paper引用パスとEntity関連パスを両方取得）"""
         paths = []
 
         with Neo4jConnection.session() as session:
+            limit_clause = ""
+            params: dict[str, Any] = {"target_id": target_paper_id}
+            if limit is not None:
+                limit_clause = "LIMIT $limit"
+                params["limit"] = limit
+
             # クエリのベース部分
             base_query = """
                 MATCH path = (target:Paper {id: $target_id})-[rels*1..""" + str(multihop_k) + """]->(n)
@@ -113,9 +122,9 @@ class AnalysisService:
                        enables_count, improves_count, addresses_count,
                        entity_count, rel_types
                 ORDER BY cite_importance DESC, path_length ASC
-                LIMIT $limit
+                """ + limit_clause + """
             """
-            result = session.run(cite_query, target_id=target_paper_id, limit=top_n)
+            result = session.run(cite_query, **params)
 
             for record in result:
                 paths.append(self._record_to_path_data(record))
@@ -131,9 +140,9 @@ class AnalysisService:
                 ORDER BY
                     entity_uses_count + entity_extends_count + enables_count DESC,
                     path_length ASC
-                LIMIT $limit
+                """ + limit_clause + """
             """
-            result = session.run(entity_query, target_id=target_paper_id, limit=top_n)
+            result = session.run(entity_query, **params)
 
             for record in result:
                 paths.append(self._record_to_path_data(record))
@@ -318,7 +327,7 @@ class AnalysisService:
             raise ValueError(f"Paper not found: {target_paper_id}")
 
         # パス探索
-        paths = self._find_paths(target_paper_id, multihop_k, top_n)
+        paths = self._find_paths(target_paper_id, multihop_k)
 
         if not paths:
             return AnalysisResult(
@@ -327,6 +336,9 @@ class AnalysisService:
                 paper_paths=[],
                 entity_paths=[],
                 multihop_k=multihop_k,
+                total_paths=0,
+                total_paper_paths=0,
+                total_entity_paths=0,
             )
 
         # スコアリングとランキング、Paper引用とEntity関連を分離
@@ -348,11 +360,18 @@ class AnalysisService:
         # 全パスを結合してソート（後方互換性）
         all_paths = paper_paths + entity_paths
         all_paths.sort(key=lambda x: x.score, reverse=True)
+        total_paper_paths = len(paper_paths)
+        total_entity_paths = len(entity_paths)
+        total_paths = len(all_paths)
+        display_limit = max(top_n, 0)
 
         return AnalysisResult(
             target_paper_id=target_paper_id,
-            candidates=all_paths[:top_n * 2],  # 両カテゴリを含むため多めに
-            paper_paths=paper_paths[:top_n],
-            entity_paths=entity_paths[:top_n],
+            candidates=all_paths,
+            paper_paths=paper_paths[:display_limit],
+            entity_paths=entity_paths[:display_limit],
             multihop_k=multihop_k,
+            total_paths=total_paths,
+            total_paper_paths=total_paper_paths,
+            total_entity_paths=total_entity_paths,
         )

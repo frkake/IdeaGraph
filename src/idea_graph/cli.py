@@ -172,7 +172,15 @@ def _print_analysis_table(result: "AnalysisResult") -> None:
 
     paper_count = len(result.paper_paths) if result.paper_paths else 0
     entity_count = len(result.entity_paths) if result.entity_paths else 0
-    print(f"Found {paper_count} paper paths, {entity_count} entity paths\n")
+    total_paper = result.total_paper_paths
+    total_entity = result.total_entity_paths
+    paper_label = f"{paper_count}"
+    entity_label = f"{entity_count}"
+    if total_paper is not None:
+        paper_label = f"{paper_count}/{total_paper}"
+    if total_entity is not None:
+        entity_label = f"{entity_count}/{total_entity}"
+    print(f"Found {paper_label} paper paths, {entity_label} entity paths\n")
 
     # Paper引用パスを表示
     if result.paper_paths:
@@ -207,8 +215,16 @@ def _print_analysis_rich(result: "AnalysisResult") -> None:
 
     paper_count = len(result.paper_paths) if result.paper_paths else 0
     entity_count = len(result.entity_paths) if result.entity_paths else 0
+    total_paper = result.total_paper_paths
+    total_entity = result.total_entity_paths
+    paper_label = f"{paper_count}件"
+    entity_label = f"{entity_count}件"
+    if total_paper is not None:
+        paper_label = f"{paper_count}/{total_paper}件"
+    if total_entity is not None:
+        entity_label = f"{entity_count}/{total_entity}件"
 
-    console.print(f"\n[green]Paper引用パス:[/] {paper_count}件  [cyan]Entity関連パス:[/] {entity_count}件\n")
+    console.print(f"\n[green]Paper引用パス:[/] {paper_label}  [cyan]Entity関連パス:[/] {entity_label}\n")
 
     # Paper引用パス
     if result.paper_paths:
