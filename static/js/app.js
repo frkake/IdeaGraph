@@ -2,6 +2,71 @@
  * IdeaGraph - メインアプリケーション
  */
 
+// ========== プロンプト設定の定義 ==========
+const PAPER_FIELD_OPTIONS = [
+    { value: 'paper_title', label: '論文タイトル' },
+    { value: 'paper_summary', label: '論文要約' },
+    { value: 'paper_claims', label: '論文の主張' },
+];
+
+const ENTITY_FIELD_OPTIONS = [
+    { value: 'entity_type', label: 'Entity種別' },
+    { value: 'entity_description', label: 'Entity説明' },
+];
+
+const EDGE_FIELD_OPTIONS = {
+    CITES: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'citation_type', label: '引用種別' },
+        { value: 'importance_score', label: '重要度' },
+        { value: 'context', label: '文脈' },
+    ],
+    MENTIONS: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'context', label: '文脈' },
+    ],
+    USES: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'context', label: '文脈' },
+    ],
+    EXTENDS: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'context', label: '文脈' },
+    ],
+    COMPARES: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'context', label: '文脈' },
+    ],
+    ENABLES: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'context', label: '文脈' },
+    ],
+    IMPROVES: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'context', label: '文脈' },
+    ],
+    ADDRESSES: [
+        { value: 'type', label: '関係タイプ' },
+        { value: 'context', label: '文脈' },
+    ],
+};
+
+function buildDefaultNodeTypeFields() {
+    return {
+        Paper: PAPER_FIELD_OPTIONS.map(option => option.value),
+        Entity: ENTITY_FIELD_OPTIONS.map(option => option.value),
+    };
+}
+
+function buildDefaultEdgeTypeFields() {
+    return Object.fromEntries(
+        Object.entries(EDGE_FIELD_OPTIONS).map(([edgeType, options]) => [
+            edgeType,
+            options.map(option => option.value),
+        ])
+    );
+}
+
 // ========== グローバル状態 ==========
 const AppState = {
     viz: null,
@@ -13,9 +78,9 @@ const AppState = {
     proposals: [],
     proposalPrompt: '',
     promptOptions: {
-        scope: 'path',
-        node_fields: ['paper_title'],
-        edge_fields: ['type'],
+        scope: 'path_plus_k_hop',
+        node_type_fields: buildDefaultNodeTypeFields(),
+        edge_type_fields: buildDefaultEdgeTypeFields(),
         max_paths: 5,
         max_nodes: 50,
         max_edges: 100,
@@ -111,10 +176,15 @@ function renderTextBlock(text, emptyLabel) {
     return `<p class="proposal-detail-text">${escapeHtml(text)}</p>`;
 }
 
-function getCheckedValues(selector) {
-    return Array.from(document.querySelectorAll(selector))
-        .map(el => el.value)
-        .filter(Boolean);
+function collectTypeFieldSelections(selector, typeAttr) {
+    const selections = {};
+    document.querySelectorAll(selector).forEach((el) => {
+        const type = el.dataset[typeAttr];
+        if (!type) return;
+        if (!selections[type]) selections[type] = [];
+        if (el.checked) selections[type].push(el.value);
+    });
+    return selections;
 }
 
 function getPromptOptionsFromUI() {
@@ -134,8 +204,8 @@ function getPromptOptionsFromUI() {
 
     const options = {
         scope: scopeEl.value,
-        node_fields: getCheckedValues('.prompt-node-field:checked'),
-        edge_fields: getCheckedValues('.prompt-edge-field:checked'),
+        node_type_fields: collectTypeFieldSelections('.prompt-node-field', 'nodeType'),
+        edge_type_fields: collectTypeFieldSelections('.prompt-edge-field', 'edgeType'),
         max_paths: Number.isNaN(maxPaths) ? AppState.promptOptions.max_paths : maxPaths,
         max_nodes: Number.isNaN(maxNodes) ? AppState.promptOptions.max_nodes : maxNodes,
         max_edges: Number.isNaN(maxEdges) ? AppState.promptOptions.max_edges : maxEdges,
@@ -155,6 +225,91 @@ function getPromptOptionsFromUI() {
 
     AppState.promptOptions = options;
     return options;
+}
+
+function getAnalysisPaths(result) {
+    const candidates = result?.candidates || [];
+    const paperPaths = result?.paper_paths || [];
+    const entityPaths = result?.entity_paths || [];
+    return candidates.length > 0 ? candidates : [...paperPaths, ...entityPaths];
+}
+
+function collectPromptTypes(paths) {
+    const nodeTypes = new Set();
+    const edgeTypes = new Set();
+
+    paths.forEach((path) => {
+        (path.nodes || []).forEach((node) => {
+            if (node.label === 'Paper') {
+                nodeTypes.add('Paper');
+            } else {
+                nodeTypes.add(node.entity_type || 'Entity');
+            }
+        });
+        (path.edges || []).forEach((edge) => {
+            if (edge.type) edgeTypes.add(edge.type);
+        });
+    });
+
+    return {
+        nodeTypes: Array.from(nodeTypes),
+        edgeTypes: Array.from(edgeTypes),
+    };
+}
+
+function sortNodeTypes(types) {
+    return [...types].sort((a, b) => {
+        if (a === 'Paper') return -1;
+        if (b === 'Paper') return 1;
+        return a.localeCompare(b);
+    });
+}
+
+function sortEdgeTypes(types) {
+    const order = Object.keys(EDGE_FIELD_OPTIONS);
+    return [...types].sort((a, b) => {
+        const indexA = order.indexOf(a);
+        const indexB = order.indexOf(b);
+        if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+        if (indexA === -1) return 1;
+        if (indexB === -1) return -1;
+        return indexA - indexB;
+    });
+}
+
+function ensurePromptOptionsForTypes(promptOptions, nodeTypes, edgeTypes) {
+    const updated = {
+        ...promptOptions,
+        node_type_fields: { ...promptOptions.node_type_fields },
+        edge_type_fields: { ...promptOptions.edge_type_fields },
+    };
+
+    nodeTypes.forEach((nodeType) => {
+        if (!updated.node_type_fields[nodeType]) {
+            const defaults = nodeType === 'Paper' ? PAPER_FIELD_OPTIONS : ENTITY_FIELD_OPTIONS;
+            updated.node_type_fields[nodeType] = defaults.map(option => option.value);
+        }
+    });
+
+    edgeTypes.forEach((edgeType) => {
+        if (!EDGE_FIELD_OPTIONS[edgeType]) return;
+        if (!updated.edge_type_fields[edgeType]) {
+            updated.edge_type_fields[edgeType] = EDGE_FIELD_OPTIONS[edgeType].map(option => option.value);
+        }
+    });
+
+    return updated;
+}
+
+function renderFieldChecklist(type, options, selected, inputClass, dataAttr) {
+    return options.map((option) => `
+        <label class="prompt-options-checkbox">
+            <input type="checkbox" class="${inputClass}" data-${dataAttr}="${escapeHtml(type)}" value="${option.value}" ${
+        selected.includes(option.value) ? 'checked' : ''
+    }>
+            ${option.label}
+        </label>
+    `).join('');
 }
 
 function getSavedProposalPrompt(proposal) {
@@ -543,10 +698,7 @@ function renderAnalysisResults() {
 
     // candidatesまたはpaper_paths/entity_pathsをチェック
     const result = AppState.analysisResult;
-    const candidates = result?.candidates || [];
-    const paperPaths = result?.paper_paths || [];
-    const entityPaths = result?.entity_paths || [];
-    const allPaths = candidates.length > 0 ? candidates : [...paperPaths, ...entityPaths];
+    const allPaths = getAnalysisPaths(result);
 
     if (!result || allPaths.length === 0) {
         content.innerHTML = `
@@ -559,14 +711,47 @@ function renderAnalysisResults() {
     }
 
     const maxScore = Math.max(...allPaths.map(c => c.score || 0), 1);
-    const promptOptions = AppState.promptOptions;
+    const { nodeTypes, edgeTypes } = collectPromptTypes(allPaths);
+    const promptOptions = ensurePromptOptionsForTypes(AppState.promptOptions, nodeTypes, edgeTypes);
+    AppState.promptOptions = promptOptions;
+
+    const sortedNodeTypes = sortNodeTypes(nodeTypes);
+    const sortedEdgeTypes = sortEdgeTypes(edgeTypes).filter((type) => EDGE_FIELD_OPTIONS[type]);
+
+    const nodeTypeOptionsHtml = sortedNodeTypes.map((nodeType) => {
+        const selected = promptOptions.node_type_fields[nodeType] || [];
+        const fieldOptions = nodeType === 'Paper' ? PAPER_FIELD_OPTIONS : ENTITY_FIELD_OPTIONS;
+        return `
+            <div class="prompt-options-type">
+                <div class="prompt-options-type-title">${escapeHtml(nodeType)}</div>
+                <div class="prompt-options-checklist">
+                    ${renderFieldChecklist(nodeType, fieldOptions, selected, 'prompt-node-field', 'node-type')}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    const edgeTypeOptionsHtml = sortedEdgeTypes.map((edgeType) => {
+        const selected = promptOptions.edge_type_fields[edgeType] || [];
+        const fieldOptions = EDGE_FIELD_OPTIONS[edgeType] || [];
+        return `
+            <div class="prompt-options-type">
+                <div class="prompt-options-type-title">${escapeHtml(edgeType)}</div>
+                <div class="prompt-options-checklist">
+                    ${renderFieldChecklist(edgeType, fieldOptions, selected, 'prompt-edge-field', 'edge-type')}
+                </div>
+            </div>
+        `;
+    }).join('');
 
     const promptOptionsHtml = `
-        <details class="prompt-options-panel" open>
+        <details class="prompt-options-panel">
             <summary class="prompt-options-summary">プロンプト設定</summary>
             <div class="prompt-options-body">
+                <div class="prompt-options-note">初期状態は分析に使った情報をすべて含めます。</div>
                 <div class="prompt-options-group">
                     <label class="prompt-options-label" for="promptScope">スコープ</label>
+                    <div class="prompt-options-help">パスとk-hop近傍のどちらをプロンプトに含めるかを選択します。</div>
                     <select id="promptScope" class="prompt-options-select">
                         <option value="path" ${promptOptions.scope === 'path' ? 'selected' : ''}>パスのみ</option>
                         <option value="k_hop" ${promptOptions.scope === 'k_hop' ? 'selected' : ''}>k-hop 近傍</option>
@@ -575,48 +760,16 @@ function renderAnalysisResults() {
                 </div>
                 <div class="prompt-options-group">
                     <div class="prompt-options-label">ノード情報</div>
-                    <div class="prompt-options-checklist">
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-node-field" value="paper_title" ${promptOptions.node_fields.includes('paper_title') ? 'checked' : ''}>
-                            論文タイトル
-                        </label>
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-node-field" value="paper_summary" ${promptOptions.node_fields.includes('paper_summary') ? 'checked' : ''}>
-                            論文要約
-                        </label>
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-node-field" value="paper_claims" ${promptOptions.node_fields.includes('paper_claims') ? 'checked' : ''}>
-                            論文の主張
-                        </label>
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-node-field" value="entity_type" ${promptOptions.node_fields.includes('entity_type') ? 'checked' : ''}>
-                            Entity種別
-                        </label>
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-node-field" value="entity_description" ${promptOptions.node_fields.includes('entity_description') ? 'checked' : ''}>
-                            Entity説明
-                        </label>
+                    <div class="prompt-options-help">ノード種別ごとに含めたい情報を選びます。</div>
+                    <div class="prompt-options-type-list">
+                        ${nodeTypeOptionsHtml}
                     </div>
                 </div>
                 <div class="prompt-options-group">
                     <div class="prompt-options-label">エッジ情報</div>
-                    <div class="prompt-options-checklist">
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-edge-field" value="type" ${promptOptions.edge_fields.includes('type') ? 'checked' : ''}>
-                            関係タイプ
-                        </label>
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-edge-field" value="citation_type" ${promptOptions.edge_fields.includes('citation_type') ? 'checked' : ''}>
-                            引用種別
-                        </label>
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-edge-field" value="importance_score" ${promptOptions.edge_fields.includes('importance_score') ? 'checked' : ''}>
-                            重要度
-                        </label>
-                        <label class="prompt-options-checkbox">
-                            <input type="checkbox" class="prompt-edge-field" value="context" ${promptOptions.edge_fields.includes('context') ? 'checked' : ''}>
-                            文脈
-                        </label>
+                    <div class="prompt-options-help">エッジ種別ごとに出力する属性を選びます。</div>
+                    <div class="prompt-options-type-list">
+                        ${edgeTypeOptionsHtml}
                     </div>
                 </div>
                 <div class="prompt-options-grid">
@@ -633,14 +786,23 @@ function renderAnalysisResults() {
                         <input type="number" id="promptMaxEdges" min="1" step="1" value="${promptOptions.max_edges}">
                     </label>
                     <label class="prompt-options-field">
-                        <span>k-hop</span>
+                        <span>k-hop 深さ</span>
                         <input type="number" id="promptNeighborK" min="1" step="1" value="${promptOptions.neighbor_k}">
                     </label>
                 </div>
+                <div class="prompt-options-help">パス/ノード/エッジの上限はプロンプトに含める最大数です。</div>
                 <label class="prompt-options-toggle">
                     <input type="checkbox" id="promptInlineEdges" ${promptOptions.include_inline_edges ? 'checked' : ''}>
                     A -(REL)-> B 形式でエッジを表示
                 </label>
+                <div class="prompt-preview-actions" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+                    <button class="btn-secondary" onclick="previewPrompt()" style="width: 100%; padding: 0.5rem;">
+                        プロンプトを作成
+                    </button>
+                </div>
+                <div id="promptPreviewContainer" style="display: none; margin-top: 0.5rem;">
+                    <pre class="prompt-preview-content" style="max-height: 300px; overflow: auto; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem; white-space: pre-wrap; word-break: break-word;"></pre>
+                </div>
             </div>
         </details>
     `;
@@ -998,6 +1160,53 @@ function resetHighlight() {
 }
 
 // ========== 提案生成 ==========
+async function previewPrompt() {
+    if (!AppState.analysisResult) {
+        alert('先に分析を実行してください');
+        return;
+    }
+
+    const container = document.getElementById('promptPreviewContainer');
+    const previewContent = container?.querySelector('.prompt-preview-content');
+    if (!container || !previewContent) return;
+
+    // トグル動作: 表示中なら閉じる
+    if (container.style.display !== 'none') {
+        container.style.display = 'none';
+        return;
+    }
+
+    // ローディング表示
+    container.style.display = 'block';
+    previewContent.textContent = 'プロンプトを生成中...';
+
+    try {
+        const promptOptions = getPromptOptionsFromUI();
+
+        const response = await fetch('/api/propose/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target_paper_id: AppState.selectedPaperId,
+                analysis_result: AppState.analysisResult,
+                num_proposals: 3,
+                prompt_options: promptOptions,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        const result = await response.json();
+        previewContent.textContent = result.prompt || 'プロンプトが生成されませんでした';
+        updateStatus('プロンプトを生成しました');
+    } catch (error) {
+        previewContent.textContent = 'エラー: ' + error.message;
+        updateStatus('プロンプト生成エラー: ' + error.message);
+    }
+}
+
 async function generateProposals() {
     if (!AppState.analysisResult) {
         alert('先に分析を実行してください');

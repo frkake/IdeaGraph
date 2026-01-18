@@ -150,12 +150,19 @@ class PathNode(BaseModel):
     id: str
     label: str
     name: str
+    entity_type: str | None = None
+    description: str | None = None
 
 
 class PathEdge(BaseModel):
     """パスエッジ"""
 
     type: str
+    from_id: str | None = None
+    to_id: str | None = None
+    importance_score: int | None = None
+    citation_type: str | None = None
+    context: str | None = None
 
 
 class RankedPath(BaseModel):
@@ -263,6 +270,44 @@ def propose_ideas(request: ProposeRequest) -> ProposalResult:
             prompt_options=request.prompt_options,
         )
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class PromptPreviewRequest(BaseModel):
+    """プロンプトプレビューリクエスト"""
+
+    target_paper_id: str
+    analysis_result: dict[str, Any]
+    num_proposals: int = 3
+    constraints: dict | None = None
+    prompt_options: PromptExpansionOptions | None = None
+
+
+class PromptPreviewResult(BaseModel):
+    """プロンプトプレビュー結果"""
+
+    prompt: str
+
+
+@app.post("/api/propose/preview")
+def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResult:
+    """提案生成用プロンプトをプレビュー（LLM呼び出しなし）"""
+    from idea_graph.services.analysis import AnalysisResult as ServiceAnalysisResult
+    from idea_graph.services.proposal import ProposalService
+
+    service = ProposalService()
+    try:
+        # dict を ServiceAnalysisResult に変換
+        analysis_result = ServiceAnalysisResult(**request.analysis_result)
+        prompt = service.build_prompt_preview(
+            target_paper_id=request.target_paper_id,
+            analysis_result=analysis_result,
+            num_proposals=request.num_proposals,
+            constraints=request.constraints,
+            prompt_options=request.prompt_options,
+        )
+        return PromptPreviewResult(prompt=prompt)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

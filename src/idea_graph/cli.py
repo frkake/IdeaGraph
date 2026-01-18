@@ -1,6 +1,7 @@
 """CLI エントリーポイント"""
 
 import argparse
+import json
 import logging
 import sys
 from typing import NoReturn, TYPE_CHECKING
@@ -36,23 +37,41 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def _parse_prompt_field_list(raw: str | None) -> list[str]:
+def _parse_prompt_type_fields(raw: str | None) -> dict[str, list[str]] | None:
     if raw is None:
-        return []
-    return [item.strip() for item in raw.split(",") if item.strip()]
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("prompt type fields must be valid JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError("prompt type fields must be a JSON object")
+    normalized: dict[str, list[str]] = {}
+    for key, value in data.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("prompt type field keys must be non-empty strings")
+        if not isinstance(value, list):
+            raise ValueError(f"prompt type fields for {key} must be a list")
+        items = [str(item).strip() for item in value if str(item).strip()]
+        normalized[key] = items
+    return normalized
 
 
 def _build_prompt_options(args: argparse.Namespace) -> dict:
     options = {
         "scope": args.prompt_scope,
-        "node_fields": _parse_prompt_field_list(args.prompt_node_fields),
-        "edge_fields": _parse_prompt_field_list(args.prompt_edge_fields),
         "max_paths": args.prompt_max_paths,
         "max_nodes": args.prompt_max_nodes,
         "max_edges": args.prompt_max_edges,
         "neighbor_k": args.prompt_neighbor_k,
         "include_inline_edges": args.prompt_inline_edges,
     }
+    node_type_fields = _parse_prompt_type_fields(args.prompt_node_type_fields)
+    if node_type_fields is not None:
+        options["node_type_fields"] = node_type_fields
+    edge_type_fields = _parse_prompt_type_fields(args.prompt_edge_type_fields)
+    if edge_type_fields is not None:
+        options["edge_type_fields"] = edge_type_fields
 
     try:
         PromptExpansionOptions(**options)
@@ -1327,14 +1346,14 @@ def main() -> int:
         help="プロンプト展開のスコープ (デフォルト: path)",
     )
     propose_parser.add_argument(
-        "--prompt-node-fields",
-        default="paper_title",
-        help="展開するノード情報 (カンマ区切り)",
+        "--prompt-node-type-fields",
+        default=None,
+        help="ノード種別ごとの展開情報 (JSON)",
     )
     propose_parser.add_argument(
-        "--prompt-edge-fields",
-        default="type",
-        help="展開するエッジ情報 (カンマ区切り)",
+        "--prompt-edge-type-fields",
+        default=None,
+        help="エッジ種別ごとの展開情報 (JSON)",
     )
     propose_parser.add_argument(
         "--prompt-max-paths",

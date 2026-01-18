@@ -197,6 +197,45 @@ Generate diverse ideas that don't overlap. Focus on practical, implementable res
 
         return "\n".join(lines)
 
+    def build_prompt_preview(
+        self,
+        target_paper_id: str,
+        analysis_result: AnalysisResult,
+        num_proposals: int = 3,
+        constraints: dict | None = None,
+        prompt_options: PromptExpansionOptions | dict | None = None,
+    ) -> str:
+        """プロンプトのプレビューを生成（LLM呼び出しなし）
+
+        Args:
+            target_paper_id: ターゲット論文ID
+            analysis_result: 分析結果
+            num_proposals: 提案数
+            constraints: 制約条件
+            prompt_options: プロンプト展開オプション
+
+        Returns:
+            生成されるプロンプト
+
+        Raises:
+            ValueError: 分析結果が空の場合
+        """
+        if not analysis_result.candidates:
+            raise ValueError("Analysis result has no candidates. Run analysis first.")
+
+        paper_context = self._get_paper_context(target_paper_id)
+        if not paper_context:
+            paper_context = {"title": target_paper_id, "summary": "", "claims": [], "entities": []}
+
+        return self._build_prompt(
+            target_paper_id,
+            paper_context,
+            analysis_result,
+            num_proposals,
+            constraints,
+            prompt_options,
+        )
+
     def propose(
         self,
         target_paper_id: str,

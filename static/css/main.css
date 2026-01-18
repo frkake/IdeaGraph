@@ -522,9 +522,45 @@ header h1 {
     gap: 0.35rem;
 }
 
+.prompt-options-note {
+    font-size: 0.7rem;
+    color: #9bb2a6;
+    background: rgba(62, 106, 84, 0.15);
+    border: 1px solid rgba(62, 106, 84, 0.3);
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+}
+
 .prompt-options-label {
     font-size: 0.7rem;
     color: #aaa;
+}
+
+.prompt-options-help {
+    font-size: 0.68rem;
+    color: #777;
+}
+
+.prompt-options-type-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.prompt-options-type {
+    background: var(--bg-secondary);
+    border: 1px solid var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 0.45rem 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.prompt-options-type-title {
+    font-size: 0.7rem;
+    color: #ddd;
+    font-weight: 600;
 }
 
 .prompt-options-checklist {
