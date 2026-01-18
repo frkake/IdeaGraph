@@ -212,7 +212,6 @@ class PromptContextBuilder:
             logger.warning("Target paper published_date not found; skipping future paper filter.")
 
         excluded_node_ids = set(future_paper_ids)
-        excluded_node_ids.add(target_paper_id)
 
         filtered: list[RankedPath] = []
         for path in paths:
@@ -238,7 +237,9 @@ class PromptContextBuilder:
             kept_nodes.append(node)
             kept_node_ids.add(node.id)
 
-        if not kept_nodes:
+        # A "path" with fewer than 2 nodes is not useful in prompt context and is usually
+        # a symptom of upstream filtering/limits.
+        if len(kept_nodes) < 2:
             return None
 
         kept_edges: list[PathEdge] = []
@@ -250,8 +251,10 @@ class PromptContextBuilder:
                 continue
             kept_edges.append(edge)
 
-        if kept_edges and len(kept_edges) != len(kept_nodes) - 1:
-            kept_edges = []
+        # If filtering removed any intermediate node/edge, the remaining nodes no longer form a
+        # valid linear path. Drop it rather than outputting a degenerate "node-only" path.
+        if len(kept_edges) != len(kept_nodes) - 1:
+            return None
 
         return RankedPath(
             nodes=kept_nodes,

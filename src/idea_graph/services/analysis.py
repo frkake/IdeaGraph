@@ -92,6 +92,7 @@ class AnalysisService:
             base_query = """
                 MATCH path = (target:Paper {id: $target_id})-[rels*1..""" + str(multihop_k) + """]->(n)
                 WHERE (n:Paper OR n:Entity)
+                  AND NONE(node IN nodes(path)[1..] WHERE node = target)
                 WITH path, target, n, rels,
                      length(path) AS path_length,
                      // Paper引用関連
