@@ -659,7 +659,7 @@ class PromptContextBuilder:
     ) -> str:
         raw_lines = [node.name]
         for key, value in node.details.items():
-            raw_lines.append(f"{key}: {value}")
+            raw_lines.append(f"{key}={value}")
 
         safe_lines: list[str] = []
         unsafe = False
