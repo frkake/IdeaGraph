@@ -79,6 +79,7 @@ const AppState = {
     proposals: [],
     proposalPrompt: '',
     promptOptions: {
+        graph_format: 'mermaid',
         scope: 'path_plus_k_hop',
         node_type_fields: buildDefaultNodeTypeFields(),
         edge_type_fields: buildDefaultEdgeTypeFields(),
@@ -236,6 +237,7 @@ function computePromptDefaults(result) {
 function getPromptOptionsFromUI() {
     const scopeEl = document.getElementById('promptScope');
     if (!scopeEl) return stripEmptyPromptLimits(AppState.promptOptions);
+    const graphFormatEl = document.getElementById('promptGraphFormat');
 
     const maxPathsEl = document.getElementById('promptMaxPaths');
     const maxNodesEl = document.getElementById('promptMaxNodes');
@@ -252,7 +254,9 @@ function getPromptOptionsFromUI() {
     const maxEdges = maxEdgesRaw ? parseInt(maxEdgesRaw, 10) : null;
     const neighborK = neighborRaw ? parseInt(neighborRaw, 10) : null;
 
+    const graphFormat = graphFormatEl?.value || AppState.promptOptions.graph_format || 'mermaid';
     const options = {
+        graph_format: graphFormat,
         scope: scopeEl.value,
         node_type_fields: collectTypeFieldSelections('.prompt-node-field', 'nodeType'),
         edge_type_fields: collectTypeFieldSelections('.prompt-edge-field', 'edgeType'),
@@ -264,6 +268,7 @@ function getPromptOptionsFromUI() {
     };
 
     const invalid = [];
+    if (!options.graph_format) invalid.push('graph_format');
     if (!options.scope) invalid.push('scope');
     if (maxPathsRaw && (Number.isNaN(maxPaths) || maxPaths < 1)) invalid.push('max_paths');
     if (maxNodesRaw && (Number.isNaN(maxNodes) || maxNodes < 1)) invalid.push('max_nodes');
@@ -826,6 +831,14 @@ function renderAnalysisResults() {
             <summary class="prompt-options-summary">プロンプト設定</summary>
             <div class="prompt-options-body">
                 <div class="prompt-options-note">空欄は分析結果に合わせて自動設定されます。</div>
+                <div class="prompt-options-group">
+                    <label class="prompt-options-label" for="promptGraphFormat">出力形式</label>
+                    <div class="prompt-options-help">分岐構造をMermaidで出力するか、従来のパス形式で出力するかを選択します。</div>
+                    <select id="promptGraphFormat" class="prompt-options-select">
+                        <option value="mermaid" ${promptOptions.graph_format === 'mermaid' ? 'selected' : ''}>Mermaid</option>
+                        <option value="paths" ${promptOptions.graph_format === 'paths' ? 'selected' : ''}>Paths</option>
+                    </select>
+                </div>
                 <div class="prompt-options-group">
                     <label class="prompt-options-label" for="promptScope">スコープ</label>
                     <div class="prompt-options-help">パスとk-hop近傍のどちらをプロンプトに含めるかを選択します。</div>

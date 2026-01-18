@@ -59,6 +59,7 @@ def _parse_prompt_type_fields(raw: str | None) -> dict[str, list[str]] | None:
 
 def _build_prompt_options(args: argparse.Namespace) -> dict:
     options = {
+        "graph_format": args.prompt_graph_format,
         "scope": args.prompt_scope,
         "include_inline_edges": args.prompt_inline_edges,
     }
@@ -1411,6 +1412,12 @@ def main() -> int:
         "--save",
         action="store_true",
         help="提案を保存",
+    )
+    propose_parser.add_argument(
+        "--prompt-graph-format",
+        choices=["mermaid", "paths"],
+        default="mermaid",
+        help="プロンプトのグラフ出力形式 (デフォルト: mermaid)",
     )
     propose_parser.add_argument(
         "--prompt-scope",

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
-
+import re
+import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Iterable
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -35,6 +37,12 @@ ALLOWED_EDGE_FIELDS_BY_TYPE = {
     "ADDRESSES": {"type", "context"},
 }
 ALLOWED_EDGE_TYPES = set(ALLOWED_EDGE_FIELDS_BY_TYPE.keys())
+ALLOWED_GRAPH_FORMATS = {"mermaid", "paths"}
+MERMAID_UNSAFE_CHARS = set('\"\'[](){}|<>`:;`')
+MERMAID_MAX_LABEL_LINES = 6
+MERMAID_MAX_LINE_LENGTH = 80
+MERMAID_MAX_LABEL_LENGTH = 200
+MERMAID_REMOVAL_RATIO_THRESHOLD = 0.4
 
 
 def _dedupe(values: Iterable[str]) -> list[str]:
@@ -51,6 +59,7 @@ def _dedupe(values: Iterable[str]) -> list[str]:
 class PromptExpansionOptions(BaseModel):
     """Prompt expansion configuration."""
 
+    graph_format: str = Field(default="mermaid")
     scope: str = Field(default="path")
     node_type_fields: dict[str, list[str]] = Field(
         default_factory=lambda: {
@@ -72,6 +81,13 @@ class PromptExpansionOptions(BaseModel):
     def validate_scope(cls, value: str) -> str:
         if value not in ALLOWED_SCOPES:
             raise ValueError(f"Invalid scope: {value}")
+        return value
+
+    @field_validator("graph_format")
+    @classmethod
+    def validate_graph_format(cls, value: str) -> str:
+        if value not in ALLOWED_GRAPH_FORMATS:
+            raise ValueError(f"Invalid graph_format: {value}")
         return value
 
     @field_validator("node_type_fields")
@@ -132,6 +148,28 @@ class PromptContextNode(BaseModel):
     published_date: datetime | None = None
 
 
+@dataclass(frozen=True)
+class MergedNode:
+    id: str
+    label: str
+    name: str
+    details: dict[str, str]
+
+
+@dataclass(frozen=True)
+class MergedEdge:
+    from_id: str
+    to_id: str
+    edge_type: str
+    details: dict[str, str]
+
+
+@dataclass
+class MermaidSanitizeStats:
+    removed_chars: int = 0
+    unsafe_label_count: int = 0
+
+
 class PromptContextBuilder:
     """Build prompt context from analysis results and graph lookups."""
 
@@ -144,18 +182,22 @@ class PromptContextBuilder:
         opts = options or PromptExpansionOptions()
         paths = self._select_paths(target_paper_id, analysis_result, opts)
         paths = self._filter_paths(paths, opts, target_paper_id)
+        if opts.graph_format == "paths":
+            return self._build_paths_context(paths, opts)
+        return self._build_mermaid_context(paths, opts)
 
+    def _build_paths_context(self, paths: list[RankedPath], options: PromptExpansionOptions) -> str:
         lines: list[str] = []
         if paths:
             lines.append("### Graph Paths")
             for idx, path in enumerate(paths, 1):
-                formatted = self._format_path(path, opts)
+                formatted = self._format_path(path, options)
                 if formatted:
                     lines.append(f"{idx}. {formatted}")
 
-        if self._has_node_fields(opts):
-            nodes = self._collect_nodes(paths, opts.max_nodes)
-            details = self._format_node_details(nodes, opts)
+        if self._has_node_fields(options):
+            nodes = self._collect_nodes(paths, options.max_nodes)
+            details = self._format_node_details(nodes, options)
             if details:
                 if lines:
                     lines.append("")
@@ -163,6 +205,82 @@ class PromptContextBuilder:
                 lines.extend(details)
 
         return "\n".join(lines).strip()
+
+    def _build_mermaid_context(self, paths: list[RankedPath], options: PromptExpansionOptions) -> str:
+        if not paths:
+            return ""
+
+        try:
+            nodes = self._collect_nodes(paths, options.max_nodes)
+            merged_nodes = self._merge_nodes(nodes, options)
+            if not merged_nodes:
+                return ""
+
+            merged_edges = self._merge_edges(paths, options)
+
+            node_ids = {node.id for node in merged_nodes}
+            filtered_edges: list[MergedEdge] = []
+            for edge in merged_edges:
+                if edge.from_id not in node_ids or edge.to_id not in node_ids:
+                    logger.warning(
+                        "Skipping mermaid edge with missing nodes: %s -> %s (%s)",
+                        edge.from_id,
+                        edge.to_id,
+                        edge.edge_type,
+                    )
+                    continue
+                filtered_edges.append(edge)
+
+            filtered_edges = sorted(
+                filtered_edges,
+                key=lambda edge: (edge.from_id, edge.to_id, edge.edge_type),
+            )
+            if len(filtered_edges) > options.max_edges:
+                logger.warning("Reached max_edges limit (%s); truncating mermaid edges.", options.max_edges)
+                filtered_edges = filtered_edges[: options.max_edges]
+
+            merged_nodes = sorted(merged_nodes, key=lambda node: node.id)
+            id_map = {node.id: f"N{idx}" for idx, node in enumerate(merged_nodes, 1)}
+
+            stats = MermaidSanitizeStats()
+            mermaid_lines = ["```mermaid", "graph LR"]
+
+            for node in merged_nodes:
+                label = self._build_mermaid_node_label(node, stats)
+                if not label:
+                    stats.unsafe_label_count += 1
+                    continue
+                mermaid_lines.append(f'  {id_map[node.id]}["{label}"]')
+
+            if stats.unsafe_label_count:
+                logger.warning(
+                    "Mermaid label sanitization triggered fallback (%s unsafe labels).",
+                    stats.unsafe_label_count,
+                )
+                return self._build_paths_context(paths, options)
+
+            for edge in filtered_edges:
+                label = self._build_mermaid_edge_label(edge, options, stats)
+                from_id = id_map.get(edge.from_id)
+                to_id = id_map.get(edge.to_id)
+                if not from_id or not to_id:
+                    continue
+                if label:
+                    mermaid_lines.append(f"  {from_id} -- {label} --> {to_id}")
+                else:
+                    mermaid_lines.append(f"  {from_id} --> {to_id}")
+
+            if stats.removed_chars:
+                logger.warning(
+                    "Mermaid label sanitization removed %s characters.",
+                    stats.removed_chars,
+                )
+
+            mermaid_lines.append("```")
+            return "\n".join(mermaid_lines)
+        except Exception as exc:
+            logger.warning("Mermaid generation failed; fallback to paths: %s", exc)
+            return self._build_paths_context(paths, options)
 
     def _select_paths(
         self,
@@ -254,6 +372,14 @@ class PromptContextBuilder:
         # If filtering removed any intermediate node/edge, the remaining nodes no longer form a
         # valid linear path. Drop it rather than outputting a degenerate "node-only" path.
         if len(kept_edges) != len(kept_nodes) - 1:
+            if options.graph_format == "mermaid":
+                logger.warning("Mermaid path edge mismatch; omitting edges for path.")
+                return RankedPath(
+                    nodes=kept_nodes,
+                    edges=[],
+                    score=path.score,
+                    score_breakdown=getattr(path, "score_breakdown", None),
+                )
             return None
 
         return RankedPath(
@@ -424,6 +550,158 @@ class PromptContextBuilder:
         if not details:
             return ""
         return "{" + ", ".join(details) + "}"
+
+    def _merge_nodes(
+        self,
+        nodes: list[PromptContextNode],
+        options: PromptExpansionOptions,
+    ) -> list[MergedNode]:
+        merged: list[MergedNode] = []
+        for node in nodes:
+            node_type = self._resolve_node_type(node)
+            fields = self._node_fields_for_type(node_type, options)
+            if not fields:
+                continue
+            details: dict[str, str] = {}
+            if node.label == "Paper":
+                if "paper_title" in fields and node.title and node.title != node.name:
+                    details["Title"] = node.title
+                if "paper_summary" in fields and node.summary:
+                    details["Summary"] = node.summary
+                if "paper_claims" in fields and node.claims:
+                    details["Claims"] = ", ".join(node.claims)
+            else:
+                if "entity_type" in fields and node.entity_type:
+                    details["Type"] = node.entity_type
+                if "entity_description" in fields and node.description:
+                    details["Description"] = node.description
+            merged.append(
+                MergedNode(
+                    id=node.id,
+                    label=node.label,
+                    name=node.name,
+                    details=details,
+                )
+            )
+        return merged
+
+    def _merge_edges(
+        self,
+        paths: list[RankedPath],
+        options: PromptExpansionOptions,
+    ) -> list[MergedEdge]:
+        merged: list[MergedEdge] = []
+        seen: set[tuple[str, str, str]] = set()
+        for path in paths:
+            if path.edges and len(path.edges) != len(path.nodes) - 1:
+                logger.warning("Mermaid path edge mismatch; omitting edges for path.")
+                continue
+            for edge in path.edges:
+                edge_fields = self._edge_fields_for_type(edge.type, options)
+                if not edge_fields:
+                    continue
+                key = (edge.from_id, edge.to_id, edge.type)
+                if key in seen:
+                    continue
+                seen.add(key)
+                details: dict[str, str] = {}
+                if "citation_type" in edge_fields and edge.citation_type:
+                    details["citation_type"] = str(edge.citation_type)
+                if "importance_score" in edge_fields and edge.importance_score is not None:
+                    details["importance_score"] = str(edge.importance_score)
+                if "context" in edge_fields and edge.context:
+                    details["context"] = str(edge.context)
+                merged.append(
+                    MergedEdge(
+                        from_id=edge.from_id,
+                        to_id=edge.to_id,
+                        edge_type=edge.type,
+                        details=details,
+                    )
+                )
+        return merged
+
+    def _sanitize_mermaid_text(self, value: str, stats: MermaidSanitizeStats) -> tuple[str, bool]:
+        if value is None:
+            return "", True
+        text = str(value)
+        removed = 0
+        cleaned: list[str] = []
+        for ch in text:
+            if ch in MERMAID_UNSAFE_CHARS or ch in {"\n", "\r", "\t"}:
+                removed += 1
+                cleaned.append(" ")
+                continue
+            if unicodedata.category(ch) in {"Cc", "Cf"}:
+                removed += 1
+                continue
+            cleaned.append(ch)
+        sanitized = re.sub(r"\s+", " ", "".join(cleaned)).strip()
+        stats.removed_chars += removed
+        if not sanitized:
+            return "", True
+        ratio = removed / max(1, len(text))
+        return sanitized, ratio > MERMAID_REMOVAL_RATIO_THRESHOLD
+
+    def _truncate_mermaid_label(self, text: str, max_length: int) -> str:
+        if len(text) <= max_length:
+            return text
+        if max_length <= 3:
+            return text[:max_length]
+        return text[: max_length - 3].rstrip() + "..."
+
+    def _build_mermaid_node_label(
+        self,
+        node: MergedNode,
+        stats: MermaidSanitizeStats,
+    ) -> str:
+        raw_lines = [node.name]
+        for key, value in node.details.items():
+            raw_lines.append(f"{key}: {value}")
+
+        safe_lines: list[str] = []
+        unsafe = False
+        for raw in raw_lines[:MERMAID_MAX_LABEL_LINES]:
+            sanitized, removed_too_much = self._sanitize_mermaid_text(raw, stats)
+            if removed_too_much:
+                unsafe = True
+            if not sanitized:
+                continue
+            sanitized = self._truncate_mermaid_label(sanitized, MERMAID_MAX_LINE_LENGTH)
+            safe_lines.append(sanitized)
+
+        if not safe_lines:
+            return ""
+        if unsafe:
+            stats.unsafe_label_count += 1
+        label = "<br/>".join(safe_lines)
+        return self._truncate_mermaid_label(label, MERMAID_MAX_LABEL_LENGTH)
+
+    def _build_mermaid_edge_label(
+        self,
+        edge: MergedEdge,
+        options: PromptExpansionOptions,
+        stats: MermaidSanitizeStats,
+    ) -> str:
+        edge_fields = self._edge_fields_for_type(edge.edge_type, options)
+        raw_lines: list[str] = []
+        if "type" in edge_fields:
+            raw_lines.append(edge.edge_type)
+        for key, value in edge.details.items():
+            raw_lines.append(f"{key}={value}")
+
+        safe_lines: list[str] = []
+        for raw in raw_lines[:MERMAID_MAX_LABEL_LINES]:
+            sanitized, _removed_too_much = self._sanitize_mermaid_text(raw, stats)
+            if not sanitized:
+                continue
+            sanitized = self._truncate_mermaid_label(sanitized, MERMAID_MAX_LINE_LENGTH)
+            safe_lines.append(sanitized)
+
+        if not safe_lines:
+            return ""
+        label = "<br/>".join(safe_lines)
+        return self._truncate_mermaid_label(label, MERMAID_MAX_LABEL_LENGTH)
 
     def _collect_nodes(self, paths: list[RankedPath], max_nodes: int) -> list[PromptContextNode]:
         seen: set[str] = set()
