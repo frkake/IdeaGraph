@@ -228,6 +228,8 @@ class Proposal(BaseModel):
     """提案"""
 
     title: str
+    rationale: str
+    research_trends: str
     motivation: str
     method: str
     experiment: Experiment

@@ -588,17 +588,155 @@ header h1 {
     color: #FFC107;
 }
 
-/* ========== 比較ビュー ========== */
-.comparison-view {
-    display: flex;
-    gap: 0.75rem;
-    overflow-x: auto;
-    padding-bottom: 0.5rem;
+/* ========== 提案詳細（モーダル） ========== */
+.proposal-modal {
+    width: min(960px, 92vw);
 }
 
-.comparison-view .proposal-card {
-    min-width: 280px;
-    flex-shrink: 0;
+.proposal-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.proposal-detail-section {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 0.75rem;
+}
+
+.proposal-detail-title {
+    font-size: 0.8rem;
+    color: var(--accent-blue);
+    margin-bottom: 0.4rem;
+    font-weight: bold;
+}
+
+.proposal-detail-text {
+    font-size: 0.85rem;
+    color: #ddd;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+}
+
+.detail-item {
+    background: var(--bg-primary);
+    border: 1px solid var(--bg-tertiary);
+    border-radius: 4px;
+    padding: 0.5rem;
+}
+
+.detail-wide {
+    margin-top: 0.5rem;
+}
+
+.detail-label {
+    font-size: 0.7rem;
+    color: #888;
+    margin-bottom: 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.detail-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.8rem;
+    color: #ccc;
+    line-height: 1.4;
+}
+
+.detail-empty {
+    font-size: 0.8rem;
+    color: #777;
+    font-style: italic;
+}
+
+.detail-code {
+    margin: 0;
+    padding: 0.6rem;
+    background: var(--bg-secondary);
+    color: #cbd5f5;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    border-radius: 4px;
+    border: 1px solid var(--bg-tertiary);
+    overflow-x: auto;
+}
+
+/* ========== 比較ビュー ========== */
+.comparison-view {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.75rem;
+    align-items: start;
+}
+
+.comparison-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.comparison-card-header {
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.comparison-index {
+    font-size: 0.7rem;
+    color: #999;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--bg-primary);
+    border: 1px solid var(--bg-tertiary);
+}
+
+.comparison-title {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #fff;
+}
+
+.comparison-card-body {
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.comparison-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.comparison-section-title {
+    font-size: 0.7rem;
+    color: var(--accent-green);
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+}
+
+.comparison-section-content {
+    font-size: 0.8rem;
+    color: #ccc;
+    line-height: 1.4;
+    white-space: pre-wrap;
 }
 
 /* ========== モーダル ========== */

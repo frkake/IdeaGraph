@@ -14,6 +14,8 @@ const AppState = {
     proposalPrompt: '',
     savedAnalyses: [],
     savedProposals: [],
+    savedProposalGroups: [],
+    savedProposalGroupIndexByKey: {},
 };
 
 // ========== 定数 ==========
@@ -73,6 +75,70 @@ function escapeHtml(text) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function formatInlineList(items) {
+    if (!Array.isArray(items) || items.length === 0) return 'なし';
+    return items.map(item => escapeHtml(item)).join(', ');
+}
+
+function renderList(items, emptyLabel) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return `<div class="detail-empty">${escapeHtml(emptyLabel || 'なし')}</div>`;
+    }
+    return `
+        <ul class="detail-list">
+            ${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+        </ul>
+    `;
+}
+
+function renderTextBlock(text, emptyLabel) {
+    if (!text) {
+        return `<div class="detail-empty">${escapeHtml(emptyLabel || 'なし')}</div>`;
+    }
+    return `<p class="proposal-detail-text">${escapeHtml(text)}</p>`;
+}
+
+function getSavedProposalPrompt(proposal) {
+    return proposal.prompt || (proposal.data && proposal.data.prompt) || '';
+}
+
+function getProposalGroupKey(proposal) {
+    const analysisId = proposal.analysis_id || '';
+    const paperId = proposal.target_paper_id || '';
+    const prompt = getSavedProposalPrompt(proposal);
+    if (analysisId) return `analysis:${analysisId}`;
+    if (prompt) return `prompt:${paperId}:${prompt}`;
+    return `proposal:${proposal.id || ''}`;
+}
+
+function buildProposalGroups(proposals) {
+    const groups = [];
+    const indexByKey = {};
+
+    proposals.forEach((proposal) => {
+        const key = getProposalGroupKey(proposal);
+        if (indexByKey[key] === undefined) {
+            indexByKey[key] = groups.length;
+            groups.push({
+                key: key,
+                target_paper_id: proposal.target_paper_id || '',
+                target_paper_title: proposal.target_paper_title || '',
+                analysis_id: proposal.analysis_id || null,
+                prompt: getSavedProposalPrompt(proposal),
+                saved_at: proposal.saved_at || '',
+                proposals: [],
+            });
+        }
+        const group = groups[indexByKey[key]];
+        group.proposals.push(proposal);
+        if (proposal.saved_at && proposal.saved_at > group.saved_at) {
+            group.saved_at = proposal.saved_at;
+        }
+    });
+
+    return { groups, indexByKey };
 }
 
 function formatScore(score) {
@@ -870,8 +936,11 @@ function renderProposals() {
     ` : '';
 
     let html = `
-        <div class="proposal-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
-            <button class="btn-secondary" onclick="openComparisonModal()" style="flex: 1;">
+        <div class="proposal-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn-primary" onclick="saveAllProposals()" title="提案を全て保存">
+                💾 全て保存
+            </button>
+            <button class="btn-secondary" onclick="openComparisonModal()">
                 比較ビュー
             </button>
             <button class="btn-secondary" onclick="exportProposals('markdown')" title="Markdownでエクスポート">
@@ -926,6 +995,136 @@ function renderProposalCard(proposal, index) {
     `;
 }
 
+function toggleProposalDetails(index) {
+    const existing = document.getElementById('proposalDetailsModal');
+    if (existing) {
+        const sameTarget = existing.dataset.index === String(index);
+        existing.remove();
+        if (sameTarget) return;
+    }
+    openProposalDetailsModal(index);
+}
+
+function openProposalDetailsModal(index) {
+    const proposal = AppState.proposals[index];
+    if (!proposal) return;
+
+    const exp = proposal.experiment || {};
+    const grounding = proposal.grounding || {};
+    const rationaleHtml = proposal.rationale
+        ? `
+            <section class="proposal-detail-section">
+                <div class="proposal-detail-title">提案理由</div>
+                ${renderTextBlock(proposal.rationale)}
+            </section>
+        `
+        : '';
+    const researchTrendsHtml = proposal.research_trends
+        ? `
+            <section class="proposal-detail-section">
+                <div class="proposal-detail-title">研究動向</div>
+                ${renderTextBlock(proposal.research_trends)}
+            </section>
+        `
+        : '';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'proposalDetailsModal';
+    modal.dataset.index = String(index);
+    modal.innerHTML = `
+        <div class="modal proposal-modal">
+            <div class="modal-header">
+                <h2 class="modal-title">提案 #${index + 1}: ${escapeHtml(proposal.title || 'Untitled')}</h2>
+                <button class="modal-close" onclick="closeProposalDetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="proposal-detail">
+                    ${rationaleHtml}
+                    ${researchTrendsHtml}
+                    <section class="proposal-detail-section">
+                        <div class="proposal-detail-title">動機</div>
+                        ${renderTextBlock(proposal.motivation)}
+                    </section>
+                    <section class="proposal-detail-section">
+                        <div class="proposal-detail-title">手法</div>
+                        ${renderTextBlock(proposal.method)}
+                    </section>
+                    <section class="proposal-detail-section">
+                        <div class="proposal-detail-title">実験計画</div>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <div class="detail-label">データセット</div>
+                                ${renderList(exp.datasets)}
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">ベースライン</div>
+                                ${renderList(exp.baselines)}
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">評価指標</div>
+                                ${renderList(exp.metrics)}
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">アブレーション</div>
+                                ${renderList(exp.ablations)}
+                            </div>
+                        </div>
+                        <div class="detail-item detail-wide">
+                            <div class="detail-label">期待結果</div>
+                            ${renderTextBlock(exp.expected_results)}
+                        </div>
+                        <div class="detail-item detail-wide">
+                            <div class="detail-label">失敗時の解釈</div>
+                            ${renderTextBlock(exp.failure_interpretation)}
+                        </div>
+                    </section>
+                    <section class="proposal-detail-section">
+                        <div class="proposal-detail-title">既存研究との差異</div>
+                        ${renderList(proposal.differences)}
+                    </section>
+                    <section class="proposal-detail-section">
+                        <div class="proposal-detail-title">根拠</div>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <div class="detail-label">関連論文</div>
+                                ${renderList(grounding.papers)}
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">関連エンティティ</div>
+                                ${renderList(grounding.entities)}
+                            </div>
+                        </div>
+                        ${grounding.path_mermaid ? `
+                            <div class="detail-item detail-wide">
+                                <div class="detail-label">知識グラフパス</div>
+                                <pre class="detail-code">${escapeHtml(grounding.path_mermaid)}</pre>
+                            </div>
+                        ` : ''}
+                    </section>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeProposalDetailsModal()">閉じる</button>
+                <button class="btn-primary" onclick="saveProposal(${index})">保存</button>
+            </div>
+        </div>
+    `;
+
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeProposalDetailsModal();
+        }
+    });
+
+    document.body.appendChild(modal);
+}
+
+function closeProposalDetailsModal() {
+    const modal = document.getElementById('proposalDetailsModal');
+    if (modal) modal.remove();
+}
+
 function rateProposal(index, rating) {
     const ratingEl = document.querySelector(`.rating[data-proposal="${index}"]`);
     if (!ratingEl) return;
@@ -960,39 +1159,41 @@ function openComparisonModal() {
             </div>
             <div class="modal-body">
                 <div class="comparison-view">
-                    ${AppState.proposals.map((proposal, i) => `
-                        <div class="proposal-card">
-                            <div class="proposal-card-header">
-                                <span class="proposal-title">${proposal.title}</span>
-                            </div>
-                            <div class="proposal-card-body">
-                                <div class="proposal-section">
-                                    <div class="proposal-section-title">動機</div>
-                                    <div class="proposal-section-content">${proposal.motivation}</div>
+                    ${AppState.proposals.map((proposal, i) => {
+                        const exp = proposal.experiment || {};
+                        return `
+                            <article class="comparison-card">
+                                <div class="comparison-card-header">
+                                    <span class="comparison-index">#${i + 1}</span>
+                                    <span class="comparison-title">${escapeHtml(proposal.title || 'Untitled')}</span>
                                 </div>
-                                <div class="proposal-section">
-                                    <div class="proposal-section-title">手法</div>
-                                    <div class="proposal-section-content">${proposal.method}</div>
-                                </div>
-                                <div class="proposal-section">
-                                    <div class="proposal-section-title">実験計画</div>
-                                    <div class="proposal-section-content">
-                                        <strong>データセット:</strong> ${proposal.experiment.datasets.join(', ')}<br>
-                                        <strong>ベースライン:</strong> ${proposal.experiment.baselines.join(', ')}<br>
-                                        <strong>評価指標:</strong> ${proposal.experiment.metrics.join(', ')}
+                                <div class="comparison-card-body">
+                                    <div class="comparison-section">
+                                        <div class="comparison-section-title">動機</div>
+                                        <div class="comparison-section-content">${escapeHtml(proposal.motivation || '')}</div>
+                                    </div>
+                                    <div class="comparison-section">
+                                        <div class="comparison-section-title">手法</div>
+                                        <div class="comparison-section-content">${escapeHtml(proposal.method || '')}</div>
+                                    </div>
+                                    <div class="comparison-section">
+                                        <div class="comparison-section-title">実験計画</div>
+                                        <div class="comparison-section-content">
+                                            <div><strong>データセット:</strong> ${formatInlineList(exp.datasets)}</div>
+                                            <div><strong>ベースライン:</strong> ${formatInlineList(exp.baselines)}</div>
+                                            <div><strong>評価指標:</strong> ${formatInlineList(exp.metrics)}</div>
+                                        </div>
+                                    </div>
+                                    <div class="comparison-section">
+                                        <div class="comparison-section-title">既存研究との差異</div>
+                                        <div class="comparison-section-content">
+                                            ${renderList(proposal.differences, 'なし')}
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="proposal-section">
-                                    <div class="proposal-section-title">既存研究との差異</div>
-                                    <div class="proposal-section-content">
-                                        <ul style="margin: 0; padding-left: 1.2rem;">
-                                            ${proposal.differences.map(d => `<li>${d}</li>`).join('')}
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('')}
+                            </article>
+                        `;
+                    }).join('')}
                 </div>
             </div>
             <div class="modal-footer">
@@ -1129,23 +1330,39 @@ function renderHistory() {
     }
 
     if (AppState.savedProposals.length > 0) {
+        const grouping = buildProposalGroups(AppState.savedProposals);
+        AppState.savedProposalGroups = grouping.groups;
+        AppState.savedProposalGroupIndexByKey = grouping.indexByKey;
+
         html += `<h4 style="font-size: 0.85rem; color: var(--accent-blue); margin: 1rem 0 0.5rem; display: flex; align-items: center; gap: 0.3rem;">💡 提案履歴 (${AppState.savedProposals.length})</h4>`;
         html += `<div class="history-list">`;
         AppState.savedProposals.forEach((proposal, i) => {
             const title = proposal.title || '無題の提案';
             const date = proposal.saved_at ? new Date(proposal.saved_at).toLocaleString('ja-JP', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
             const rating = proposal.rating ? '★'.repeat(proposal.rating) : '';
+            const groupKey = getProposalGroupKey(proposal);
+            const groupIndex = AppState.savedProposalGroupIndexByKey[groupKey];
+            const group = AppState.savedProposalGroups[groupIndex];
+            const groupCount = group ? group.proposals.length : 1;
+            const groupBadge = groupCount > 1 ? ` · ${groupCount}件` : '';
+            const groupAction = groupCount > 1
+                ? `<button class="btn-icon" onclick="event.stopPropagation(); loadProposalGroup(${groupIndex})" title="提案セットを開く (${groupCount}件)" style="color: #88b;">📦</button>`
+                : '';
             html += `
                 <div class="history-item">
                     <div class="history-item-info" onclick="loadProposal(${i})" style="flex: 1; cursor: pointer;">
                         <div class="history-item-title">${truncateText(title, 24)}</div>
-                        <div class="history-item-date">${date} ${rating}</div>
+                        <div class="history-item-date">${date} ${rating}${groupBadge}</div>
                     </div>
+                    ${groupAction}
                     <button class="btn-icon" onclick="event.stopPropagation(); deleteProposal('${proposal.id}')" title="削除" style="color: #888;">✕</button>
                 </div>
             `;
         });
         html += `</div>`;
+    } else {
+        AppState.savedProposalGroups = [];
+        AppState.savedProposalGroupIndexByKey = {};
     }
 
     content.innerHTML = html;
@@ -1224,6 +1441,53 @@ async function saveAnalysis() {
     }
 }
 
+async function saveAllProposals() {
+    if (!AppState.proposals || !AppState.proposals.length) {
+        alert('保存する提案がありません');
+        return;
+    }
+    if (!AppState.selectedPaperId) {
+        alert('論文IDが未設定です');
+        return;
+    }
+
+    updateStatus('提案を保存中...');
+    let savedCount = 0;
+    let failedCount = 0;
+
+    for (const proposal of AppState.proposals) {
+        try {
+            const response = await fetch('/api/storage/proposals', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_paper_id: AppState.selectedPaperId,
+                    target_paper_title: AppState.selectedPaperTitle,
+                    proposal: proposal,
+                    prompt: AppState.proposalPrompt || null,
+                    rating: proposal.rating || null,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+            savedCount += 1;
+        } catch (error) {
+            failedCount += 1;
+            console.error('保存エラー:', error);
+        }
+    }
+
+    if (failedCount === 0) {
+        updateStatus(`提案を保存しました (${savedCount}件)`);
+    } else {
+        updateStatus(`保存完了: ${savedCount}件, 失敗: ${failedCount}件`);
+    }
+
+    await loadSavedHistory();
+}
+
 async function saveProposal(index) {
     if (!AppState.proposals[index]) return;
 
@@ -1241,7 +1505,7 @@ async function saveProposal(index) {
             }),
         });
 
-        if (!response.ok) throw new Error('保存に失敗しました');
+        if (!response.ok) throw new Error(await response.text());
 
         const saved = await response.json();
         updateStatus(`提案を保存しました (ID: ${saved.id})`);
@@ -1306,12 +1570,25 @@ async function loadProposal(index) {
         const proposal = await response.json();
         AppState.proposals = [proposal.data];
         AppState.selectedPaperId = proposal.target_paper_id;
+        AppState.selectedPaperTitle = proposal.target_paper_title;
         AppState.proposalPrompt = proposal.prompt || (proposal.data && proposal.data.prompt) || '';
         switchTab('propose');
         updateStatus(`提案を読み込みました: ${proposal.title}`);
     } catch (error) {
         updateStatus('読み込みエラー: ' + error.message);
     }
+}
+
+function loadProposalGroup(groupIndex) {
+    const group = AppState.savedProposalGroups[groupIndex];
+    if (!group || !group.proposals.length) return;
+
+    AppState.proposals = group.proposals.map((proposal) => proposal.data);
+    AppState.selectedPaperId = group.target_paper_id;
+    AppState.selectedPaperTitle = group.target_paper_title;
+    AppState.proposalPrompt = group.prompt || '';
+    switchTab('propose');
+    updateStatus(`提案セットを読み込みました: ${group.target_paper_id}`);
 }
 
 // ========== ノード・エッジ情報表示 ==========
