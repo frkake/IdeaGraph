@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
 from idea_graph.services.evaluation import EvaluationService
+from idea_graph.services.prompt_context import PromptExpansionOptions
 
 # パス設定
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -204,6 +205,7 @@ class ProposeRequest(BaseModel):
     analysis_result: AnalysisResult
     num_proposals: int = 3
     constraints: dict | None = None
+    prompt_options: PromptExpansionOptions | None = None
 
 
 class Experiment(BaseModel):
@@ -258,6 +260,7 @@ def propose_ideas(request: ProposeRequest) -> ProposalResult:
             analysis_result=request.analysis_result,
             num_proposals=request.num_proposals,
             constraints=request.constraints,
+            prompt_options=request.prompt_options,
         )
         return result
     except ValueError as e:
@@ -553,6 +556,7 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
         include_experiment=request.include_experiment,
         target_paper_content=target_paper_content,
         target_paper_title=target_paper_title,
+        target_paper_id=request.target_paper_id,
     )
 
     # レスポンスを構築

@@ -102,6 +102,25 @@ class RankingEntry(BaseModel):
     )
 
 
+class TargetPaperExtraction(BaseModel):
+    """ターゲット論文から抽出されたアイデア情報"""
+
+    paper_id: str | None = Field(default=None, description="ターゲット論文のID")
+    paper_title: str | None = Field(default=None, description="ターゲット論文のタイトル")
+    extracted_title: str = Field(description="抽出されたアイデアのタイトル")
+    motivation: str = Field(description="動機・問題設定")
+    method: str = Field(description="提案手法")
+    key_differences: list[str] = Field(description="既存研究との主要な差異")
+    # 実験計画フィールド（後方互換性のためデフォルト値を設定）
+    datasets: list[str] = Field(default_factory=list, description="使用データセット")
+    baselines: list[str] = Field(default_factory=list, description="比較ベースライン")
+    metrics: list[str] = Field(default_factory=list, description="評価指標")
+    ablations: list[str] = Field(default_factory=list, description="アブレーション実験")
+    main_results: str = Field(default="", description="主要な実験結果")
+    extracted_at: datetime = Field(description="抽出日時")
+    extraction_model: str = Field(description="抽出に使用したLLMモデル名")
+
+
 class EvaluationResult(BaseModel):
     """評価結果（評価セッション全体）"""
 
@@ -111,3 +130,7 @@ class EvaluationResult(BaseModel):
     pairwise_results: list[PairwiseResult] = Field(description="ペアワイズ比較結果")
     elo_ratings: EloRatings = Field(description="ELOレーティング")
     ranking: list[RankingEntry] = Field(description="ランキング表")
+    target_paper_extraction: TargetPaperExtraction | None = Field(
+        default=None,
+        description="ターゲット論文から抽出されたアイデア情報",
+    )

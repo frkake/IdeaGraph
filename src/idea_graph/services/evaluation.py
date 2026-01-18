@@ -21,6 +21,7 @@ from idea_graph.models.evaluation import (
     MetricScore,
     PairwiseResult,
     RankingEntry,
+    TargetPaperExtraction,
     Winner,
 )
 
@@ -552,6 +553,12 @@ class LLMIdeaExtraction(BaseModel):
     motivation: str = Field(description="The problem being addressed and why it matters")
     method: str = Field(description="The proposed approach/solution")
     key_differences: list[str] = Field(description="Key differences from prior work (3-5 items)")
+    # 実験計画フィールド
+    datasets: list[str] = Field(description="Datasets used in experiments")
+    baselines: list[str] = Field(description="Baseline methods compared against")
+    metrics: list[str] = Field(description="Evaluation metrics used")
+    ablations: list[str] = Field(description="Ablation studies conducted")
+    main_results: str = Field(description="Key experimental results and findings")
 
 
 class IdeaExtractor:
@@ -564,6 +571,11 @@ Focus on:
 2. **motivation**: The problem being addressed and its significance
 3. **method**: The proposed approach or solution
 4. **key_differences**: How this work differs from prior approaches (3-5 bullet points)
+5. **datasets**: List of datasets used in experiments
+6. **baselines**: Methods compared against in experiments
+7. **metrics**: Evaluation metrics used (e.g., accuracy, MPJPE, F1)
+8. **ablations**: Ablation studies conducted (what components were tested)
+9. **main_results**: Key experimental findings and improvements over baselines
 
 Paper content:
 {content}
@@ -624,22 +636,22 @@ def convert_extraction_to_proposal(
 
     return Proposal(
         title=paper_title or extraction.title,
-        rationale="Original paper idea extracted for comparison",
-        research_trends="N/A (original paper)",
+        rationale="Original paper contribution extracted for comparison",
+        research_trends="N/A (original paper - represents current state)",
         motivation=extraction.motivation,
         method=extraction.method,
         experiment=Experiment(
-            datasets=[],
-            baselines=[],
-            metrics=[],
-            ablations=[],
-            expected_results="N/A (original paper)",
-            failure_interpretation="N/A (original paper)",
+            datasets=extraction.datasets,
+            baselines=extraction.baselines,
+            metrics=extraction.metrics,
+            ablations=extraction.ablations,
+            expected_results=extraction.main_results,
+            failure_interpretation="N/A (original paper - results are actual)",
         ),
         grounding=Grounding(
             papers=[],
             entities=[],
-            path_mermaid="graph LR\n  A[Original Paper]",
+            path_mermaid="graph LR\n  A[Target Paper]",
         ),
         differences=extraction.key_differences,
     )
@@ -666,6 +678,10 @@ class EvaluationService:
         self.model_name = model_name or settings.openai_model
         self.output_dir = output_dir or (settings.cache_dir / "evaluations")
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # ターゲット論文抽出の保存ディレクトリ
+        self.target_extractions_dir = settings.cache_dir / "proposals" / "target"
+        self.target_extractions_dir.mkdir(parents=True, exist_ok=True)
 
         self._comparator = None
         self._experiment_comparator = None
@@ -704,6 +720,7 @@ class EvaluationService:
         include_experiment: bool = True,
         target_paper_content: str | None = None,
         target_paper_title: str | None = None,
+        target_paper_id: str | None = None,
     ) -> EvaluationResult:
         """提案群を評価してランキングを生成
 
@@ -712,6 +729,7 @@ class EvaluationService:
             include_experiment: 実験計画評価を含めるかどうか
             target_paper_content: ターゲット論文の全文テキスト（オプション）
             target_paper_title: ターゲット論文のタイトル（オプション）
+            target_paper_id: ターゲット論文のID（例：arxiv ID）（オプション）
 
         Returns:
             評価結果
@@ -719,12 +737,33 @@ class EvaluationService:
         # 提案リストをコピー（元のリストを変更しない）
         all_proposals = list(proposals)
         target_paper_idea_id: str | None = None
+        target_paper_extraction: TargetPaperExtraction | None = None
 
         # ターゲット論文がある場合、アイデアを抽出して追加
         if target_paper_content:
             logger.info("Extracting idea from target paper for comparison")
             extractor = IdeaExtractor(model_name=self.model_name)
             extraction = extractor.extract_from_text(target_paper_content)
+
+            # 抽出データを保存用に変換
+            target_paper_extraction = TargetPaperExtraction(
+                paper_id=target_paper_id or TARGET_PAPER_IDEA_ID,
+                paper_title=target_paper_title,
+                extracted_title=extraction.title,
+                motivation=extraction.motivation,
+                method=extraction.method,
+                key_differences=extraction.key_differences,
+                datasets=extraction.datasets,
+                baselines=extraction.baselines,
+                metrics=extraction.metrics,
+                ablations=extraction.ablations,
+                main_results=extraction.main_results,
+                extracted_at=datetime.now(),
+                extraction_model=self.model_name,
+            )
+
+            # 抽出結果をファイルに保存
+            self.save_target_extraction(target_paper_extraction)
 
             # Proposal形式に変換
             target_proposal = convert_extraction_to_proposal(
@@ -758,14 +797,10 @@ class EvaluationService:
             result = self.comparator.compare(proposal_a, proposal_b, id_a, id_b)
 
             # 実験計画比較（オプション）
-            # ターゲット論文は実験計画を持たないのでスキップ
+            # ターゲット論文も実験計画情報を抽出しているため比較対象に含める
             if include_experiment:
-                is_target_comparison = (
-                    id_a == TARGET_PAPER_IDEA_ID or id_b == TARGET_PAPER_IDEA_ID
-                )
-                if not is_target_comparison:
-                    exp_scores = self.experiment_comparator.compare(proposal_a, proposal_b)
-                    result.experiment_scores = exp_scores
+                exp_scores = self.experiment_comparator.compare(proposal_a, proposal_b)
+                result.experiment_scores = exp_scores
 
             pairwise_results.append(result)
 
@@ -791,6 +826,7 @@ class EvaluationService:
             pairwise_results=pairwise_results,
             elo_ratings=elo_ratings,
             ranking=ranking,
+            target_paper_extraction=target_paper_extraction,
         )
 
         logger.info(f"Evaluation completed. Top ranked: {ranking[0].idea_title if ranking else 'N/A'}")
@@ -830,6 +866,42 @@ class EvaluationService:
             評価結果
         """
         return EvaluationResult.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def save_target_extraction(
+        self,
+        extraction: TargetPaperExtraction,
+        filename: str | None = None,
+    ) -> Path:
+        """ターゲット論文の抽出結果をJSONファイルに保存
+
+        Args:
+            extraction: ターゲット論文の抽出結果
+            filename: ファイル名（省略時は日時から生成）
+
+        Returns:
+            保存先のパス
+        """
+        safe_paper_id = None
+        if extraction.paper_id:
+            safe_paper_id = extraction.paper_id.replace("/", "_").replace(":", "_")
+
+        if filename is None:
+            timestamp = extraction.extracted_at.strftime("%Y%m%d_%H%M%S")
+            filename = f"target_extraction_{timestamp}.json"
+
+        paper_dir = self.target_extractions_dir
+        if safe_paper_id:
+            paper_dir = self.target_extractions_dir / safe_paper_id
+            paper_dir.mkdir(parents=True, exist_ok=True)
+
+        output_path = paper_dir / filename
+        output_path.write_text(
+            extraction.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+        logger.info(f"Saved target paper extraction to {output_path}")
+        return output_path
 
     def generate_markdown_report(self, result: EvaluationResult) -> str:
         """評価結果をMarkdownレポートとして生成
@@ -879,6 +951,76 @@ class EvaluationService:
             f"Total comparisons: {len(result.pairwise_results)}",
             "",
         ])
+
+        # ターゲット論文の抽出情報セクション
+        if result.target_paper_extraction:
+            ext = result.target_paper_extraction
+            lines.extend([
+                "## Target Paper Extraction",
+                "",
+                f"**Paper ID**: {ext.paper_id or 'N/A'}",
+                f"**Paper Title**: {ext.paper_title or 'N/A'}",
+                f"**Extracted at**: {ext.extracted_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                f"**Extraction Model**: {ext.extraction_model}",
+                "",
+                "### Extracted Idea",
+                "",
+                f"**Title**: {ext.extracted_title}",
+                "",
+                "**Motivation**:",
+                "",
+                ext.motivation,
+                "",
+                "**Method**:",
+                "",
+                ext.method,
+                "",
+                "**Key Differences from Prior Work**:",
+                "",
+            ])
+            for diff in ext.key_differences:
+                lines.append(f"- {diff}")
+            lines.append("")
+
+            # 実験計画情報セクション
+            lines.extend([
+                "### Experiment Plan",
+                "",
+            ])
+            if ext.datasets:
+                lines.append(f"**Datasets**: {', '.join(ext.datasets)}")
+            else:
+                lines.append("**Datasets**: N/A")
+            lines.append("")
+
+            if ext.baselines:
+                lines.append(f"**Baselines**: {', '.join(ext.baselines)}")
+            else:
+                lines.append("**Baselines**: N/A")
+            lines.append("")
+
+            if ext.metrics:
+                lines.append(f"**Metrics**: {', '.join(ext.metrics)}")
+            else:
+                lines.append("**Metrics**: N/A")
+            lines.append("")
+
+            if ext.ablations:
+                lines.append("**Ablation Studies**:")
+                lines.append("")
+                for abl in ext.ablations:
+                    lines.append(f"- {abl}")
+            else:
+                lines.append("**Ablation Studies**: N/A")
+            lines.append("")
+
+            if ext.main_results:
+                lines.append("**Main Results**:")
+                lines.append("")
+                lines.append(ext.main_results)
+            else:
+                lines.append("**Main Results**: N/A")
+            lines.append("")
 
         return "\n".join(lines)
 

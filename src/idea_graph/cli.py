@@ -13,8 +13,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
+from pydantic import ValidationError
+
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
+from idea_graph.services.prompt_context import PromptExpansionOptions
 
 console = Console()
 
@@ -31,6 +34,32 @@ def setup_logging(verbose: bool = False) -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler()],
     )
+
+
+def _parse_prompt_field_list(raw: str | None) -> list[str]:
+    if raw is None:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _build_prompt_options(args: argparse.Namespace) -> dict:
+    options = {
+        "scope": args.prompt_scope,
+        "node_fields": _parse_prompt_field_list(args.prompt_node_fields),
+        "edge_fields": _parse_prompt_field_list(args.prompt_edge_fields),
+        "max_paths": args.prompt_max_paths,
+        "max_nodes": args.prompt_max_nodes,
+        "max_edges": args.prompt_max_edges,
+        "neighbor_k": args.prompt_neighbor_k,
+        "include_inline_edges": args.prompt_inline_edges,
+    }
+
+    try:
+        PromptExpansionOptions(**options)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid prompt options: {exc}") from exc
+
+    return options
 
 
 def _print_analysis_json(result: "AnalysisResult") -> None:
@@ -834,10 +863,17 @@ def cmd_propose(args: argparse.Namespace) -> int:
     proposal_service = ProposalService()
 
     try:
+        prompt_options = _build_prompt_options(args)
+    except ValueError as e:
+        logging.error(str(e))
+        return 1
+
+    try:
         proposal_result = proposal_service.propose(
             target_paper_id=args.paper_id,
             analysis_result=analysis_result,
             num_proposals=args.num_proposals,
+            prompt_options=prompt_options,
         )
     except ValueError as e:
         logging.error(str(e))
@@ -1057,6 +1093,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     # ターゲット論文情報を追跡
     target_paper_content: str | None = None
     target_paper_title: str | None = None
+    target_paper_id: str | None = None
 
     try:
         data = json.loads(proposals_path.read_text(encoding="utf-8"))
@@ -1069,12 +1106,11 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             if getattr(args, "include_target", False):
                 # target_paper（新形式）またはtarget_paper_id（旧形式）から取得
                 target_info = data.get("target_paper")
-                target_paper_id = None
 
                 if target_info and isinstance(target_info, dict):
                     target_paper_id = target_info.get("id")
                     target_paper_title = target_info.get("title")
-                elif "target_paper_id" in data:
+                if not target_paper_id and "target_paper_id" in data:
                     target_paper_id = data["target_paper_id"]
 
                 if target_paper_id:
@@ -1123,6 +1159,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             include_experiment=not args.no_experiment,
             target_paper_content=target_paper_content,
             target_paper_title=target_paper_title,
+            target_paper_id=target_paper_id,
         )
         progress.update(task, completed=True)
 
@@ -1282,6 +1319,59 @@ def main() -> int:
         "--save",
         action="store_true",
         help="提案を保存",
+    )
+    propose_parser.add_argument(
+        "--prompt-scope",
+        choices=["path", "k_hop", "path_plus_k_hop"],
+        default="path",
+        help="プロンプト展開のスコープ (デフォルト: path)",
+    )
+    propose_parser.add_argument(
+        "--prompt-node-fields",
+        default="paper_title",
+        help="展開するノード情報 (カンマ区切り)",
+    )
+    propose_parser.add_argument(
+        "--prompt-edge-fields",
+        default="type",
+        help="展開するエッジ情報 (カンマ区切り)",
+    )
+    propose_parser.add_argument(
+        "--prompt-max-paths",
+        type=int,
+        default=5,
+        help="展開するパス数上限 (デフォルト: 5)",
+    )
+    propose_parser.add_argument(
+        "--prompt-max-nodes",
+        type=int,
+        default=50,
+        help="展開するノード数上限 (デフォルト: 50)",
+    )
+    propose_parser.add_argument(
+        "--prompt-max-edges",
+        type=int,
+        default=100,
+        help="展開するエッジ数上限 (デフォルト: 100)",
+    )
+    propose_parser.add_argument(
+        "--prompt-neighbor-k",
+        type=int,
+        default=2,
+        help="k-hop 近傍の深さ (デフォルト: 2)",
+    )
+    propose_parser.add_argument(
+        "--prompt-inline-edges",
+        dest="prompt_inline_edges",
+        action="store_true",
+        default=True,
+        help="A -(REL)-> B 形式でエッジを展開する",
+    )
+    propose_parser.add_argument(
+        "--prompt-no-inline-edges",
+        dest="prompt_inline_edges",
+        action="store_false",
+        help="エッジのインライン展開を無効化する",
     )
 
     # evaluate コマンド

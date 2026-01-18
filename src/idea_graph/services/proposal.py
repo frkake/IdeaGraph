@@ -5,11 +5,12 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
 from idea_graph.services.analysis import AnalysisResult, PathNode
+from idea_graph.services.prompt_context import PromptContextBuilder, PromptExpansionOptions
 
 logger = logging.getLogger(__name__)
 
@@ -111,22 +112,37 @@ class ProposalService:
                 }
             return {}
 
+    def _resolve_prompt_options(
+        self,
+        prompt_options: PromptExpansionOptions | dict | None,
+    ) -> PromptExpansionOptions:
+        if prompt_options is None:
+            return PromptExpansionOptions()
+        if isinstance(prompt_options, PromptExpansionOptions):
+            return prompt_options
+        if isinstance(prompt_options, dict):
+            try:
+                return PromptExpansionOptions(**prompt_options)
+            except ValidationError as exc:
+                raise ValueError(f"Invalid prompt options: {exc}") from exc
+        raise ValueError("prompt_options must be a dict or PromptExpansionOptions")
+
     def _build_prompt(
         self,
+        target_paper_id: str,
         paper_context: dict[str, Any],
         analysis_result: AnalysisResult,
         num_proposals: int,
         constraints: dict | None,
+        prompt_options: PromptExpansionOptions | dict | None = None,
     ) -> str:
         """プロンプトを構築"""
-        # 分析結果から候補を整理
-        candidates_text = []
-        for i, path in enumerate(analysis_result.candidates[:5], 1):
-            nodes_text = " -> ".join([n.name for n in path.nodes])
-            edges_text = ", ".join([e.type for e in path.edges])
-            candidates_text.append(
-                f"{i}. Path: {nodes_text}\n   Relations: {edges_text}\n   Score: {path.score:.1f}"
-            )
+        options = self._resolve_prompt_options(prompt_options)
+        graph_context = PromptContextBuilder().build_context(
+            target_paper_id,
+            analysis_result,
+            options,
+        )
 
         constraints_text = ""
         if constraints:
@@ -134,8 +150,8 @@ class ProposalService:
 
         prompt = f"""You are an AI research advisor. Based on the following analysis of research papers, propose {num_proposals} novel research ideas.
 
-## Related Papers/Entities (from multi-hop analysis)
-{chr(10).join(candidates_text)}
+## Graph Context
+{graph_context or 'No graph context available'}
 
 ## Constraints
 {constraints_text or 'No specific constraints'}
@@ -187,6 +203,7 @@ Generate diverse ideas that don't overlap. Focus on practical, implementable res
         analysis_result: AnalysisResult,
         num_proposals: int = 3,
         constraints: dict | None = None,
+        prompt_options: PromptExpansionOptions | dict | None = None,
     ) -> ProposalResult:
         """研究アイデアを提案
 
@@ -212,7 +229,12 @@ Generate diverse ideas that don't overlap. Focus on practical, implementable res
 
         # プロンプトを構築
         prompt = self._build_prompt(
-            paper_context, analysis_result, num_proposals, constraints
+            target_paper_id,
+            paper_context,
+            analysis_result,
+            num_proposals,
+            constraints,
+            prompt_options,
         )
 
         # 構造化出力で生成

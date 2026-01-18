@@ -12,6 +12,16 @@ const AppState = {
     analysisResult: null,
     proposals: [],
     proposalPrompt: '',
+    promptOptions: {
+        scope: 'path',
+        node_fields: ['paper_title'],
+        edge_fields: ['type'],
+        max_paths: 5,
+        max_nodes: 50,
+        max_edges: 100,
+        neighbor_k: 2,
+        include_inline_edges: true,
+    },
     evaluationResult: null,
     savedAnalyses: [],
     savedProposals: [],
@@ -99,6 +109,52 @@ function renderTextBlock(text, emptyLabel) {
         return `<div class="detail-empty">${escapeHtml(emptyLabel || 'なし')}</div>`;
     }
     return `<p class="proposal-detail-text">${escapeHtml(text)}</p>`;
+}
+
+function getCheckedValues(selector) {
+    return Array.from(document.querySelectorAll(selector))
+        .map(el => el.value)
+        .filter(Boolean);
+}
+
+function getPromptOptionsFromUI() {
+    const scopeEl = document.getElementById('promptScope');
+    if (!scopeEl) return AppState.promptOptions;
+
+    const maxPathsEl = document.getElementById('promptMaxPaths');
+    const maxNodesEl = document.getElementById('promptMaxNodes');
+    const maxEdgesEl = document.getElementById('promptMaxEdges');
+    const neighborEl = document.getElementById('promptNeighborK');
+    const inlineEdgesEl = document.getElementById('promptInlineEdges');
+
+    const maxPaths = parseInt(maxPathsEl?.value, 10);
+    const maxNodes = parseInt(maxNodesEl?.value, 10);
+    const maxEdges = parseInt(maxEdgesEl?.value, 10);
+    const neighborK = parseInt(neighborEl?.value, 10);
+
+    const options = {
+        scope: scopeEl.value,
+        node_fields: getCheckedValues('.prompt-node-field:checked'),
+        edge_fields: getCheckedValues('.prompt-edge-field:checked'),
+        max_paths: Number.isNaN(maxPaths) ? AppState.promptOptions.max_paths : maxPaths,
+        max_nodes: Number.isNaN(maxNodes) ? AppState.promptOptions.max_nodes : maxNodes,
+        max_edges: Number.isNaN(maxEdges) ? AppState.promptOptions.max_edges : maxEdges,
+        neighbor_k: Number.isNaN(neighborK) ? AppState.promptOptions.neighbor_k : neighborK,
+        include_inline_edges: inlineEdgesEl ? inlineEdgesEl.checked : true,
+    };
+
+    const invalid = [];
+    if (!options.scope) invalid.push('scope');
+    if (options.max_paths < 1) invalid.push('max_paths');
+    if (options.max_nodes < 1) invalid.push('max_nodes');
+    if (options.max_edges < 1) invalid.push('max_edges');
+    if (options.neighbor_k < 1) invalid.push('neighbor_k');
+    if (invalid.length) {
+        throw new Error(`プロンプト設定が不正です: ${invalid.join(', ')}`);
+    }
+
+    AppState.promptOptions = options;
+    return options;
 }
 
 function getSavedProposalPrompt(proposal) {
@@ -464,6 +520,9 @@ async function runAnalysis() {
         // 分析タブに切り替えて結果表示
         switchTab('analyze');
 
+        // 自動保存
+        await saveAnalysis();
+
     } catch (error) {
         updateStatus('分析エラー: ' + error.message);
         if (content) {
@@ -500,6 +559,91 @@ function renderAnalysisResults() {
     }
 
     const maxScore = Math.max(...allPaths.map(c => c.score || 0), 1);
+    const promptOptions = AppState.promptOptions;
+
+    const promptOptionsHtml = `
+        <details class="prompt-options-panel" open>
+            <summary class="prompt-options-summary">プロンプト設定</summary>
+            <div class="prompt-options-body">
+                <div class="prompt-options-group">
+                    <label class="prompt-options-label" for="promptScope">スコープ</label>
+                    <select id="promptScope" class="prompt-options-select">
+                        <option value="path" ${promptOptions.scope === 'path' ? 'selected' : ''}>パスのみ</option>
+                        <option value="k_hop" ${promptOptions.scope === 'k_hop' ? 'selected' : ''}>k-hop 近傍</option>
+                        <option value="path_plus_k_hop" ${promptOptions.scope === 'path_plus_k_hop' ? 'selected' : ''}>パス + k-hop</option>
+                    </select>
+                </div>
+                <div class="prompt-options-group">
+                    <div class="prompt-options-label">ノード情報</div>
+                    <div class="prompt-options-checklist">
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-node-field" value="paper_title" ${promptOptions.node_fields.includes('paper_title') ? 'checked' : ''}>
+                            論文タイトル
+                        </label>
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-node-field" value="paper_summary" ${promptOptions.node_fields.includes('paper_summary') ? 'checked' : ''}>
+                            論文要約
+                        </label>
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-node-field" value="paper_claims" ${promptOptions.node_fields.includes('paper_claims') ? 'checked' : ''}>
+                            論文の主張
+                        </label>
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-node-field" value="entity_type" ${promptOptions.node_fields.includes('entity_type') ? 'checked' : ''}>
+                            Entity種別
+                        </label>
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-node-field" value="entity_description" ${promptOptions.node_fields.includes('entity_description') ? 'checked' : ''}>
+                            Entity説明
+                        </label>
+                    </div>
+                </div>
+                <div class="prompt-options-group">
+                    <div class="prompt-options-label">エッジ情報</div>
+                    <div class="prompt-options-checklist">
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-edge-field" value="type" ${promptOptions.edge_fields.includes('type') ? 'checked' : ''}>
+                            関係タイプ
+                        </label>
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-edge-field" value="citation_type" ${promptOptions.edge_fields.includes('citation_type') ? 'checked' : ''}>
+                            引用種別
+                        </label>
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-edge-field" value="importance_score" ${promptOptions.edge_fields.includes('importance_score') ? 'checked' : ''}>
+                            重要度
+                        </label>
+                        <label class="prompt-options-checkbox">
+                            <input type="checkbox" class="prompt-edge-field" value="context" ${promptOptions.edge_fields.includes('context') ? 'checked' : ''}>
+                            文脈
+                        </label>
+                    </div>
+                </div>
+                <div class="prompt-options-grid">
+                    <label class="prompt-options-field">
+                        <span>パス上限</span>
+                        <input type="number" id="promptMaxPaths" min="1" step="1" value="${promptOptions.max_paths}">
+                    </label>
+                    <label class="prompt-options-field">
+                        <span>ノード上限</span>
+                        <input type="number" id="promptMaxNodes" min="1" step="1" value="${promptOptions.max_nodes}">
+                    </label>
+                    <label class="prompt-options-field">
+                        <span>エッジ上限</span>
+                        <input type="number" id="promptMaxEdges" min="1" step="1" value="${promptOptions.max_edges}">
+                    </label>
+                    <label class="prompt-options-field">
+                        <span>k-hop</span>
+                        <input type="number" id="promptNeighborK" min="1" step="1" value="${promptOptions.neighbor_k}">
+                    </label>
+                </div>
+                <label class="prompt-options-toggle">
+                    <input type="checkbox" id="promptInlineEdges" ${promptOptions.include_inline_edges ? 'checked' : ''}>
+                    A -(REL)-> B 形式でエッジを表示
+                </label>
+            </div>
+        </details>
+    `;
 
     let html = `
         <div class="analysis-header" style="margin-bottom: 0.75rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px;">
@@ -509,12 +653,10 @@ function renderAnalysisResults() {
                 ${allPaths.length} パス (${result.multihop_k || 3} ホップ)
             </div>
         </div>
+        ${promptOptionsHtml}
         <div class="analysis-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
             <button class="btn-primary" onclick="generateProposals()" style="flex: 1; padding: 0.6rem;">
                 💡 提案を生成
-            </button>
-            <button class="btn-secondary" onclick="saveAnalysis()" title="分析を保存" style="padding: 0.6rem 0.8rem;">
-                💾
             </button>
         </div>
         <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">発見されたパス:</div>
@@ -882,6 +1024,15 @@ async function generateProposals() {
     }
 
     try {
+        let promptOptions = AppState.promptOptions;
+        try {
+            promptOptions = getPromptOptionsFromUI();
+        } catch (error) {
+            alert(error.message);
+            updateStatus('提案生成エラー: ' + error.message);
+            return;
+        }
+
         const response = await fetch('/api/propose', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -889,6 +1040,7 @@ async function generateProposals() {
                 target_paper_id: AppState.selectedPaperId,
                 analysis_result: AppState.analysisResult,
                 num_proposals: 3,
+                prompt_options: promptOptions,
             }),
         });
 
@@ -904,6 +1056,9 @@ async function generateProposals() {
 
         // 提案タブに切り替え
         switchTab('propose');
+
+        // 自動保存
+        await saveAllProposals();
 
     } catch (error) {
         updateStatus('提案生成エラー: ' + error.message);
@@ -942,9 +1097,6 @@ function renderProposals() {
 
     let html = `
         <div class="proposal-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            <button class="btn-primary" onclick="saveAllProposals()" title="提案を全て保存">
-                💾 全て保存
-            </button>
             ${AppState.proposals.length >= 2 ? `
             <button class="btn-evaluate" onclick="runEvaluation()" title="提案を評価・ランキング">
                 🏆 評価を実行
@@ -988,9 +1140,6 @@ function renderProposalCard(proposal, index) {
                 <div class="proposal-actions">
                     <button class="btn-icon" onclick="toggleProposalDetails(${index})" title="詳細">
                         📖
-                    </button>
-                    <button class="btn-icon" onclick="saveProposal(${index})" title="保存">
-                        💾
                     </button>
                 </div>
             </div>

@@ -31,6 +31,7 @@ class SavedProposal(BaseModel):
     target_paper_title: str | None = None
     analysis_id: str | None = None
     title: str
+    proposal_type: str | None = None
     prompt: str | None = None
     rating: int | None = None
     notes: str | None = None
@@ -45,10 +46,45 @@ class StorageService:
         self.base_dir = base_dir or Path(settings.cache_dir)
         self.analyses_dir = self.base_dir / "analyses"
         self.proposals_dir = self.base_dir / "proposals"
+        self.idea_graph_dir = self.proposals_dir / "idea-graph"
+        self.target_proposals_dir = self.proposals_dir / "target"
 
         # ディレクトリ作成
         self.analyses_dir.mkdir(parents=True, exist_ok=True)
         self.proposals_dir.mkdir(parents=True, exist_ok=True)
+        self.idea_graph_dir.mkdir(parents=True, exist_ok=True)
+        self.target_proposals_dir.mkdir(parents=True, exist_ok=True)
+
+    def _safe_paper_id(self, paper_id: str) -> str:
+        return paper_id.replace("/", "_").replace(":", "_")
+
+    def _proposal_root_dir(self, proposal_type: str) -> Path:
+        if proposal_type == "idea-graph":
+            return self.idea_graph_dir
+        if proposal_type == "target":
+            return self.target_proposals_dir
+        return self.proposals_dir
+
+    def _iter_proposal_files(self) -> list[Path]:
+        files: list[Path] = []
+        for root in (self.idea_graph_dir, self.target_proposals_dir):
+            if root.exists():
+                files.extend(root.rglob("*.json"))
+        if self.proposals_dir.exists():
+            files.extend(self.proposals_dir.glob("*.json"))
+        return files
+
+    def _find_proposal_file(self, proposal_id: str) -> Path | None:
+        legacy = self.proposals_dir / f"{proposal_id}.json"
+        if legacy.exists():
+            return legacy
+        for root in (self.idea_graph_dir, self.target_proposals_dir):
+            if not root.exists():
+                continue
+            matches = list(root.rglob(f"{proposal_id}.json"))
+            if matches:
+                return matches[0]
+        return None
 
     # ========== 分析 ==========
 
@@ -129,6 +165,7 @@ class StorageService:
         prompt: str | None = None,
         rating: int | None = None,
         notes: str | None = None,
+        proposal_type: str = "idea-graph",
     ) -> SavedProposal:
         """提案を保存"""
         proposal_id = str(uuid4())[:8]
@@ -140,6 +177,7 @@ class StorageService:
             target_paper_title=target_paper_title,
             analysis_id=analysis_id,
             title=proposal.get("title", "Untitled"),
+            proposal_type=proposal_type,
             prompt=prompt,
             rating=rating,
             notes=notes,
@@ -148,15 +186,17 @@ class StorageService:
         )
 
         # ファイルに保存
-        file_path = self.proposals_dir / f"{proposal_id}.json"
+        paper_dir = self._proposal_root_dir(proposal_type) / self._safe_paper_id(target_paper_id)
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        file_path = paper_dir / f"{proposal_id}.json"
         file_path.write_text(saved.model_dump_json(indent=2), encoding="utf-8")
 
         return saved
 
     def load_proposal(self, proposal_id: str) -> SavedProposal | None:
         """提案を読み込み"""
-        file_path = self.proposals_dir / f"{proposal_id}.json"
-        if not file_path.exists():
+        file_path = self._find_proposal_file(proposal_id)
+        if file_path is None:
             return None
 
         data = json.loads(file_path.read_text(encoding="utf-8"))
@@ -168,12 +208,17 @@ class StorageService:
         """保存された提案の一覧を取得"""
         proposals = []
 
+        seen_ids: set[str] = set()
         for file_path in sorted(
-            self.proposals_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+            self._iter_proposal_files(), key=lambda p: p.stat().st_mtime, reverse=True
         ):
             try:
                 data = json.loads(file_path.read_text(encoding="utf-8"))
                 saved = SavedProposal(**data)
+
+                if saved.id in seen_ids:
+                    continue
+                seen_ids.add(saved.id)
 
                 if target_paper_id is None or saved.target_paper_id == target_paper_id:
                     proposals.append(saved)
@@ -202,15 +247,17 @@ class StorageService:
             saved.notes = notes
 
         # ファイルを更新
-        file_path = self.proposals_dir / f"{proposal_id}.json"
+        file_path = self._find_proposal_file(proposal_id)
+        if file_path is None:
+            return None
         file_path.write_text(saved.model_dump_json(indent=2), encoding="utf-8")
 
         return saved
 
     def delete_proposal(self, proposal_id: str) -> bool:
         """提案を削除"""
-        file_path = self.proposals_dir / f"{proposal_id}.json"
-        if file_path.exists():
+        file_path = self._find_proposal_file(proposal_id)
+        if file_path and file_path.exists():
             file_path.unlink()
             return True
         return False
