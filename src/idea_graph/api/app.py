@@ -240,6 +240,7 @@ class ProposalResult(BaseModel):
 
     target_paper_id: str
     proposals: list[Proposal]
+    prompt: str | None = None
 
 
 @app.post("/api/propose")
@@ -278,6 +279,7 @@ class SaveProposalRequest(BaseModel):
     target_paper_title: str | None = None
     analysis_id: str | None = None
     proposal: dict[str, Any]
+    prompt: str | None = None
     rating: int | None = None
     notes: str | None = None
 
@@ -347,6 +349,7 @@ def save_proposal_result(request: SaveProposalRequest):
         proposal=request.proposal,
         target_paper_title=request.target_paper_title,
         analysis_id=request.analysis_id,
+        prompt=request.prompt,
         rating=request.rating,
         notes=request.notes,
     )

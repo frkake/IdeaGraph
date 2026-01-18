@@ -374,6 +374,15 @@ def _format_proposals_markdown(result: "ProposalResult") -> str:
         "",
     ]
 
+    if getattr(result, "prompt", None):
+        lines.extend([
+            "## Generation Prompt",
+            "```text",
+            result.prompt,
+            "```",
+            "",
+        ])
+
     for i, proposal in enumerate(result.proposals, 1):
         lines.extend([
             f"## Proposal {i}: {proposal.title}",
@@ -845,6 +854,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
             saved = storage.save_proposal(
                 target_paper_id=args.paper_id,
                 proposal=proposal.model_dump(),
+                prompt=proposal_result.prompt,
             )
             console.print(f"[green]提案を保存しました: {saved.id} - {proposal.title[:40]}[/]")
 

@@ -474,6 +474,53 @@ header h1 {
     gap: 0.75rem;
 }
 
+.prompt-panel {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+
+.prompt-summary {
+    padding: 0.6rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--accent-blue);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.prompt-panel summary::-webkit-details-marker {
+    display: none;
+}
+
+.prompt-summary::after {
+    content: "v";
+    color: #888;
+    font-size: 0.7rem;
+}
+
+.prompt-panel[open] .prompt-summary::after {
+    content: "^";
+}
+
+.prompt-content {
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    color: #ccc;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    max-height: 220px;
+    overflow-y: auto;
+    border-top: 1px solid var(--bg-tertiary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 .proposal-card {
     background: var(--card-bg);
     border: 1px solid var(--card-border);

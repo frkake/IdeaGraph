@@ -11,6 +11,7 @@ const AppState = {
     selectedPaperTitle: null,
     analysisResult: null,
     proposals: [],
+    proposalPrompt: '',
     savedAnalyses: [],
     savedProposals: [],
 };
@@ -63,6 +64,15 @@ function getCitationColor(citationType) {
 function truncateText(text, maxLength) {
     if (!text) return '';
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
+
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function formatScore(score) {
@@ -817,6 +827,7 @@ async function generateProposals() {
 
         const result = await response.json();
         AppState.proposals = result.proposals || [];
+        AppState.proposalPrompt = result.prompt || '';
 
         updateStatus(`提案生成完了: ${AppState.proposals.length}件`);
 
@@ -851,6 +862,13 @@ function renderProposals() {
         return;
     }
 
+    const promptHtml = AppState.proposalPrompt ? `
+        <details class="prompt-panel">
+            <summary class="prompt-summary">生成プロンプト</summary>
+            <pre class="prompt-content">${escapeHtml(AppState.proposalPrompt)}</pre>
+        </details>
+    ` : '';
+
     let html = `
         <div class="proposal-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
             <button class="btn-secondary" onclick="openComparisonModal()" style="flex: 1;">
@@ -863,6 +881,7 @@ function renderProposals() {
                 📋
             </button>
         </div>
+        ${promptHtml}
         <div class="proposal-cards">
     `;
 
@@ -1003,6 +1022,7 @@ function exportProposals(format) {
     if (format === 'json') {
         content = JSON.stringify({
             target_paper_id: AppState.selectedPaperId,
+            prompt: AppState.proposalPrompt || null,
             proposals: AppState.proposals,
             exported_at: new Date().toISOString(),
         }, null, 2);
@@ -1022,6 +1042,14 @@ function generateMarkdown() {
     md += `対象論文: ${AppState.selectedPaperId}\n`;
     md += `生成日時: ${new Date().toLocaleString('ja-JP')}\n\n`;
     md += `---\n\n`;
+
+    if (AppState.proposalPrompt) {
+        md += `## 生成プロンプト\n`;
+        md += "```text\n";
+        md += `${AppState.proposalPrompt}\n`;
+        md += "```\n\n";
+        md += `---\n\n`;
+    }
 
     AppState.proposals.forEach((proposal, i) => {
         md += `## 提案 ${i + 1}: ${proposal.title}\n\n`;
@@ -1208,6 +1236,7 @@ async function saveProposal(index) {
                 target_paper_id: AppState.selectedPaperId,
                 target_paper_title: AppState.selectedPaperTitle,
                 proposal: proposal,
+                prompt: AppState.proposalPrompt || null,
                 rating: proposal.rating || null,
             }),
         });
@@ -1277,6 +1306,7 @@ async function loadProposal(index) {
         const proposal = await response.json();
         AppState.proposals = [proposal.data];
         AppState.selectedPaperId = proposal.target_paper_id;
+        AppState.proposalPrompt = proposal.prompt || (proposal.data && proposal.data.prompt) || '';
         switchTab('propose');
         updateStatus(`提案を読み込みました: ${proposal.title}`);
     } catch (error) {

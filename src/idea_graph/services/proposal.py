@@ -55,6 +55,7 @@ class ProposalResult(BaseModel):
 
     target_paper_id: str
     proposals: list[Proposal]
+    prompt: str
 
 
 class ProposalService:
@@ -243,6 +244,7 @@ Generate diverse ideas that don't overlap. Focus on practical, implementable res
             return ProposalResult(
                 target_paper_id=target_paper_id,
                 proposals=result.proposals[:num_proposals],
+                prompt=prompt,
             )
 
         except Exception as e:

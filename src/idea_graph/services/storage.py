@@ -31,6 +31,7 @@ class SavedProposal(BaseModel):
     target_paper_title: str | None = None
     analysis_id: str | None = None
     title: str
+    prompt: str | None = None
     rating: int | None = None
     notes: str | None = None
     saved_at: str
@@ -125,6 +126,7 @@ class StorageService:
         proposal: dict[str, Any],
         target_paper_title: str | None = None,
         analysis_id: str | None = None,
+        prompt: str | None = None,
         rating: int | None = None,
         notes: str | None = None,
     ) -> SavedProposal:
@@ -138,6 +140,7 @@ class StorageService:
             target_paper_title=target_paper_title,
             analysis_id=analysis_id,
             title=proposal.get("title", "Untitled"),
+            prompt=prompt,
             rating=rating,
             notes=notes,
             saved_at=saved_at,
@@ -240,6 +243,12 @@ class StorageService:
             if saved.notes:
                 md += f"- **メモ**: {saved.notes}\n"
             md += f"- **保存日時**: {saved.saved_at}\n\n"
+
+            if saved.prompt:
+                md += "### 生成プロンプト\n"
+                md += "```text\n"
+                md += f"{saved.prompt}\n"
+                md += "```\n\n"
 
             md += f"### 動機\n{proposal.get('motivation', 'N/A')}\n\n"
             md += f"### 手法\n{proposal.get('method', 'N/A')}\n\n"
