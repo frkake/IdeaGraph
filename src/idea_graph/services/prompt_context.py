@@ -330,6 +330,8 @@ class PromptContextBuilder:
             logger.warning("Target paper published_date not found; skipping future paper filter.")
 
         excluded_node_ids = set(future_paper_ids)
+        # Exclude the target paper from prompt context to avoid leaking it via graph paths.
+        excluded_node_ids.add(target_paper_id)
 
         filtered: list[RankedPath] = []
         for path in paths:
