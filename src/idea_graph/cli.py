@@ -1003,6 +1003,71 @@ def _print_evaluation_rich(result) -> None:
     console.print()
 
 
+def _build_text_from_extraction_cache(data: dict) -> str:
+    """抽出キャッシュから LLM 用の入力テキストを構築"""
+    summary = data.get("paper_summary", "") or ""
+    claims = data.get("claims", []) or []
+    entities = data.get("entities", []) or []
+    cited_papers = data.get("cited_papers", []) or []
+
+    def _unique_sorted(values: list[str]) -> list[str]:
+        return sorted({v.strip() for v in values if v and v.strip()})
+
+    # エンティティをタイプ別に整理
+    datasets = _unique_sorted(
+        [e.get("name", "") for e in entities if e.get("type") in {"Dataset", "Benchmark"}]
+    )
+    metrics = _unique_sorted(
+        [e.get("name", "") for e in entities if e.get("type") == "Metric"]
+    )
+    methods = _unique_sorted(
+        [e.get("name", "") for e in entities if e.get("type") in {"Method", "Approach", "Framework"}]
+    )
+
+    # 比較対象は引用情報から抽出
+    baselines = []
+    for c in cited_papers:
+        if c.get("citation_type") == "COMPARES":
+            title = c.get("title", "").strip()
+            if not title and c.get("reference_number") is not None:
+                title = f"Reference #{c['reference_number']}"
+            baselines.append(title)
+    baselines = _unique_sorted(baselines)
+
+    # エンティティ詳細（説明込み）
+    entity_lines = []
+    for e in entities:
+        name = e.get("name", "").strip()
+        e_type = e.get("type", "").strip()
+        desc = (e.get("description") or "").strip()
+        if not name or not e_type:
+            continue
+        if desc:
+            entity_lines.append(f"- {name} ({e_type}): {desc}")
+        else:
+            entity_lines.append(f"- {name} ({e_type})")
+
+    parts = [
+        "Note: The following content is derived from a structured extraction cache, not full paper text.",
+    ]
+    if summary:
+        parts.append("Paper summary:\n" + summary)
+    if claims:
+        parts.append("Claims:\n- " + "\n- ".join(claims))
+    if methods:
+        parts.append("Key methods/approaches:\n- " + "\n- ".join(methods))
+    if datasets:
+        parts.append("Datasets/benchmarks:\n- " + "\n- ".join(datasets))
+    if metrics:
+        parts.append("Metrics:\n- " + "\n- ".join(metrics))
+    if baselines:
+        parts.append("Comparison baselines (from citations):\n- " + "\n- ".join(baselines))
+    if entity_lines:
+        parts.append("Key entities:\n" + "\n".join(entity_lines))
+
+    return "\n\n".join(parts).strip()
+
+
 def _get_paper_full_text(paper_id: str) -> str | None:
     """キャッシュから論文の全文テキストを取得
 
@@ -1088,19 +1153,7 @@ def _get_paper_full_text(paper_id: str) -> str | None:
 
             try:
                 data = json.loads(extraction_path.read_text())
-                summary = data.get("paper_summary", "")
-                claims = data.get("claims", [])
-                entities = data.get("entities", [])
-
-                # サマリーと主張を組み合わせてテキストを構築
-                text_parts = [summary]
-                if claims:
-                    text_parts.append("Claims: " + "; ".join(claims))
-                if entities:
-                    entity_texts = [f"{e.get('name', '')} ({e.get('type', '')})" for e in entities]
-                    text_parts.append("Key entities: " + ", ".join(entity_texts))
-
-                return "\n\n".join(text_parts)
+                return _build_text_from_extraction_cache(data)
             except Exception as e:
                 logging.error(f"Failed to load extraction cache: {e}")
                 return None
