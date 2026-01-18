@@ -254,10 +254,9 @@ class PromptContextBuilder:
 
             if stats.unsafe_label_count:
                 logger.warning(
-                    "Mermaid label sanitization triggered fallback (%s unsafe labels).",
+                    "Mermaid label sanitization skipped %s node labels.",
                     stats.unsafe_label_count,
                 )
-                return self._build_paths_context(paths, options)
 
             for edge in filtered_edges:
                 label = self._build_mermaid_edge_label(edge, options, stats)
@@ -279,8 +278,8 @@ class PromptContextBuilder:
             mermaid_lines.append("```")
             return "\n".join(mermaid_lines)
         except Exception as exc:
-            logger.warning("Mermaid generation failed; fallback to paths: %s", exc)
-            return self._build_paths_context(paths, options)
+            logger.warning("Mermaid generation failed; returning empty diagram: %s", exc)
+            return "\n".join(["```mermaid", "graph LR", "```"])
 
     def _select_paths(
         self,
