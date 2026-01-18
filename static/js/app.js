@@ -82,10 +82,10 @@ const AppState = {
         scope: 'path_plus_k_hop',
         node_type_fields: buildDefaultNodeTypeFields(),
         edge_type_fields: buildDefaultEdgeTypeFields(),
-        max_paths: 10,
-        max_nodes: 100,
-        max_edges: 100,
-        neighbor_k: 5,
+        max_paths: null,
+        max_nodes: null,
+        max_edges: null,
+        neighbor_k: null,
         include_inline_edges: true,
     },
     evaluationResult: null,
@@ -189,9 +189,53 @@ function collectTypeFieldSelections(selector, typeAttr) {
     return selections;
 }
 
+function stripEmptyPromptLimits(options) {
+    const cleaned = { ...options };
+    ['max_paths', 'max_nodes', 'max_edges', 'neighbor_k'].forEach((key) => {
+        if (cleaned[key] === null || cleaned[key] === undefined || cleaned[key] === '' || Number.isNaN(cleaned[key])) {
+            delete cleaned[key];
+        }
+    });
+    return cleaned;
+}
+
+function formatPromptLimitValue(value) {
+    return Number.isFinite(value) ? value : '';
+}
+
+function computePromptDefaults(result) {
+    const paths = getAnalysisPaths(result);
+    const totalPaths = Number.isFinite(result?.total_paths) ? result.total_paths : paths.length;
+    let totalNodes = Number.isFinite(result?.total_nodes) ? result.total_nodes : null;
+    let totalEdges = Number.isFinite(result?.total_edges) ? result.total_edges : null;
+
+    if (totalNodes === null || totalEdges === null) {
+        const nodeIds = new Set();
+        let edgeCount = 0;
+        paths.forEach((path) => {
+            (path.nodes || []).forEach((node) => {
+                const key = node.id || `${node.label || 'node'}:${node.name || ''}`;
+                nodeIds.add(key);
+            });
+            edgeCount += (path.edges || []).length;
+        });
+        if (totalNodes === null) totalNodes = nodeIds.size;
+        if (totalEdges === null) totalEdges = edgeCount;
+    }
+
+    const neighborK = Number.isFinite(result?.multihop_k) ? result.multihop_k : 1;
+
+    return {
+        max_paths: Math.max(1, totalPaths || 1),
+        max_nodes: Math.max(1, totalNodes || 1),
+        max_edges: Math.max(1, totalEdges || 1),
+        neighbor_k: Math.max(1, neighborK || 1),
+    };
+}
+
 function getPromptOptionsFromUI() {
     const scopeEl = document.getElementById('promptScope');
-    if (!scopeEl) return AppState.promptOptions;
+    if (!scopeEl) return stripEmptyPromptLimits(AppState.promptOptions);
 
     const maxPathsEl = document.getElementById('promptMaxPaths');
     const maxNodesEl = document.getElementById('promptMaxNodes');
@@ -199,34 +243,39 @@ function getPromptOptionsFromUI() {
     const neighborEl = document.getElementById('promptNeighborK');
     const inlineEdgesEl = document.getElementById('promptInlineEdges');
 
-    const maxPaths = parseInt(maxPathsEl?.value, 10);
-    const maxNodes = parseInt(maxNodesEl?.value, 10);
-    const maxEdges = parseInt(maxEdgesEl?.value, 10);
-    const neighborK = parseInt(neighborEl?.value, 10);
+    const maxPathsRaw = maxPathsEl?.value?.trim();
+    const maxNodesRaw = maxNodesEl?.value?.trim();
+    const maxEdgesRaw = maxEdgesEl?.value?.trim();
+    const neighborRaw = neighborEl?.value?.trim();
+
+    const maxPaths = maxPathsRaw ? parseInt(maxPathsRaw, 10) : null;
+    const maxNodes = maxNodesRaw ? parseInt(maxNodesRaw, 10) : null;
+    const maxEdges = maxEdgesRaw ? parseInt(maxEdgesRaw, 10) : null;
+    const neighborK = neighborRaw ? parseInt(neighborRaw, 10) : null;
 
     const options = {
         scope: scopeEl.value,
         node_type_fields: collectTypeFieldSelections('.prompt-node-field', 'nodeType'),
         edge_type_fields: collectTypeFieldSelections('.prompt-edge-field', 'edgeType'),
-        max_paths: Number.isNaN(maxPaths) ? AppState.promptOptions.max_paths : maxPaths,
-        max_nodes: Number.isNaN(maxNodes) ? AppState.promptOptions.max_nodes : maxNodes,
-        max_edges: Number.isNaN(maxEdges) ? AppState.promptOptions.max_edges : maxEdges,
-        neighbor_k: Number.isNaN(neighborK) ? AppState.promptOptions.neighbor_k : neighborK,
+        max_paths: maxPaths,
+        max_nodes: maxNodes,
+        max_edges: maxEdges,
+        neighbor_k: neighborK,
         include_inline_edges: inlineEdgesEl ? inlineEdgesEl.checked : true,
     };
 
     const invalid = [];
     if (!options.scope) invalid.push('scope');
-    if (options.max_paths < 1) invalid.push('max_paths');
-    if (options.max_nodes < 1) invalid.push('max_nodes');
-    if (options.max_edges < 1) invalid.push('max_edges');
-    if (options.neighbor_k < 1) invalid.push('neighbor_k');
+    if (maxPathsRaw && (Number.isNaN(maxPaths) || maxPaths < 1)) invalid.push('max_paths');
+    if (maxNodesRaw && (Number.isNaN(maxNodes) || maxNodes < 1)) invalid.push('max_nodes');
+    if (maxEdgesRaw && (Number.isNaN(maxEdges) || maxEdges < 1)) invalid.push('max_edges');
+    if (neighborRaw && (Number.isNaN(neighborK) || neighborK < 1)) invalid.push('neighbor_k');
     if (invalid.length) {
         throw new Error(`プロンプト設定が不正です: ${invalid.join(', ')}`);
     }
 
     AppState.promptOptions = options;
-    return options;
+    return stripEmptyPromptLimits(options);
 }
 
 function getAnalysisPaths(result) {
@@ -733,6 +782,10 @@ function renderAnalysisResults() {
         : 1;
     const { nodeTypes, edgeTypes } = collectPromptTypes(allPaths);
     const promptOptions = ensurePromptOptionsForTypes(AppState.promptOptions, nodeTypes, edgeTypes);
+    const promptDefaults = computePromptDefaults(result);
+    const defaultsSourceNote = Number.isFinite(result?.total_nodes) && Number.isFinite(result?.total_edges)
+        ? '（分析結果全体から算出）'
+        : '（表示中のパスから算出）';
     AppState.promptOptions = promptOptions;
 
     const sortedNodeTypes = sortNodeTypes(nodeTypes);
@@ -764,11 +817,16 @@ function renderAnalysisResults() {
         `;
     }).join('');
 
+    const maxPathsValue = formatPromptLimitValue(promptOptions.max_paths);
+    const maxNodesValue = formatPromptLimitValue(promptOptions.max_nodes);
+    const maxEdgesValue = formatPromptLimitValue(promptOptions.max_edges);
+    const neighborValue = formatPromptLimitValue(promptOptions.neighbor_k);
+
     const promptOptionsHtml = `
         <details class="prompt-options-panel">
             <summary class="prompt-options-summary">プロンプト設定</summary>
             <div class="prompt-options-body">
-                <div class="prompt-options-note">初期状態は分析に使った情報をすべて含めます。</div>
+                <div class="prompt-options-note">空欄は分析結果に合わせて自動設定されます。</div>
                 <div class="prompt-options-group">
                     <label class="prompt-options-label" for="promptScope">スコープ</label>
                     <div class="prompt-options-help">パスとk-hop近傍のどちらをプロンプトに含めるかを選択します。</div>
@@ -795,22 +853,24 @@ function renderAnalysisResults() {
                 <div class="prompt-options-grid">
                     <label class="prompt-options-field">
                         <span>パス上限</span>
-                        <input type="number" id="promptMaxPaths" min="1" step="1" value="${promptOptions.max_paths}">
+                        <input type="number" id="promptMaxPaths" min="1" step="1" value="${maxPathsValue}" placeholder="${promptDefaults.max_paths}">
                     </label>
                     <label class="prompt-options-field">
                         <span>ノード上限</span>
-                        <input type="number" id="promptMaxNodes" min="1" step="1" value="${promptOptions.max_nodes}">
+                        <input type="number" id="promptMaxNodes" min="1" step="1" value="${maxNodesValue}" placeholder="${promptDefaults.max_nodes}">
                     </label>
                     <label class="prompt-options-field">
                         <span>エッジ上限</span>
-                        <input type="number" id="promptMaxEdges" min="1" step="1" value="${promptOptions.max_edges}">
+                        <input type="number" id="promptMaxEdges" min="1" step="1" value="${maxEdgesValue}" placeholder="${promptDefaults.max_edges}">
                     </label>
                     <label class="prompt-options-field">
                         <span>k-hop 深さ</span>
-                        <input type="number" id="promptNeighborK" min="1" step="1" value="${promptOptions.neighbor_k}">
+                        <input type="number" id="promptNeighborK" min="1" step="1" value="${neighborValue}" placeholder="${promptDefaults.neighbor_k}">
                     </label>
                 </div>
-                <div class="prompt-options-help">パス/ノード/エッジの上限はプロンプトに含める最大数です。</div>
+                <div class="prompt-options-help">
+                    空欄時の自動値: パス ${promptDefaults.max_paths} / ノード ${promptDefaults.max_nodes} / エッジ ${promptDefaults.max_edges} / k-hop ${promptDefaults.neighbor_k} ${defaultsSourceNote}
+                </div>
                 <label class="prompt-options-toggle">
                     <input type="checkbox" id="promptInlineEdges" ${promptOptions.include_inline_edges ? 'checked' : ''}>
                     A -(REL)-> B 形式でエッジを表示

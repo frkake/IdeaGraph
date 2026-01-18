@@ -60,12 +60,16 @@ def _parse_prompt_type_fields(raw: str | None) -> dict[str, list[str]] | None:
 def _build_prompt_options(args: argparse.Namespace) -> dict:
     options = {
         "scope": args.prompt_scope,
-        "max_paths": args.prompt_max_paths,
-        "max_nodes": args.prompt_max_nodes,
-        "max_edges": args.prompt_max_edges,
-        "neighbor_k": args.prompt_neighbor_k,
         "include_inline_edges": args.prompt_inline_edges,
     }
+    if args.prompt_max_paths is not None:
+        options["max_paths"] = args.prompt_max_paths
+    if args.prompt_max_nodes is not None:
+        options["max_nodes"] = args.prompt_max_nodes
+    if args.prompt_max_edges is not None:
+        options["max_edges"] = args.prompt_max_edges
+    if args.prompt_neighbor_k is not None:
+        options["neighbor_k"] = args.prompt_neighbor_k
     node_type_fields = _parse_prompt_type_fields(args.prompt_node_type_fields)
     if node_type_fields is not None:
         options["node_type_fields"] = node_type_fields
@@ -1374,26 +1378,26 @@ def main() -> int:
     propose_parser.add_argument(
         "--prompt-max-paths",
         type=int,
-        default=10,
-        help="展開するパス数上限 (デフォルト: 10)",
+        default=None,
+        help="展開するパス数上限 (デフォルト: 分析結果から自動算出)",
     )
     propose_parser.add_argument(
         "--prompt-max-nodes",
         type=int,
-        default=100,
-        help="展開するノード数上限 (デフォルト: 100)",
+        default=None,
+        help="展開するノード数上限 (デフォルト: 分析結果から自動算出)",
     )
     propose_parser.add_argument(
         "--prompt-max-edges",
         type=int,
-        default=100,
-        help="展開するエッジ数上限 (デフォルト: 100)",
+        default=None,
+        help="展開するエッジ数上限 (デフォルト: 分析結果から自動算出)",
     )
     propose_parser.add_argument(
         "--prompt-neighbor-k",
         type=int,
-        default=5,
-        help="k-hop 近傍の深さ (デフォルト: 5)",
+        default=None,
+        help="k-hop 近傍の深さ (デフォルト: 分析結果から自動算出)",
     )
     propose_parser.add_argument(
         "--prompt-inline-edges",

@@ -52,6 +52,8 @@ class AnalysisResult(BaseModel):
     total_paths: int | None = None
     total_paper_paths: int | None = None
     total_entity_paths: int | None = None
+    total_nodes: int | None = None
+    total_edges: int | None = None
 
 
 class AnalysisService:
@@ -339,6 +341,8 @@ class AnalysisService:
                 total_paths=0,
                 total_paper_paths=0,
                 total_entity_paths=0,
+                total_nodes=0,
+                total_edges=0,
             )
 
         # スコアリングとランキング、Paper引用とEntity関連を分離
@@ -363,6 +367,8 @@ class AnalysisService:
         total_paper_paths = len(paper_paths)
         total_entity_paths = len(entity_paths)
         total_paths = len(all_paths)
+        total_nodes = len({node.id for path in all_paths for node in path.nodes})
+        total_edges = sum(len(path.edges) for path in all_paths)
         display_limit = max(top_n, 0)
 
         return AnalysisResult(
@@ -374,4 +380,6 @@ class AnalysisService:
             total_paths=total_paths,
             total_paper_paths=total_paper_paths,
             total_entity_paths=total_entity_paths,
+            total_nodes=total_nodes,
+            total_edges=total_edges,
         )

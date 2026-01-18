@@ -112,17 +112,46 @@ class ProposalService:
                 }
             return {}
 
+    def _compute_prompt_defaults(self, analysis_result: AnalysisResult) -> dict[str, int]:
+        max_paths = analysis_result.total_paths
+        if max_paths is None:
+            max_paths = len(analysis_result.candidates)
+        max_nodes = analysis_result.total_nodes
+        if max_nodes is None:
+            node_ids = {node.id for path in analysis_result.candidates for node in path.nodes}
+            max_nodes = len(node_ids)
+        max_edges = analysis_result.total_edges
+        if max_edges is None:
+            max_edges = sum(len(path.edges) for path in analysis_result.candidates)
+        neighbor_k = analysis_result.multihop_k
+
+        return {
+            "max_paths": max(1, max_paths),
+            "max_nodes": max(1, max_nodes),
+            "max_edges": max(1, max_edges),
+            "neighbor_k": max(1, neighbor_k),
+        }
+
     def _resolve_prompt_options(
         self,
+        analysis_result: AnalysisResult,
         prompt_options: PromptExpansionOptions | dict | None,
     ) -> PromptExpansionOptions:
+        defaults = self._compute_prompt_defaults(analysis_result)
         if prompt_options is None:
-            return PromptExpansionOptions()
+            return PromptExpansionOptions(**defaults)
         if isinstance(prompt_options, PromptExpansionOptions):
-            return prompt_options
+            fields_set = prompt_options.model_fields_set
+            data = prompt_options.model_dump()
+            for key, value in defaults.items():
+                if key not in fields_set:
+                    data[key] = value
+            return PromptExpansionOptions(**data)
         if isinstance(prompt_options, dict):
+            cleaned = {key: value for key, value in prompt_options.items() if value is not None}
+            merged = {**defaults, **cleaned}
             try:
-                return PromptExpansionOptions(**prompt_options)
+                return PromptExpansionOptions(**merged)
             except ValidationError as exc:
                 raise ValueError(f"Invalid prompt options: {exc}") from exc
         raise ValueError("prompt_options must be a dict or PromptExpansionOptions")
@@ -137,7 +166,7 @@ class ProposalService:
         prompt_options: PromptExpansionOptions | dict | None = None,
     ) -> str:
         """プロンプトを構築"""
-        options = self._resolve_prompt_options(prompt_options)
+        options = self._resolve_prompt_options(analysis_result, prompt_options)
         graph_context = PromptContextBuilder().build_context(
             target_paper_id,
             analysis_result,

@@ -190,6 +190,8 @@ class AnalysisResult(BaseModel):
     total_paths: int | None = None
     total_paper_paths: int | None = None
     total_entity_paths: int | None = None
+    total_nodes: int | None = None
+    total_edges: int | None = None
     analysis_id: str | None = None
 
 
