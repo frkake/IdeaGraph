@@ -97,6 +97,9 @@ class RankingEntry(BaseModel):
     scores_by_metric: dict[EvaluationMetric, float] = Field(
         description="指標ごとのスコア"
     )
+    is_target_paper: bool = Field(
+        default=False, description="ターゲット論文のアイデアかどうか"
+    )
 
 
 class EvaluationResult(BaseModel):

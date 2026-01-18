@@ -50,10 +50,20 @@ class Proposal(BaseModel):
     differences: list[str] = Field(description="既存との差分・貢献")
 
 
+class TargetPaperInfo(BaseModel):
+    """ターゲット論文の情報"""
+
+    id: str = Field(description="論文ID")
+    title: str = Field(description="論文タイトル")
+
+
 class ProposalResult(BaseModel):
     """提案結果"""
 
-    target_paper_id: str
+    target_paper_id: str  # 後方互換性のため維持
+    target_paper: TargetPaperInfo | None = Field(
+        default=None, description="ターゲット論文の情報（後方互換性のためオプション）"
+    )
     proposals: list[Proposal]
     prompt: str
 
@@ -235,8 +245,15 @@ Generate diverse ideas that don't overlap. Focus on practical, implementable res
                         analysis_result.candidates[0].nodes
                     )
 
+            # ターゲット論文情報を作成
+            target_paper_info = TargetPaperInfo(
+                id=target_paper_id,
+                title=paper_context.get("title", target_paper_id),
+            )
+
             return ProposalResult(
                 target_paper_id=target_paper_id,
+                target_paper=target_paper_info,
                 proposals=result.proposals[:num_proposals],
                 prompt=prompt,
             )

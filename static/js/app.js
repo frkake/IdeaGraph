@@ -960,6 +960,14 @@ function renderProposals() {
                 📋
             </button>
         </div>
+        ${AppState.selectedPaperId ? `
+        <div class="target-paper-option" style="margin-bottom: 0.75rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 6px; display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" id="includeTargetPaper" checked>
+            <label for="includeTargetPaper" style="font-size: 0.8rem; color: #ccc; cursor: pointer;">
+                📄 ターゲット論文（${escapeHtml(AppState.selectedPaperTitle || AppState.selectedPaperId)}）を比較に含める
+            </label>
+        </div>
+        ` : ''}
         ${promptHtml}
         <div class="proposal-cards">
     `;
@@ -1228,6 +1236,10 @@ async function runEvaluation() {
         return;
     }
 
+    // ターゲット論文を含めるかどうかチェック
+    const includeTargetCheckbox = document.getElementById('includeTargetPaper');
+    const includeTarget = includeTargetCheckbox?.checked && AppState.selectedPaperId;
+
     updateStatus('提案を評価中... (数分かかる場合があります)');
 
     // 右パネルにローディング表示
@@ -1235,6 +1247,9 @@ async function runEvaluation() {
     const content = document.getElementById('rightPanelContent');
     const headerTitle = document.querySelector('.right-panel-header h3');
     if (headerTitle) headerTitle.textContent = '提案評価';
+    const evaluationInfo = includeTarget
+        ? `${AppState.proposals.length}件の提案 + ターゲット論文`
+        : `${AppState.proposals.length}件の提案`;
     if (content) {
         content.innerHTML = `
             <div class="loading">
@@ -1242,19 +1257,26 @@ async function runEvaluation() {
             </div>
             <div style="text-align: center; color: #888; margin-top: 1rem;">
                 LLMでペアワイズ比較を実行中...<br>
-                <span style="font-size: 0.75rem;">${AppState.proposals.length}件の提案を評価しています</span>
+                <span style="font-size: 0.75rem;">${evaluationInfo}を評価しています</span>
             </div>
         `;
+    }
+
+    // リクエストボディを構築
+    const requestBody = {
+        proposals: AppState.proposals,
+        include_experiment: true,
+    };
+    if (includeTarget) {
+        requestBody.target_paper_id = AppState.selectedPaperId;
+        requestBody.target_paper_title = AppState.selectedPaperTitle;
     }
 
     try {
         const response = await fetch('/api/evaluate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                proposals: AppState.proposals,
-                include_experiment: true,
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -1330,12 +1352,16 @@ function renderEvaluation() {
         const rank = item.rank || (index + 1);
         const medalClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
         const overallScore = item.overall_score?.toFixed(1) || 'N/A';
+        const isTargetPaper = item.is_target_paper === true;
+        const targetBadge = isTargetPaper ? '<span class="target-paper-badge">📄 ターゲット論文</span>' : '';
+        const targetClass = isTargetPaper ? 'target-paper' : '';
 
         html += `
-            <div class="evaluation-rank-card ${medalClass}" data-index="${index}">
+            <div class="evaluation-rank-card ${medalClass} ${targetClass}" data-index="${index}">
                 <div class="rank-header">
                     <span class="rank-badge ${medalClass}">#${rank}</span>
                     <span class="rank-title">${truncateText(item.idea_title || '提案' + rank, 25)}</span>
+                    ${targetBadge}
                 </div>
                 <div class="rank-scores">
                     <div class="rank-score-item">
@@ -1371,11 +1397,13 @@ function renderEvaluation() {
         `;
 
         pairwiseResults.forEach((comp, i) => {
-            // 提案タイトルをIDから取得
-            const proposalA = AppState.proposals.find((p, idx) => `proposal_${idx}` === comp.idea_a_id || idx === parseInt(comp.idea_a_id.replace('proposal_', '')));
-            const proposalB = AppState.proposals.find((p, idx) => `proposal_${idx}` === comp.idea_b_id || idx === parseInt(comp.idea_b_id.replace('proposal_', '')));
-            const titleA = proposalA?.title || comp.idea_a_id;
-            const titleB = proposalB?.title || comp.idea_b_id;
+            // 提案タイトルをIDから取得（ターゲット論文のIDも考慮）
+            const isTargetA = comp.idea_a_id === 'target_paper';
+            const isTargetB = comp.idea_b_id === 'target_paper';
+            const proposalA = isTargetA ? null : AppState.proposals.find((p, idx) => `proposal_${idx}` === comp.idea_a_id || idx === parseInt(comp.idea_a_id.replace('proposal_', '')));
+            const proposalB = isTargetB ? null : AppState.proposals.find((p, idx) => `proposal_${idx}` === comp.idea_b_id || idx === parseInt(comp.idea_b_id.replace('proposal_', '')));
+            const titleA = isTargetA ? '📄 ターゲット論文' : (proposalA?.title || comp.idea_a_id);
+            const titleB = isTargetB ? '📄 ターゲット論文' : (proposalB?.title || comp.idea_b_id);
 
             html += `
                 <div class="comparison-item">
@@ -1478,19 +1506,21 @@ function generateEvaluationMarkdown() {
     md += `---\n\n`;
 
     md += `## ランキング\n\n`;
-    md += `| 順位 | 提案 | 総合スコア |\n`;
-    md += `|------|------|------------|\n`;
+    md += `| 順位 | タイプ | 提案 | 総合スコア |\n`;
+    md += `|------|--------|------|------------|\n`;
 
     result.ranking.forEach((item) => {
         const title = item.idea_title || `提案${item.rank}`;
         const score = item.overall_score?.toFixed(1) || 'N/A';
-        md += `| ${item.rank} | ${title} | ${score} |\n`;
+        const type = item.is_target_paper ? '📄 ターゲット' : '💡 提案';
+        md += `| ${item.rank} | ${type} | ${title} | ${score} |\n`;
     });
 
     md += `\n### スコア詳細\n\n`;
     result.ranking.forEach((item) => {
         const title = item.idea_title || `提案${item.rank}`;
-        md += `#### ${item.rank}位: ${title}\n\n`;
+        const targetMark = item.is_target_paper ? ' (📄 ターゲット論文)' : '';
+        md += `#### ${item.rank}位: ${title}${targetMark}\n\n`;
         if (item.scores_by_metric) {
             for (const [metric, score] of Object.entries(item.scores_by_metric)) {
                 const label = metricLabels[metric] || metric;

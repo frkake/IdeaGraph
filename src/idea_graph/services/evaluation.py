@@ -607,6 +607,48 @@ Extract the research idea:"""
         return structured_llm.invoke([message])
 
 
+def convert_extraction_to_proposal(
+    extraction: LLMIdeaExtraction,
+    paper_title: str | None = None,
+) -> "Proposal":
+    """LLMIdeaExtractionをProposal形式に変換
+
+    Args:
+        extraction: 抽出されたアイデア情報
+        paper_title: 論文タイトル（オプション）
+
+    Returns:
+        Proposal形式に変換されたアイデア
+    """
+    from idea_graph.services.proposal import Proposal, Experiment, Grounding
+
+    return Proposal(
+        title=paper_title or extraction.title,
+        rationale="Original paper idea extracted for comparison",
+        research_trends="N/A (original paper)",
+        motivation=extraction.motivation,
+        method=extraction.method,
+        experiment=Experiment(
+            datasets=[],
+            baselines=[],
+            metrics=[],
+            ablations=[],
+            expected_results="N/A (original paper)",
+            failure_interpretation="N/A (original paper)",
+        ),
+        grounding=Grounding(
+            papers=[],
+            entities=[],
+            path_mermaid="graph LR\n  A[Original Paper]",
+        ),
+        differences=extraction.key_differences,
+    )
+
+
+# ターゲット論文のアイデアを識別するための定数
+TARGET_PAPER_IDEA_ID = "target_paper"
+
+
 class EvaluationService:
     """評価サービス（オーケストレーション）"""
 
@@ -660,25 +702,54 @@ class EvaluationService:
         self,
         proposals: list["Proposal"],
         include_experiment: bool = True,
+        target_paper_content: str | None = None,
+        target_paper_title: str | None = None,
     ) -> EvaluationResult:
         """提案群を評価してランキングを生成
 
         Args:
             proposals: 評価対象のProposalリスト
             include_experiment: 実験計画評価を含めるかどうか
+            target_paper_content: ターゲット論文の全文テキスト（オプション）
+            target_paper_title: ターゲット論文のタイトル（オプション）
 
         Returns:
             評価結果
         """
-        logger.info(f"Starting evaluation of {len(proposals)} proposals")
+        # 提案リストをコピー（元のリストを変更しない）
+        all_proposals = list(proposals)
+        target_paper_idea_id: str | None = None
+
+        # ターゲット論文がある場合、アイデアを抽出して追加
+        if target_paper_content:
+            logger.info("Extracting idea from target paper for comparison")
+            extractor = IdeaExtractor(model_name=self.model_name)
+            extraction = extractor.extract_from_text(target_paper_content)
+
+            # Proposal形式に変換
+            target_proposal = convert_extraction_to_proposal(
+                extraction, paper_title=target_paper_title
+            )
+            all_proposals.append(target_proposal)
+            target_paper_idea_id = TARGET_PAPER_IDEA_ID
+            logger.info(f"Added target paper idea: {target_proposal.title}")
+
+        logger.info(f"Starting evaluation of {len(all_proposals)} proposals")
 
         # アイデアIDを生成
-        idea_ids = [self._generate_idea_id(i, p) for i, p in enumerate(proposals)]
-        proposal_map = dict(zip(idea_ids, proposals))
+        idea_ids = []
+        for i, p in enumerate(all_proposals):
+            # ターゲット論文の場合は特別なIDを使用
+            if i == len(all_proposals) - 1 and target_paper_idea_id:
+                idea_ids.append(target_paper_idea_id)
+            else:
+                idea_ids.append(self._generate_idea_id(i, p))
+
+        proposal_map = dict(zip(idea_ids, all_proposals))
 
         # ラウンドロビン方式で全ペア比較
         pairwise_results: list[PairwiseResult] = []
-        pairs = list(combinations(enumerate(zip(idea_ids, proposals)), 2))
+        pairs = list(combinations(enumerate(zip(idea_ids, all_proposals)), 2))
 
         for (i, (id_a, proposal_a)), (j, (id_b, proposal_b)) in pairs:
             logger.info(f"Comparing pair {i+1} vs {j+1} ({len(pairwise_results)+1}/{len(pairs)})")
@@ -687,9 +758,14 @@ class EvaluationService:
             result = self.comparator.compare(proposal_a, proposal_b, id_a, id_b)
 
             # 実験計画比較（オプション）
+            # ターゲット論文は実験計画を持たないのでスキップ
             if include_experiment:
-                exp_scores = self.experiment_comparator.compare(proposal_a, proposal_b)
-                result.experiment_scores = exp_scores
+                is_target_comparison = (
+                    id_a == TARGET_PAPER_IDEA_ID or id_b == TARGET_PAPER_IDEA_ID
+                )
+                if not is_target_comparison:
+                    exp_scores = self.experiment_comparator.compare(proposal_a, proposal_b)
+                    result.experiment_scores = exp_scores
 
             pairwise_results.append(result)
 
@@ -699,16 +775,19 @@ class EvaluationService:
         # ランキングを生成
         ranking = self.elo_calculator.generate_ranking(elo_ratings)
 
-        # タイトルを設定
+        # タイトルとis_target_paperフラグを設定
         for entry in ranking:
             if entry.idea_id in proposal_map:
                 entry.idea_title = proposal_map[entry.idea_id].title
+            # ターゲット論文の場合はフラグを設定
+            if entry.idea_id == TARGET_PAPER_IDEA_ID:
+                entry.is_target_paper = True
 
         # 評価結果を作成
-        result = EvaluationResult(
+        eval_result = EvaluationResult(
             evaluated_at=datetime.now(),
             model_name=self.model_name,
-            proposals=proposals,
+            proposals=all_proposals,
             pairwise_results=pairwise_results,
             elo_ratings=elo_ratings,
             ranking=ranking,
@@ -716,7 +795,7 @@ class EvaluationService:
 
         logger.info(f"Evaluation completed. Top ranked: {ranking[0].idea_title if ranking else 'N/A'}")
 
-        return result
+        return eval_result
 
     def save_result(self, result: EvaluationResult, filename: str | None = None) -> Path:
         """評価結果をJSONファイルに保存

@@ -455,6 +455,9 @@ class EvaluateRequest(BaseModel):
     proposals: list[EvaluateProposal]
     include_experiment: bool = True
     model_name: str | None = None
+    target_paper_id: str | None = None  # 論文IDを指定すると自動で内容を取得
+    target_paper_content: str | None = None
+    target_paper_title: str | None = None
 
 
 class MetricScoreResponse(BaseModel):
@@ -481,6 +484,7 @@ class RankingEntryResponse(BaseModel):
     idea_title: str | None
     overall_score: float
     scores_by_metric: dict[str, float]
+    is_target_paper: bool = False
 
 
 class EvaluateResponse(BaseModel):
@@ -498,6 +502,7 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
     from idea_graph.services.proposal import Proposal as ProposalModel
     from idea_graph.services.proposal import Experiment as ExperimentModel
     from idea_graph.services.proposal import Grounding as GroundingModel
+    from idea_graph.cli import _get_paper_full_text
 
     # バリデーション
     if len(request.proposals) < 2:
@@ -505,6 +510,15 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
             status_code=400,
             detail="At least 2 proposals are required for pairwise comparison"
         )
+
+    # ターゲット論文の内容を取得（IDが指定されていて内容がない場合）
+    target_paper_content = request.target_paper_content
+    target_paper_title = request.target_paper_title
+    if request.target_paper_id and not target_paper_content:
+        target_paper_content = _get_paper_full_text(request.target_paper_id)
+        if not target_paper_title:
+            # タイトルがない場合はIDを使用
+            target_paper_title = request.target_paper_id
 
     # リクエストをProposalモデルに変換
     proposals = []
@@ -534,7 +548,12 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
 
     # 評価を実行
     service = EvaluationService(model_name=request.model_name)
-    result = service.evaluate(proposals, include_experiment=request.include_experiment)
+    result = service.evaluate(
+        proposals,
+        include_experiment=request.include_experiment,
+        target_paper_content=target_paper_content,
+        target_paper_title=target_paper_title,
+    )
 
     # レスポンスを構築
     ranking_response = [
@@ -544,6 +563,7 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
             idea_title=entry.idea_title,
             overall_score=entry.overall_score,
             scores_by_metric={m.value: s for m, s in entry.scores_by_metric.items()},
+            is_target_paper=entry.is_target_paper,
         )
         for entry in result.ranking
     ]

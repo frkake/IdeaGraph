@@ -898,6 +898,7 @@ def _print_evaluation_rich(result) -> None:
     table = Table(title="Rankings", show_header=True, header_style="bold magenta")
     table.add_column("Rank", style="dim", width=6)
     table.add_column("Title", style="cyan")
+    table.add_column("Type", style="yellow", width=10)
     table.add_column("Overall", justify="right")
     table.add_column("Novelty", justify="right")
     table.add_column("Significance", justify="right")
@@ -909,9 +910,12 @@ def _print_evaluation_rich(result) -> None:
 
     for entry in result.ranking:
         title = (entry.idea_title or entry.idea_id)[:40]
+        # ターゲット論文の場合は特別な表示
+        type_label = "[Target]" if getattr(entry, "is_target_paper", False) else ""
         table.add_row(
             str(entry.rank),
             title,
+            type_label,
             f"{entry.overall_score:.1f}",
             f"{entry.scores_by_metric.get(EvaluationMetric.NOVELTY, 0):.1f}",
             f"{entry.scores_by_metric.get(EvaluationMetric.SIGNIFICANCE, 0):.1f}",
@@ -922,6 +926,112 @@ def _print_evaluation_rich(result) -> None:
 
     console.print(table)
     console.print()
+
+
+def _get_paper_full_text(paper_id: str) -> str | None:
+    """キャッシュから論文の全文テキストを取得
+
+    Args:
+        paper_id: 論文ID
+
+    Returns:
+        論文の全文テキスト、取得できない場合はNone
+    """
+    import io
+    import tarfile
+    from idea_graph.ingestion.downloader import FileType
+    from idea_graph.ingestion.extractor import ExtractorService
+
+    # キャッシュディレクトリを確認
+    paper_dir = settings.papers_cache_dir / paper_id
+    if not paper_dir.exists():
+        logging.warning(f"Paper directory not found: {paper_dir}")
+        return None
+
+    # ファイルを探す（source.tar.gz優先、次にpaper.pdf）
+    tar_path = paper_dir / "source.tar.gz"
+    pdf_path = paper_dir / "paper.pdf"
+
+    if tar_path.exists():
+        file_path = tar_path
+        file_type = FileType.LATEX
+    elif pdf_path.exists():
+        file_path = pdf_path
+        file_type = FileType.PDF
+    else:
+        logging.warning(f"No paper file found in: {paper_dir}")
+        return None
+
+    logging.info(f"Loading paper from: {file_path}")
+
+    # LaTeXの場合は直接テキストを抽出
+    if file_type == FileType.LATEX:
+        try:
+            content = file_path.read_bytes()
+            with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as tar:
+                tex_files = [m for m in tar.getmembers() if m.isfile() and m.name.endswith(".tex")]
+                if not tex_files:
+                    logging.warning(f"No .tex files found in {file_path}")
+                    return None
+
+                # main.tex または最大のファイルを優先
+                main_file = None
+                for tf in tex_files:
+                    name_lower = tf.name.lower()
+                    if "main" in name_lower or "paper" in name_lower:
+                        main_file = tf
+                        break
+                if main_file is None:
+                    main_file = max(tex_files, key=lambda x: x.size)
+
+                f = tar.extractfile(main_file)
+                if f is None:
+                    return None
+
+                text_content = f.read().decode("utf-8", errors="ignore")
+
+                # .bbl ファイルも含める
+                bbl_files = [m for m in tar.getmembers() if m.isfile() and m.name.endswith(".bbl")]
+                if bbl_files:
+                    bbl = max(bbl_files, key=lambda x: x.size)
+                    bf = tar.extractfile(bbl)
+                    if bf is not None:
+                        bbl_content = bf.read().decode("utf-8", errors="ignore")
+                        text_content = f"{text_content}\n\n{bbl_content}"
+
+                return text_content
+        except Exception as e:
+            logging.error(f"Failed to extract text from LaTeX: {e}")
+            return None
+    else:
+        # PDFの場合は抽出キャッシュを確認
+        extraction_path = settings.extractions_cache_dir / f"{paper_id}.json"
+        if extraction_path.exists():
+            # 抽出キャッシュがあれば、そこからサマリーと主張を取得
+            # （PDF全文の直接取得は難しいため、代替手段）
+            import json
+
+            try:
+                data = json.loads(extraction_path.read_text())
+                summary = data.get("paper_summary", "")
+                claims = data.get("claims", [])
+                entities = data.get("entities", [])
+
+                # サマリーと主張を組み合わせてテキストを構築
+                text_parts = [summary]
+                if claims:
+                    text_parts.append("Claims: " + "; ".join(claims))
+                if entities:
+                    entity_texts = [f"{e.get('name', '')} ({e.get('type', '')})" for e in entities]
+                    text_parts.append("Key entities: " + ", ".join(entity_texts))
+
+                return "\n\n".join(text_parts)
+            except Exception as e:
+                logging.error(f"Failed to load extraction cache: {e}")
+                return None
+
+        logging.warning(f"PDF full text extraction not directly supported, no extraction cache found")
+        return None
 
 
 def cmd_evaluate(args: argparse.Namespace) -> int:
@@ -944,12 +1054,40 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     logging.info(f"Loading proposals from: {proposals_path}")
 
+    # ターゲット論文情報を追跡
+    target_paper_content: str | None = None
+    target_paper_title: str | None = None
+
     try:
         data = json.loads(proposals_path.read_text(encoding="utf-8"))
 
         # ProposalResult形式（proposalsフィールドあり）またはProposalリスト
         if "proposals" in data:
             proposals_data = data["proposals"]
+
+            # ターゲット論文情報を取得（--include-targetが指定された場合）
+            if getattr(args, "include_target", False):
+                # target_paper（新形式）またはtarget_paper_id（旧形式）から取得
+                target_info = data.get("target_paper")
+                target_paper_id = None
+
+                if target_info and isinstance(target_info, dict):
+                    target_paper_id = target_info.get("id")
+                    target_paper_title = target_info.get("title")
+                elif "target_paper_id" in data:
+                    target_paper_id = data["target_paper_id"]
+
+                if target_paper_id:
+                    logging.info(f"Found target paper ID: {target_paper_id}")
+                    target_paper_content = _get_paper_full_text(target_paper_id)
+                    if target_paper_content:
+                        logging.info(f"Loaded target paper content ({len(target_paper_content)} chars)")
+                    else:
+                        logging.warning(
+                            f"Could not load target paper content from cache. "
+                            f"Target paper comparison will be skipped."
+                        )
+
         elif isinstance(data, list):
             proposals_data = data
         else:
@@ -971,6 +1109,9 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     # 評価実行
     logging.info("Starting evaluation...")
+    if target_paper_content:
+        logging.info("Including target paper in comparison")
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -980,6 +1121,8 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         result = service.evaluate(
             proposals=proposals,
             include_experiment=not args.no_experiment,
+            target_paper_content=target_paper_content,
+            target_paper_title=target_paper_title,
         )
         progress.update(task, completed=True)
 
@@ -1168,6 +1311,11 @@ def main() -> int:
         "--model",
         type=str,
         help="使用するLLMモデル（デフォルト: 設定ファイルのopenai_model）",
+    )
+    evaluate_parser.add_argument(
+        "--include-target",
+        action="store_true",
+        help="ターゲット論文のアイデアを比較に含める（ProposalResult形式の入力時のみ）",
     )
 
     args = parser.parse_args()
