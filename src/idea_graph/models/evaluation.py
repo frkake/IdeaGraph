@@ -10,6 +10,14 @@ if TYPE_CHECKING:
     from idea_graph.services.proposal import Proposal
 
 
+class IdeaSource(str, Enum):
+    """アイデアのソース（生成元）"""
+
+    IDEAGRAPH = "ideagraph"
+    COI = "coi"
+    TARGET_PAPER = "target_paper"
+
+
 class EvaluationMetric(str, Enum):
     """評価指標（5つのアイデア評価指標）"""
 
@@ -99,6 +107,10 @@ class RankingEntry(BaseModel):
     )
     is_target_paper: bool = Field(
         default=False, description="ターゲット論文のアイデアかどうか"
+    )
+    source: IdeaSource = Field(
+        default=IdeaSource.IDEAGRAPH,
+        description="アイデアのソース（ideagraph, coi, target_paper）"
     )
 
 

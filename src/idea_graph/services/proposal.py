@@ -227,7 +227,6 @@ class ProposalService:
 
 Generate diverse ideas that don't overlap. Focus on practical, implementable research directions.
 """
-        print(prompt)
         return prompt
 
     def _generate_mermaid(self, path_nodes: list[PathNode]) -> str:

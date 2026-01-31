@@ -94,6 +94,10 @@ const AppState = {
     savedProposals: [],
     savedProposalGroups: [],
     savedProposalGroupIndexByKey: {},
+    // CoI関連
+    proposalSources: {},     // proposal_index -> 'ideagraph' | 'coi'
+    coiRunning: false,       // CoI実行中フラグ
+    coiResult: null,         // CoI実行結果
 };
 
 // ========== 定数 ==========
@@ -1459,12 +1463,28 @@ function renderProposals() {
     const content = document.getElementById('rightPanelContent');
     if (!content) return;
 
+    // CoI実行中の場合は進捗を表示
+    if (AppState.coiRunning) {
+        content.innerHTML = `
+            <div class="loading">
+                <div class="loading-spinner"></div>
+            </div>
+            <div style="text-align: center; color: #888; margin-top: 1rem;">
+                CoI-Agentを実行中...<br>
+                <span style="font-size: 0.75rem;" id="coiProgressText">初期化中...</span>
+            </div>
+            <div id="coiProgressLog" style="margin-top: 1rem; max-height: 200px; overflow-y: auto; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem; font-family: monospace;"></div>
+        `;
+        return;
+    }
+
     if (!AppState.proposals || !AppState.proposals.length) {
         content.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">💡</div>
                 <div class="empty-state-text">提案がありません<br>分析を実行してから「提案を生成」をクリックしてください</div>
             </div>
+            ${renderCoISection()}
         `;
         return;
     }
@@ -1510,15 +1530,23 @@ function renderProposals() {
     });
 
     html += '</div>';
+
+    // CoIセクションを追加
+    html += renderCoISection();
+
     content.innerHTML = html;
 }
 
 function renderProposalCard(proposal, index) {
+    const source = AppState.proposalSources[index] || 'ideagraph';
+    const sourceBadge = getSourceBadge(source);
+
     return `
-        <div class="proposal-card">
+        <div class="proposal-card" data-source="${source}">
             <div class="proposal-card-header">
                 <span class="proposal-title">${truncateText(proposal.title, 30)}</span>
                 <div class="proposal-actions">
+                    ${sourceBadge}
                     <button class="btn-icon" onclick="toggleProposalDetails(${index})" title="詳細">
                         📖
                     </button>
@@ -1539,6 +1567,40 @@ function renderProposalCard(proposal, index) {
                     `).join('')}
                 </div>
             </div>
+        </div>
+    `;
+}
+
+function getSourceBadge(source) {
+    switch (source) {
+        case 'coi':
+            return '<span class="source-badge source-coi">🟢 CoI</span>';
+        case 'target_paper':
+            return '<span class="source-badge source-target">📄 ターゲット</span>';
+        case 'ideagraph':
+        default:
+            return '<span class="source-badge source-ideagraph">🔵 IdeaGraph</span>';
+    }
+}
+
+function renderCoISection() {
+    return `
+        <div class="coi-section" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid rgba(76, 175, 80, 0.3);">
+            <h4 style="font-size: 0.9rem; color: #4CAF50; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                🔗 CoI（Chain-of-Ideas）で比較
+            </h4>
+            <p style="font-size: 0.75rem; color: #aaa; margin-bottom: 0.75rem;">
+                CoI-Agentを実行してIdeaGraphと比較します。実行には数分〜十数分かかります。
+            </p>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn-coi" onclick="runCoI()" ${AppState.coiRunning ? 'disabled' : ''}>
+                    ${AppState.coiRunning ? '実行中...' : '🚀 CoIを実行'}
+                </button>
+                <button class="btn-secondary" onclick="openCoILoadModal()" title="既存のCoI結果を読み込み">
+                    📂 結果を読み込み
+                </button>
+            </div>
+            <div id="coiStatus" style="margin-top: 0.5rem; font-size: 0.75rem; color: #888;"></div>
         </div>
     `;
 }
@@ -1883,15 +1945,17 @@ function renderEvaluation() {
         const medalClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
         const overallScore = item.overall_score?.toFixed(1) || 'N/A';
         const isTargetPaper = item.is_target_paper === true;
-        const targetBadge = isTargetPaper ? '<span class="target-paper-badge">📄 ターゲット論文</span>' : '';
+        const source = item.source || 'ideagraph';
+        const sourceBadge = isTargetPaper ? '<span class="target-paper-badge">📄 ターゲット論文</span>' : getSourceBadge(source);
         const targetClass = isTargetPaper ? 'target-paper' : '';
+        const sourceClass = source === 'coi' ? 'coi-source' : '';
 
         html += `
-            <div class="evaluation-rank-card ${medalClass} ${targetClass}" data-index="${index}">
+            <div class="evaluation-rank-card ${medalClass} ${targetClass} ${sourceClass}" data-index="${index}" data-source="${source}">
                 <div class="rank-header">
                     <span class="rank-badge ${medalClass}">#${rank}</span>
                     <span class="rank-title">${truncateText(item.idea_title || '提案' + rank, 25)}</span>
-                    ${targetBadge}
+                    ${sourceBadge}
                 </div>
                 <div class="rank-scores">
                     <div class="rank-score-item">
@@ -2558,6 +2622,198 @@ function showEdgeInfo(edge) {
         document.getElementById('nodeInfo').style.display = 'none';
     } else {
         infoDiv.style.display = 'none';
+    }
+}
+
+// ========== CoI機能 ==========
+async function runCoI() {
+    // トピックを決定（ターゲット論文のタイトルまたはID）
+    const topic = AppState.selectedPaperTitle || AppState.selectedPaperId;
+    if (!topic) {
+        alert('CoIを実行するには、まず分析対象の論文を選択してください');
+        return;
+    }
+
+    AppState.coiRunning = true;
+    AppState.coiResult = null;
+    switchTab('propose');
+    renderProposals();
+
+    const statusEl = document.getElementById('coiProgressText');
+    const logEl = document.getElementById('coiProgressLog');
+
+    try {
+        // ストリーミングでCoIを実行
+        const response = await fetch('/api/coi/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: topic,
+                max_chain_length: 5,
+                min_chain_length: 3,
+                max_chain_numbers: 1,
+                improve_cnt: 1,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // SSEイベントをパース
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (statusEl) statusEl.textContent = data.progress || data.status;
+                        if (logEl && data.progress) {
+                            logEl.innerHTML += `<div>${escapeHtml(data.progress)}</div>`;
+                            logEl.scrollTop = logEl.scrollHeight;
+                        }
+
+                        if (data.status === 'completed' && data.result) {
+                            AppState.coiResult = data.result;
+                            updateStatus('CoI実行完了。変換中...');
+                            await convertCoIToProposal();
+                        } else if (data.status === 'error') {
+                            throw new Error(data.error || 'CoI execution failed');
+                        }
+                    } catch (e) {
+                        console.error('SSE parse error:', e);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        updateStatus('CoIエラー: ' + error.message);
+        alert('CoI実行エラー: ' + error.message);
+    } finally {
+        AppState.coiRunning = false;
+        renderProposals();
+    }
+}
+
+async function convertCoIToProposal() {
+    if (!AppState.coiResult) {
+        alert('変換するCoI結果がありません');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/coi/convert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                coi_result: AppState.coiResult,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        const result = await response.json();
+
+        // 提案リストに追加
+        const newIndex = AppState.proposals.length;
+        AppState.proposals.push(result.proposal);
+        AppState.proposalSources[newIndex] = 'coi';
+
+        updateStatus('CoI提案を追加しました');
+        renderProposals();
+
+        // 自動保存
+        await saveProposal(newIndex);
+
+    } catch (error) {
+        updateStatus('変換エラー: ' + error.message);
+        alert('CoI結果の変換エラー: ' + error.message);
+    }
+}
+
+function openCoILoadModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'coiLoadModal';
+    modal.innerHTML = `
+        <div class="modal" style="width: 500px;">
+            <div class="modal-header">
+                <h2 class="modal-title">CoI結果の読み込み</h2>
+                <button class="modal-close" onclick="closeCoILoadModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 0.85rem; color: #ccc; margin-bottom: 1rem;">
+                    既存のCoI実行結果（result.json）を読み込んでProposal形式に変換します。
+                </p>
+                <label style="font-size: 0.8rem; color: #aaa;">result.jsonのパス:</label>
+                <input type="text" id="coiResultPath" placeholder="/path/to/result.json" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: var(--bg-primary); border: 1px solid var(--bg-tertiary); border-radius: 4px; color: #fff;">
+                <div id="coiLoadError" style="margin-top: 0.5rem; font-size: 0.75rem; color: #f44336;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeCoILoadModal()">キャンセル</button>
+                <button class="btn-primary" onclick="loadCoIResult()">読み込み</button>
+            </div>
+        </div>
+    `;
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeCoILoadModal();
+    });
+
+    document.body.appendChild(modal);
+}
+
+function closeCoILoadModal() {
+    const modal = document.getElementById('coiLoadModal');
+    if (modal) modal.remove();
+}
+
+async function loadCoIResult() {
+    const pathInput = document.getElementById('coiResultPath');
+    const errorEl = document.getElementById('coiLoadError');
+    const path = pathInput?.value?.trim();
+
+    if (!path) {
+        if (errorEl) errorEl.textContent = 'パスを入力してください';
+        return;
+    }
+
+    try {
+        // ファイルを読み込み
+        const loadResponse = await fetch('/api/coi/load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result_path: path }),
+        });
+
+        if (!loadResponse.ok) {
+            throw new Error(await loadResponse.text());
+        }
+
+        const coiResult = await loadResponse.json();
+        AppState.coiResult = coiResult;
+
+        closeCoILoadModal();
+
+        // 変換
+        updateStatus('CoI結果を変換中...');
+        await convertCoIToProposal();
+
+    } catch (error) {
+        if (errorEl) errorEl.textContent = 'エラー: ' + error.message;
     }
 }
 

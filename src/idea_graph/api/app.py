@@ -604,6 +604,7 @@ class RankingEntryResponse(BaseModel):
     overall_score: float
     scores_by_metric: dict[str, float]
     is_target_paper: bool = False
+    source: str = "ideagraph"  # ideagraph, coi, target_paper
 
 
 class EvaluateResponse(BaseModel):
@@ -684,6 +685,7 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
             overall_score=entry.overall_score,
             scores_by_metric={m.value: s for m, s in entry.scores_by_metric.items()},
             is_target_paper=entry.is_target_paper,
+            source=entry.source.value if hasattr(entry, 'source') else "ideagraph",
         )
         for entry in result.ranking
     ]
@@ -710,6 +712,225 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
         ranking=ranking_response,
         pairwise_results=pairwise_response,
     )
+
+
+# ========== CoI API ==========
+
+
+class CoIRunRequest(BaseModel):
+    """CoI実行リクエスト"""
+
+    topic: str
+    anchor_paper_path: str | None = None
+    max_chain_length: int = 5
+    min_chain_length: int = 3
+    max_chain_numbers: int = 1
+    improve_cnt: int = 1
+    exclude_anchor_content: bool = True
+
+
+class CoIResultResponse(BaseModel):
+    """CoI結果レスポンス"""
+
+    idea: str
+    idea_chain: str
+    experiment: str
+    related_experiments: list[str]
+    entities: str
+    trend: str
+    future: str
+    year: list[int]
+
+
+class CoIRunResponse(BaseModel):
+    """CoI実行レスポンス"""
+
+    status: str  # running, completed, error
+    progress: str
+    result: CoIResultResponse | None = None
+    error: str | None = None
+
+
+class CoIConvertRequest(BaseModel):
+    """CoI変換リクエスト"""
+
+    coi_result: CoIResultResponse
+    model_name: str | None = None
+
+
+class CoIConvertResponse(BaseModel):
+    """CoI変換レスポンス"""
+
+    proposal: Proposal
+    source: str = "coi"
+
+
+class CoILoadRequest(BaseModel):
+    """CoI結果ファイル読み込みリクエスト"""
+
+    result_path: str
+
+
+@app.post("/api/coi/run")
+async def run_coi(request: CoIRunRequest):
+    """CoI-Agentを実行してアイデアを生成（ストリーミング）"""
+    from fastapi.responses import StreamingResponse
+    import json
+
+    from idea_graph.services.coi_runner import CoIRunner
+
+    runner = CoIRunner(
+        max_chain_length=request.max_chain_length,
+        min_chain_length=request.min_chain_length,
+        max_chain_numbers=request.max_chain_numbers,
+        improve_cnt=request.improve_cnt,
+        exclude_anchor_content=request.exclude_anchor_content,
+    )
+
+    async def generate():
+        async for progress in runner.run_streaming(
+            topic=request.topic,
+            anchor_paper_path=request.anchor_paper_path,
+            exclude_anchor_content=request.exclude_anchor_content,
+        ):
+            response = CoIRunResponse(
+                status=progress.status,
+                progress=progress.progress,
+                error=progress.error,
+            )
+            if progress.result:
+                response.result = CoIResultResponse(
+                    idea=progress.result.idea,
+                    idea_chain=progress.result.idea_chain,
+                    experiment=progress.result.experiment,
+                    related_experiments=progress.result.related_experiments,
+                    entities=progress.result.entities,
+                    trend=progress.result.trend,
+                    future=progress.result.future,
+                    year=progress.result.year,
+                )
+            yield f"data: {response.model_dump_json()}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.post("/api/coi/run/sync")
+async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
+    """CoI-Agentを実行してアイデアを生成（同期版）"""
+    from idea_graph.services.coi_runner import CoIRunner
+
+    runner = CoIRunner(
+        max_chain_length=request.max_chain_length,
+        min_chain_length=request.min_chain_length,
+        max_chain_numbers=request.max_chain_numbers,
+        improve_cnt=request.improve_cnt,
+        exclude_anchor_content=request.exclude_anchor_content,
+    )
+
+    try:
+        result = await runner.run(
+            topic=request.topic,
+            anchor_paper_path=request.anchor_paper_path,
+            exclude_anchor_content=request.exclude_anchor_content,
+        )
+        return CoIRunResponse(
+            status="completed",
+            progress="完了",
+            result=CoIResultResponse(
+                idea=result.idea,
+                idea_chain=result.idea_chain,
+                experiment=result.experiment,
+                related_experiments=result.related_experiments,
+                entities=result.entities,
+                trend=result.trend,
+                future=result.future,
+                year=result.year,
+            ),
+        )
+    except Exception as e:
+        return CoIRunResponse(
+            status="error",
+            progress="エラー",
+            error=str(e),
+        )
+
+
+@app.post("/api/coi/convert")
+def convert_coi_result(request: CoIConvertRequest) -> CoIConvertResponse:
+    """CoI結果をProposal形式に変換"""
+    from idea_graph.services.coi_runner import CoIResult
+    from idea_graph.services.coi_converter import CoIConverter
+
+    # CoIResultResponseをCoIResultに変換
+    coi_result = CoIResult(
+        idea=request.coi_result.idea,
+        idea_chain=request.coi_result.idea_chain,
+        experiment=request.coi_result.experiment,
+        related_experiments=request.coi_result.related_experiments,
+        entities=request.coi_result.entities,
+        trend=request.coi_result.trend,
+        future=request.coi_result.future,
+        year=request.coi_result.year,
+    )
+
+    # 変換
+    converter = CoIConverter(model_name=request.model_name)
+    proposal = converter.convert_to_proposal(coi_result)
+
+    # ProposalをAPI用のProposalモデルに変換
+    api_proposal = Proposal(
+        title=proposal.title,
+        rationale=proposal.rationale,
+        research_trends=proposal.research_trends,
+        motivation=proposal.motivation,
+        method=proposal.method,
+        experiment=Experiment(
+            datasets=proposal.experiment.datasets,
+            baselines=proposal.experiment.baselines,
+            metrics=proposal.experiment.metrics,
+            ablations=proposal.experiment.ablations,
+            expected_results=proposal.experiment.expected_results,
+            failure_interpretation=proposal.experiment.failure_interpretation,
+        ),
+        grounding=Grounding(
+            papers=proposal.grounding.papers,
+            entities=proposal.grounding.entities,
+            path_mermaid=proposal.grounding.path_mermaid,
+        ),
+        differences=proposal.differences,
+    )
+
+    return CoIConvertResponse(proposal=api_proposal, source="coi")
+
+
+@app.post("/api/coi/load")
+def load_coi_result(request: CoILoadRequest) -> CoIResultResponse:
+    """CoI結果ファイルを読み込み"""
+    from idea_graph.services.coi_runner import CoIRunner
+
+    try:
+        result = CoIRunner.load_result_from_file(request.result_path)
+        return CoIResultResponse(
+            idea=result.idea,
+            idea_chain=result.idea_chain,
+            experiment=result.experiment,
+            related_experiments=result.related_experiments,
+            entities=result.entities,
+            trend=result.trend,
+            future=result.future,
+            year=result.year,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ========== フロントエンド ==========

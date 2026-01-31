@@ -116,6 +116,12 @@ def main() -> int:
         default=1,
         help="処理するチェーンの最大数（デフォルト: 1）",
     )
+    parser.add_argument(
+        "--exclude-anchor-content",
+        action="store_true",
+        default=False,
+        help="アンカー論文の内容をプロンプトから除外する（デフォルト: False）",
+    )
 
     args = parser.parse_args()
 
@@ -148,12 +154,35 @@ def main() -> int:
         max_chain_numbers=args.max_chain_numbers,
     )
 
+    # アンカー論文のフィルタリング処理
+    topic = args.topic
+    anchor_paper_path = args.anchor_paper_path
+
+    if args.exclude_anchor_content and anchor_paper_path:
+        from idea_graph.coi.anchor_filter import AnchorFilter, AnchorFilterError
+
+        print(f"\nアンカー論文の内容除外モードで実行します")
+        anchor_filter = AnchorFilter()
+        try:
+            filter_result = anchor_filter.filter_anchor(
+                topic=topic,
+                anchor_paper_path=anchor_paper_path,
+                exclude_anchor_content=True,
+            )
+            topic = filter_result.topic
+            anchor_paper_path = filter_result.anchor_paper_path
+            print(f"抽出されたタイトル: {filter_result.anchor_title}")
+            print(f"処理後のトピック: {topic}")
+        except AnchorFilterError as e:
+            print(f"エラー: アンカー論文のフィルタリングに失敗しました: {e}")
+            return 1
+
     # アイデア生成
-    print(f"\nトピック '{args.topic}' のアイデアと実験を生成中...")
+    print(f"\nトピック '{topic}' のアイデアと実験を生成中...")
     print("=" * 60)
 
     idea, related_experiments, entities, idea_chain, ideas, trend, future, human, year = asyncio.run(
-        deep_research_agent.generate_idea_with_chain(args.topic, args.anchor_paper_path)
+        deep_research_agent.generate_idea_with_chain(topic, anchor_paper_path)
     )
 
     print("\nアイデア生成完了。実験計画を生成中...")
