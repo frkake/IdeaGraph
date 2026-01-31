@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
 from idea_graph.config import settings
+from idea_graph.constants import OUTPUT_CONSTRAINTS
 from idea_graph.models.evaluation import (
     EvaluationMetric,
     EvaluationResult,
@@ -24,6 +25,9 @@ from idea_graph.models.evaluation import (
     TargetPaperExtraction,
     Winner,
 )
+
+# 定数のエイリアス（可読性向上）
+_C = OUTPUT_CONSTRAINTS
 
 if TYPE_CHECKING:
     from idea_graph.services.proposal import Proposal
@@ -549,38 +553,34 @@ For each metric, provide:
 class LLMIdeaExtraction(BaseModel):
     """論文からのアイデア抽出用の構造化出力"""
 
-    title: str = Field(description="The main idea/contribution of the paper in 1-2 sentences")
-    motivation: str = Field(description="The problem being addressed and why it matters")
-    method: str = Field(description="The proposed approach/solution")
-    key_differences: list[str] = Field(description="Key differences from prior work (3-5 items)")
+    title: str = Field(description=f"The main idea/contribution of the paper in {_C.TITLE}")
+    motivation: str = Field(
+        description=f"The problem being addressed and why it matters ({_C.MOTIVATION_WORDS})"
+    )
+    method: str = Field(description=f"The proposed approach/solution ({_C.METHOD_WORDS})")
+    key_differences: list[str] = Field(
+        description=f"Key differences from prior work {_C.differences_constraint()}"
+    )
     # 実験計画フィールド
-    datasets: list[str] = Field(description="Datasets used in experiments")
-    baselines: list[str] = Field(description="Baseline methods compared against")
-    metrics: list[str] = Field(description="Evaluation metrics used")
-    ablations: list[str] = Field(description="Ablation studies conducted")
-    main_results: str = Field(description="Key experimental results and findings")
+    datasets: list[str] = Field(
+        description=f"Datasets used in experiments {_C.datasets_constraint()} describing the dataset"
+    )
+    baselines: list[str] = Field(
+        description=f"Baseline methods compared against {_C.baselines_constraint()} describing the method"
+    )
+    metrics: list[str] = Field(
+        description=f"Evaluation metrics used {_C.metrics_constraint()} describing the metric"
+    )
+    ablations: list[str] = Field(
+        description=f"Ablation studies conducted {_C.ablations_constraint()} describing what is tested"
+    )
+    main_results: str = Field(
+        description=f"Key experimental results and findings ({_C.MAIN_RESULTS_WORDS})"
+    )
 
 
 class IdeaExtractor:
     """論文からアイデアを抽出するサービス（比較評価用）"""
-
-    EXTRACTION_PROMPT_TEMPLATE = """You are an expert AI research paper analyzer. Extract the core research idea from the following paper.
-
-Focus on:
-1. **title**: A concise description of the main contribution (1-2 sentences)
-2. **motivation**: The problem being addressed and its significance
-3. **method**: The proposed approach or solution
-4. **key_differences**: How this work differs from prior approaches (3-5 bullet points)
-5. **datasets**: List of datasets used in experiments
-6. **baselines**: Methods compared against in experiments
-7. **metrics**: Evaluation metrics used (e.g., accuracy, MPJPE, F1)
-8. **ablations**: Ablation studies conducted (what components were tested)
-9. **main_results**: Key experimental findings and improvements over baselines
-
-Paper content:
-{content}
-
-Extract the research idea:"""
 
     def __init__(self, model_name: str | None = None) -> None:
         """初期化"""
@@ -598,6 +598,26 @@ Extract the research idea:"""
             )
         return self._llm
 
+    def _build_extraction_prompt(self, content: str) -> str:
+        """論文抽出用プロンプトを構築"""
+        return f"""You are an expert AI research paper analyzer. Extract the core research idea from the following paper.
+
+Focus on:
+1. **title**: A concise description of the main contribution ({_C.TITLE})
+2. **motivation**: The problem being addressed and its significance ({_C.MOTIVATION_WORDS})
+3. **method**: The proposed approach or solution ({_C.METHOD_WORDS})
+4. **key_differences**: How this work differs from prior approaches {_C.differences_constraint()}
+5. **datasets**: List of datasets used in experiments {_C.datasets_constraint()} describing the dataset
+6. **baselines**: Methods compared against in experiments {_C.baselines_constraint()} describing the method
+7. **metrics**: Evaluation metrics used {_C.metrics_constraint()} describing the metric
+8. **ablations**: Ablation studies conducted {_C.ablations_constraint()} describing what is tested
+9. **main_results**: Key experimental findings and improvements over baselines ({_C.MAIN_RESULTS_WORDS})
+
+Paper content:
+{content}
+
+Extract the research idea:"""
+
     def extract_from_text(self, paper_content: str) -> LLMIdeaExtraction:
         """論文テキストからアイデアを抽出
 
@@ -612,7 +632,7 @@ Extract the research idea:"""
         if len(paper_content) > max_chars:
             paper_content = paper_content[:max_chars]
 
-        prompt = self.EXTRACTION_PROMPT_TEMPLATE.format(content=paper_content)
+        prompt = self._build_extraction_prompt(paper_content)
         structured_llm = self.llm.with_structured_output(LLMIdeaExtraction)
         message = HumanMessage(content=prompt)
 

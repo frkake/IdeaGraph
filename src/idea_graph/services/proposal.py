@@ -8,9 +8,13 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field, ValidationError
 
 from idea_graph.config import settings
+from idea_graph.constants import OUTPUT_CONSTRAINTS
 from idea_graph.db import Neo4jConnection
 from idea_graph.services.analysis import AnalysisResult, PathNode
 from idea_graph.services.prompt_context import PromptContextBuilder, PromptExpansionOptions
+
+# 定数のエイリアス（可読性向上）
+_C = OUTPUT_CONSTRAINTS
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +22,24 @@ logger = logging.getLogger(__name__)
 class Experiment(BaseModel):
     """実験計画"""
 
-    datasets: list[str] = Field(description="使用データセット候補")
-    baselines: list[str] = Field(description="比較対象ベースライン")
-    metrics: list[str] = Field(description="評価指標")
-    ablations: list[str] = Field(description="アブレーション実験")
-    expected_results: str = Field(description="期待される結果")
-    failure_interpretation: str = Field(description="失敗時の解釈")
+    datasets: list[str] = Field(
+        description=f"使用データセット候補 {_C.datasets_constraint()} describing the dataset"
+    )
+    baselines: list[str] = Field(
+        description=f"比較対象ベースライン {_C.baselines_constraint()} describing the method"
+    )
+    metrics: list[str] = Field(
+        description=f"評価指標 {_C.metrics_constraint()} describing the metric"
+    )
+    ablations: list[str] = Field(
+        description=f"アブレーション実験 {_C.ablations_constraint()} describing what is tested"
+    )
+    expected_results: str = Field(
+        description=f"期待される結果 ({_C.EXPECTED_RESULTS_WORDS})"
+    )
+    failure_interpretation: str = Field(
+        description=f"失敗時の解釈 ({_C.FAILURE_INTERPRETATION_WORDS})"
+    )
 
 
 class Grounding(BaseModel):
@@ -37,18 +53,20 @@ class Grounding(BaseModel):
 class Proposal(BaseModel):
     """提案"""
 
-    title: str = Field(description="仮タイトル")
+    title: str = Field(description=f"仮タイトル ({_C.TITLE})")
     rationale: str = Field(
-        description="提案理由（なぜこの提案を生成したか：知識グラフのどの接続・パスから着想したか、どの論文の組み合わせからインスピレーションを得たか）"
+        description=f"提案理由（なぜこの提案を生成したか：知識グラフのどの接続・パスから着想したか、どの論文の組み合わせからインスピレーションを得たか）({_C.RATIONALE_WORDS})"
     )
     research_trends: str = Field(
-        description="研究動向（知識グラフから見える研究の流れ：どの技術が発展しているか、研究がどの方向に進んでいるか、関連手法の進化の系譜）"
+        description=f"研究動向（知識グラフから見える研究の流れ：どの技術が発展しているか、研究がどの方向に進んでいるか、関連手法の進化の系譜）({_C.RESEARCH_TRENDS_WORDS})"
     )
-    motivation: str = Field(description="動機（何が未解決で、なぜ重要か）")
-    method: str = Field(description="手法（何をどう変えるか）")
+    motivation: str = Field(description=f"動機（何が未解決で、なぜ重要か）({_C.MOTIVATION_WORDS})")
+    method: str = Field(description=f"手法（何をどう変えるか）({_C.METHOD_WORDS})")
     experiment: Experiment = Field(description="実験計画")
     grounding: Grounding = Field(description="根拠")
-    differences: list[str] = Field(description="既存との差分・貢献")
+    differences: list[str] = Field(
+        description=f"既存との差分・貢献 {_C.differences_constraint()}"
+    )
 
 
 class TargetPaperInfo(BaseModel):
@@ -186,29 +204,30 @@ class ProposalService:
 {constraints_text or 'No specific constraints'}
 
 ## Requirements for each proposal
-1. **Title**: A concise, descriptive title for the research idea
-2. **Rationale (Why This Proposal)**: Explain WHY you are proposing this specific idea:
+1. **Title**: A concise, descriptive title for the research idea ({_C.TITLE})
+2. **Rationale (Why This Proposal)**: Explain WHY you are proposing this specific idea ({_C.RATIONALE_WORDS}):
    - Which path/connection in the knowledge graph led to this insight?
    - Which combination of papers inspired this direction?
    - What gap or opportunity did you identify from the multi-hop analysis?
    - Why did you choose this approach over other possible directions?
-3. **Research Trends**: Describe the research trends observed from the knowledge graph:
+3. **Research Trends**: Describe the research trends observed from the knowledge graph ({_C.RESEARCH_TRENDS_WORDS}):
    - What technologies/methods are evolving and in which direction?
    - What is the lineage of related techniques (e.g., A → B → C)?
    - Where is the research heading based on citation patterns and entity relationships?
-4. **Motivation**: What problem remains unsolved? Why is it important? Connect to the target paper and analysis results.
-5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation)
+4. **Motivation**: What problem remains unsolved? Why is it important? Connect to the target paper and analysis results. ({_C.MOTIVATION_WORDS})
+5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation). ({_C.METHOD_WORDS})
 6. **Experiment Plan**:
-   - Datasets to use (existing or new collection)
-   - Baselines for comparison
-   - Evaluation metrics
-   - At least one ablation study
-   - Expected results and failure interpretation
+   - Datasets to use: List {_C.datasets_constraint()} describing the dataset
+   - Baselines for comparison: List {_C.baselines_constraint()} describing the method
+   - Evaluation metrics: List {_C.metrics_constraint()} describing the metric
+   - Ablation studies: List {_C.ablations_constraint()} describing what is tested
+   - Expected results ({_C.EXPECTED_RESULTS_WORDS}) and failure interpretation ({_C.FAILURE_INTERPRETATION_WORDS})
 7. **Grounding**: Which papers and entities support this idea
-8. **Differences**: How this differs from existing work (at least 1 point)
+8. **Differences**: How this differs from existing work {_C.differences_constraint()}
 
 Generate diverse ideas that don't overlap. Focus on practical, implementable research directions.
 """
+        print(prompt)
         return prompt
 
     def _generate_mermaid(self, path_nodes: list[PathNode]) -> str:
