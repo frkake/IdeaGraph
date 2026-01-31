@@ -51,12 +51,14 @@ class StorageService:
         self.proposals_dir = self.base_dir / "proposals"
         self.idea_graph_dir = self.proposals_dir / "idea-graph"
         self.target_proposals_dir = self.proposals_dir / "target"
+        self.chain_of_ideas_dir = self.proposals_dir / "chain-of-ideas"
 
         # ディレクトリ作成
         self.analyses_dir.mkdir(parents=True, exist_ok=True)
         self.proposals_dir.mkdir(parents=True, exist_ok=True)
         self.idea_graph_dir.mkdir(parents=True, exist_ok=True)
         self.target_proposals_dir.mkdir(parents=True, exist_ok=True)
+        self.chain_of_ideas_dir.mkdir(parents=True, exist_ok=True)
 
     def _safe_paper_id(self, paper_id: str) -> str:
         return paper_id.replace("/", "_").replace(":", "_")
@@ -66,11 +68,13 @@ class StorageService:
             return self.idea_graph_dir
         if proposal_type == "target":
             return self.target_proposals_dir
+        if proposal_type in {"coi", "chain-of-ideas"}:
+            return self.chain_of_ideas_dir
         return self.proposals_dir
 
     def _iter_proposal_files(self) -> list[Path]:
         files: list[Path] = []
-        for root in (self.idea_graph_dir, self.target_proposals_dir):
+        for root in (self.idea_graph_dir, self.target_proposals_dir, self.chain_of_ideas_dir):
             if root.exists():
                 files.extend(root.rglob("*.json"))
         if self.proposals_dir.exists():
@@ -81,7 +85,7 @@ class StorageService:
         legacy = self.proposals_dir / f"{proposal_id}.json"
         if legacy.exists():
             return legacy
-        for root in (self.idea_graph_dir, self.target_proposals_dir):
+        for root in (self.idea_graph_dir, self.target_proposals_dir, self.chain_of_ideas_dir):
             if not root.exists():
                 continue
             matches = list(root.rglob(f"{proposal_id}.json"))

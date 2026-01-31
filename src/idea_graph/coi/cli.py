@@ -133,11 +133,17 @@ def main() -> int:
     import nest_asyncio
     from agents import DeepResearchAgent, ReviewAgent, get_llms
 
+    from idea_graph.coi.coi_patch import apply_llm_patch, get_captured_prompt, reset_captured_prompts
+
     nest_asyncio.apply()
 
     # LLMの初期化
     print(f"LLMモデル: メイン={os.environ.get('MAIN_LLM_MODEL')}, サブ={os.environ.get('CHEAP_LLM_MODEL')}")
     main_llm, cheap_llm = get_llms()
+
+    # モンキーパッチを適用してfinal_promptをキャプチャ
+    apply_llm_patch(main_llm)
+    reset_captured_prompts()
 
     # エージェント初期化
     review_agent = ReviewAgent(
@@ -184,6 +190,8 @@ def main() -> int:
     idea, related_experiments, entities, idea_chain, ideas, trend, future, human, year = asyncio.run(
         deep_research_agent.generate_idea_with_chain(topic, anchor_paper_path)
     )
+    # パッチからfinal_promptを取得
+    final_prompt = get_captured_prompt() or ""
 
     print("\nアイデア生成完了。実験計画を生成中...")
     experiment = asyncio.run(
@@ -209,6 +217,7 @@ def main() -> int:
         "future": future,
         "year": year,
         "human": human,
+        "prompt": final_prompt,
     }
 
     output_dir = Path(args.save_file)

@@ -1,0 +1,349 @@
+"""CoI-Agent実行サービス
+
+CoI-Agent (Chain of Ideas) をサブプロセスとして実行し、
+進捗をストリーミングで取得するサービス。
+"""
+
+import asyncio
+import json
+import logging
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import AsyncIterator
+
+from pydantic import BaseModel, Field
+
+from idea_graph.coi.config import COI_AGENT_DIR, coi_settings
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_related_experiments(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None]
+    if isinstance(value, str):
+        parts = [line.strip() for line in value.splitlines() if line.strip()]
+        return parts or [value]
+    return [str(value)]
+
+
+def _normalize_entities(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(str(item) for item in value if item is not None)
+    return str(value)
+
+
+class CoIResult(BaseModel):
+    """CoI-Agentの出力モデル"""
+
+    idea: str = Field(description="生成されたアイデア（Title, Motivation, Methodology含む長文）")
+    idea_chain: str = Field(default="", description="複数論文のアイデアチェーン")
+    experiment: str = Field(default="", description="実験設計（文字列）")
+    related_experiments: list[str] = Field(default_factory=list, description="関連実験のステップ")
+    entities: str = Field(default="", description="エンティティ一覧（文字列）")
+    trend: str = Field(default="", description="研究トレンド")
+    future: str = Field(default="", description="将来研究方向")
+    year: list[int] = Field(default_factory=list, description="関連する年度リスト")
+    ideas: list[str] = Field(default_factory=list, description="生成されたアイデアリスト")
+    human: str = Field(default="", description="人間可読な説明")
+    prompt: str = Field(default="", description="最終的に使用したCoIプロンプト")
+
+
+class CoIProgress(BaseModel):
+    """CoI実行進捗"""
+
+    status: str = Field(description="running | completed | error")
+    progress: str = Field(default="", description="進捗メッセージ")
+    result: CoIResult | None = Field(default=None, description="完了時の結果")
+    error: str | None = Field(default=None, description="エラーメッセージ")
+
+
+class CoIRunner:
+    """CoI-Agent実行サービス"""
+
+    def __init__(
+        self,
+        max_chain_length: int = 5,
+        min_chain_length: int = 3,
+        max_chain_numbers: int = 1,
+        improve_cnt: int = 1,
+        exclude_anchor_content: bool = True,
+    ) -> None:
+        """初期化
+
+        Args:
+            max_chain_length: アイデアチェーンの最大長
+            min_chain_length: アイデアチェーンの最小長
+            max_chain_numbers: 処理するチェーンの最大数
+            improve_cnt: 実験改善の反復回数
+            exclude_anchor_content: アンカー論文内容を除外するか（デフォルト: True）
+        """
+        self.max_chain_length = max_chain_length
+        self.min_chain_length = min_chain_length
+        self.max_chain_numbers = max_chain_numbers
+        self.improve_cnt = improve_cnt
+        self.exclude_anchor_content = exclude_anchor_content
+
+    def _setup_environment(self) -> dict[str, str]:
+        """CoI-Agent用の環境変数を準備
+
+        Returns:
+            設定された環境変数の辞書
+        """
+        env = os.environ.copy()
+
+        # CoI-Agentが期待する環境変数を設定
+        env["SEMENTIC_SEARCH_API_KEY"] = coi_settings.semantic_search_api_key
+        env["is_azure"] = "true" if coi_settings.is_azure else ""
+        env["OPENAI_API_KEY"] = coi_settings.openai_api_key
+        if coi_settings.openai_base_url:
+            env["OPENAI_BASE_URL"] = coi_settings.openai_base_url
+        elif "OPENAI_BASE_URL" in env:
+            del env["OPENAI_BASE_URL"]
+        env["MAIN_LLM_MODEL"] = coi_settings.main_llm_model
+        env["CHEAP_LLM_MODEL"] = coi_settings.cheap_llm_model
+
+        # Azure設定
+        if coi_settings.is_azure:
+            env["AZURE_OPENAI_ENDPOINT"] = coi_settings.azure_endpoint
+            env["AZURE_OPENAI_KEY"] = coi_settings.azure_key
+            env["AZURE_OPENAI_API_VERSION"] = coi_settings.azure_api_version
+
+        # Embedding設定
+        if coi_settings.embedding_api_key:
+            env["EMBEDDING_API_KEY"] = coi_settings.embedding_api_key
+        if coi_settings.embedding_api_endpoint:
+            env["EMBEDDING_API_ENDPOINT"] = coi_settings.embedding_api_endpoint
+        if coi_settings.embedding_model:
+            env["EMBEDDING_MODEL"] = coi_settings.embedding_model
+
+        return env
+
+    def _save_coi_artifacts(self, topic: str, result: CoIResult, save_path: Path) -> None:
+        """CoIのプロンプトとアイデアを保存"""
+        try:
+            from idea_graph.config import settings
+
+            target_dir = settings.cache_dir / "proposals" / "chain-of-ideas"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"{save_path.name}.json" if save_path else f"coi_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            payload = {
+                "saved_at": datetime.now().isoformat(),
+                "topic": topic,
+                "prompt": result.prompt,
+                "idea": result.idea,
+            }
+            (target_dir / filename).write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save CoI artifacts: {e}")
+
+    async def run(
+        self,
+        topic: str,
+        anchor_paper_path: str | None = None,
+        save_dir: str | None = None,
+        exclude_anchor_content: bool | None = None,
+    ) -> CoIResult:
+        """CoI-Agentを実行してアイデアを生成（同期版）
+
+        Args:
+            topic: 研究トピック
+            anchor_paper_path: アンカー論文のPDFパス
+            save_dir: 保存先ディレクトリ
+            exclude_anchor_content: アンカー論文内容を除外するか（Noneの場合はインスタンス設定を使用）
+
+        Returns:
+            CoI-Agentの実行結果
+        """
+        result: CoIResult | None = None
+        error_msg: str | None = None
+
+        async for progress in self.run_streaming(
+            topic, anchor_paper_path, save_dir, exclude_anchor_content
+        ):
+            if progress.status == "completed" and progress.result:
+                result = progress.result
+            elif progress.status == "error":
+                error_msg = progress.error
+
+        if result:
+            return result
+        raise RuntimeError(error_msg or "CoI-Agent execution failed without result")
+
+    async def run_streaming(
+        self,
+        topic: str,
+        anchor_paper_path: str | None = None,
+        save_dir: str | None = None,
+        exclude_anchor_content: bool | None = None,
+    ) -> AsyncIterator[CoIProgress]:
+        """CoI-Agentを実行して進捗をストリーミング
+
+        Args:
+            topic: 研究トピック
+            anchor_paper_path: アンカー論文のPDFパス
+            save_dir: 保存先ディレクトリ
+            exclude_anchor_content: アンカー論文内容を除外するか（Noneの場合はインスタンス設定を使用）
+
+        Yields:
+            CoIProgress: 進捗情報
+        """
+        # exclude_anchor_contentがNoneの場合はインスタンス設定を使用
+        if exclude_anchor_content is None:
+            exclude_anchor_content = self.exclude_anchor_content
+        # 保存先ディレクトリの設定
+        if save_dir is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_dir = str(COI_AGENT_DIR / "saves" / f"run_{timestamp}")
+
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+
+        yield CoIProgress(status="running", progress="CoI-Agentを起動中...")
+
+        # 環境変数を準備
+        env = self._setup_environment()
+
+        # コマンドを構築（uv経由で実行）
+        cmd = [
+            sys.executable,
+            "-m",
+            "idea_graph.coi.cli",
+            "--topic",
+            topic,
+            "--save-file",
+            str(save_path),
+            "--max-chain-length",
+            str(self.max_chain_length),
+            "--min-chain-length",
+            str(self.min_chain_length),
+            "--max-chain-numbers",
+            str(self.max_chain_numbers),
+            "--improve-cnt",
+            str(self.improve_cnt),
+        ]
+
+        if anchor_paper_path:
+            cmd.extend(["--anchor-paper-path", anchor_paper_path])
+
+        if exclude_anchor_content:
+            cmd.append("--exclude-anchor-content")
+
+        logger.info(f"Starting CoI-Agent with topic: {topic}")
+        logger.debug(f"Command: {' '.join(cmd)}")
+
+        try:
+            # サブプロセスを開始
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=env,
+                cwd=str(COI_AGENT_DIR),
+            )
+
+            # 出力をストリーミング
+            if process.stdout:
+                async for line in process.stdout:
+                    decoded_line = line.decode("utf-8", errors="replace").strip()
+                    if decoded_line:
+                        logger.debug(f"CoI output: {decoded_line}")
+                        yield CoIProgress(status="running", progress=decoded_line)
+
+            # プロセスの完了を待つ
+            return_code = await process.wait()
+
+            if return_code != 0:
+                error_msg = f"CoI-Agent exited with code {return_code}"
+                logger.error(error_msg)
+                yield CoIProgress(status="error", error=error_msg)
+                return
+
+            # 結果ファイルを読み込み
+            result_path = save_path / "result.json"
+            if not result_path.exists():
+                error_msg = f"Result file not found: {result_path}"
+                logger.error(error_msg)
+                yield CoIProgress(status="error", error=error_msg)
+                return
+
+            with open(result_path, encoding="utf-8") as f:
+                result_data = json.load(f)
+
+            # CoIResultに変換
+            result = CoIResult(
+                idea=result_data.get("idea", ""),
+                idea_chain=result_data.get("idea_chain", ""),
+                experiment=result_data.get("experiment", ""),
+                related_experiments=_normalize_related_experiments(
+                    result_data.get("related_experiments")
+                ),
+                entities=_normalize_entities(result_data.get("entities")),
+                trend=result_data.get("trend", ""),
+                future=result_data.get("future", ""),
+                year=result_data.get("year", []),
+                ideas=result_data.get("ideas", []),
+                human=result_data.get("human", ""),
+                prompt=result_data.get("prompt", ""),
+            )
+            self._save_coi_artifacts(topic, result, save_path)
+
+            logger.info("CoI-Agent completed successfully")
+            yield CoIProgress(status="completed", progress="完了", result=result)
+
+        except FileNotFoundError as e:
+            error_msg = f"CoI-Agent executable not found: {e}"
+            logger.error(error_msg)
+            yield CoIProgress(status="error", error=error_msg)
+        except asyncio.TimeoutError:
+            error_msg = "CoI-Agent execution timed out"
+            logger.error(error_msg)
+            yield CoIProgress(status="error", error=error_msg)
+        except Exception as e:
+            error_msg = f"CoI-Agent execution failed: {e}"
+            logger.exception(error_msg)
+            yield CoIProgress(status="error", error=error_msg)
+
+    @staticmethod
+    def load_result_from_file(result_path: str | Path) -> CoIResult:
+        """結果ファイルからCoIResultを読み込み
+
+        Args:
+            result_path: result.jsonのパス
+
+        Returns:
+            CoIResult
+        """
+        path = Path(result_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Result file not found: {path}")
+
+        with open(path, encoding="utf-8") as f:
+            result_data = json.load(f)
+
+        return CoIResult(
+            idea=result_data.get("idea", ""),
+            idea_chain=result_data.get("idea_chain", ""),
+            experiment=result_data.get("experiment", ""),
+            related_experiments=_normalize_related_experiments(
+                result_data.get("related_experiments")
+            ),
+            entities=_normalize_entities(result_data.get("entities")),
+            trend=result_data.get("trend", ""),
+            future=result_data.get("future", ""),
+            year=result_data.get("year", []),
+            ideas=result_data.get("ideas", []),
+            human=result_data.get("human", ""),
+            prompt=result_data.get("prompt", ""),
+        )

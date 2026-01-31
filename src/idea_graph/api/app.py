@@ -394,6 +394,7 @@ class SaveProposalRequest(BaseModel):
     prompt: str | None = None
     rating: int | None = None
     notes: str | None = None
+    proposal_type: str | None = None
 
 
 class UpdateProposalRequest(BaseModel):
@@ -474,6 +475,7 @@ def save_proposal_result(request: SaveProposalRequest):
         prompt=request.prompt,
         rating=request.rating,
         notes=request.notes,
+        proposal_type=request.proposal_type or "idea-graph",
     )
     return saved
 
@@ -740,6 +742,7 @@ class CoIResultResponse(BaseModel):
     trend: str
     future: str
     year: list[int]
+    prompt: str | None = None
 
 
 class CoIRunResponse(BaseModel):
@@ -808,6 +811,7 @@ async def run_coi(request: CoIRunRequest):
                     trend=progress.result.trend,
                     future=progress.result.future,
                     year=progress.result.year,
+                    prompt=progress.result.prompt or None,
                 )
             yield f"data: {response.model_dump_json()}\n\n"
 
@@ -852,6 +856,7 @@ async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
                 trend=result.trend,
                 future=result.future,
                 year=result.year,
+                prompt=result.prompt or None,
             ),
         )
     except Exception as e:
@@ -878,6 +883,7 @@ def convert_coi_result(request: CoIConvertRequest) -> CoIConvertResponse:
         trend=request.coi_result.trend,
         future=request.coi_result.future,
         year=request.coi_result.year,
+        prompt=request.coi_result.prompt or "",
     )
 
     # 変換
@@ -926,6 +932,7 @@ def load_coi_result(request: CoILoadRequest) -> CoIResultResponse:
             trend=result.trend,
             future=result.future,
             year=result.year,
+            prompt=result.prompt or None,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
