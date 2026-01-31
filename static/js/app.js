@@ -1977,8 +1977,13 @@ async function runEvaluation() {
     }
 
     // リクエストボディを構築
+    // proposal_sourcesを配列形式で作成（proposalsと同じ順序）
+    const proposalSources = AppState.proposals.map((_, index) => {
+        return AppState.proposalSources[index] || 'ideagraph';
+    });
     const requestBody = {
         proposals: AppState.proposals,
+        proposal_sources: proposalSources,
         include_experiment: true,
     };
     if (includeTarget) {

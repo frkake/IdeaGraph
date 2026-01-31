@@ -19,6 +19,7 @@ from idea_graph.models.evaluation import (
     ExperimentMetric,
     ExperimentMetricScore,
     EloRatings,
+    IdeaSource,
     MetricScore,
     PairwiseResult,
     RankingEntry,
@@ -741,6 +742,7 @@ class EvaluationService:
         target_paper_content: str | None = None,
         target_paper_title: str | None = None,
         target_paper_id: str | None = None,
+        proposal_sources: list[str] | None = None,
     ) -> EvaluationResult:
         """提案群を評価してランキングを生成
 
@@ -750,6 +752,7 @@ class EvaluationService:
             target_paper_content: ターゲット論文の全文テキスト（オプション）
             target_paper_title: ターゲット論文のタイトル（オプション）
             target_paper_id: ターゲット論文のID（例：arxiv ID）（オプション）
+            proposal_sources: 各提案のソース（ideagraph, coi）のリスト（オプション）
 
         Returns:
             評価結果
@@ -830,13 +833,28 @@ class EvaluationService:
         # ランキングを生成
         ranking = self.elo_calculator.generate_ranking(elo_ratings)
 
-        # タイトルとis_target_paperフラグを設定
+        # idea_idからインデックスへのマップを作成（proposal_sourcesの参照用）
+        idea_id_to_index = {idea_id: i for i, idea_id in enumerate(idea_ids)}
+
+        # タイトル、is_target_paperフラグ、sourceを設定
         for entry in ranking:
             if entry.idea_id in proposal_map:
                 entry.idea_title = proposal_map[entry.idea_id].title
-            # ターゲット論文の場合はフラグを設定
+            # ターゲット論文の場合はフラグとソースを設定
             if entry.idea_id == TARGET_PAPER_IDEA_ID:
                 entry.is_target_paper = True
+                entry.source = IdeaSource.TARGET_PAPER
+            # proposal_sourcesが提供されている場合、対応するソースを設定
+            elif proposal_sources and entry.idea_id in idea_id_to_index:
+                idx = idea_id_to_index[entry.idea_id]
+                if idx < len(proposal_sources):
+                    source_str = proposal_sources[idx]
+                    if source_str == 'coi':
+                        entry.source = IdeaSource.COI
+                    elif source_str == 'target_paper':
+                        entry.source = IdeaSource.TARGET_PAPER
+                    else:
+                        entry.source = IdeaSource.IDEAGRAPH
 
         # 評価結果を作成
         eval_result = EvaluationResult(

@@ -574,6 +574,7 @@ class EvaluateRequest(BaseModel):
     """評価リクエスト"""
 
     proposals: list[EvaluateProposal]
+    proposal_sources: list[str] | None = None  # 各提案のソース（ideagraph, coi）
     include_experiment: bool = True
     model_name: str | None = None
     target_paper_id: str | None = None  # 論文IDを指定すると自動で内容を取得
@@ -676,6 +677,7 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
         target_paper_content=target_paper_content,
         target_paper_title=target_paper_title,
         target_paper_id=request.target_paper_id,
+        proposal_sources=request.proposal_sources,
     )
 
     # レスポンスを構築
@@ -731,6 +733,18 @@ class CoIRunRequest(BaseModel):
     exclude_anchor_content: bool = True
 
 
+class CoIArgsResponse(BaseModel):
+    """CoI引数レスポンス"""
+
+    topic: str
+    anchor_paper_path: str | None = None
+    max_chain_length: int
+    min_chain_length: int
+    max_chain_numbers: int
+    improve_cnt: int
+    exclude_anchor_content: bool
+
+
 class CoIResultResponse(BaseModel):
     """CoI結果レスポンス"""
 
@@ -743,6 +757,7 @@ class CoIResultResponse(BaseModel):
     future: str
     year: list[int]
     prompt: str | None = None
+    args: CoIArgsResponse | None = None
 
 
 class CoIRunResponse(BaseModel):
@@ -802,6 +817,17 @@ async def run_coi(request: CoIRunRequest):
                 error=progress.error,
             )
             if progress.result:
+                args_response = None
+                if progress.result.args:
+                    args_response = CoIArgsResponse(
+                        topic=progress.result.args.topic,
+                        anchor_paper_path=progress.result.args.anchor_paper_path,
+                        max_chain_length=progress.result.args.max_chain_length,
+                        min_chain_length=progress.result.args.min_chain_length,
+                        max_chain_numbers=progress.result.args.max_chain_numbers,
+                        improve_cnt=progress.result.args.improve_cnt,
+                        exclude_anchor_content=progress.result.args.exclude_anchor_content,
+                    )
                 response.result = CoIResultResponse(
                     idea=progress.result.idea,
                     idea_chain=progress.result.idea_chain,
@@ -812,6 +838,7 @@ async def run_coi(request: CoIRunRequest):
                     future=progress.result.future,
                     year=progress.result.year,
                     prompt=progress.result.prompt or None,
+                    args=args_response,
                 )
             yield f"data: {response.model_dump_json()}\n\n"
 
@@ -844,6 +871,17 @@ async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
             anchor_paper_path=request.anchor_paper_path,
             exclude_anchor_content=request.exclude_anchor_content,
         )
+        args_response = None
+        if result.args:
+            args_response = CoIArgsResponse(
+                topic=result.args.topic,
+                anchor_paper_path=result.args.anchor_paper_path,
+                max_chain_length=result.args.max_chain_length,
+                min_chain_length=result.args.min_chain_length,
+                max_chain_numbers=result.args.max_chain_numbers,
+                improve_cnt=result.args.improve_cnt,
+                exclude_anchor_content=result.args.exclude_anchor_content,
+            )
         return CoIRunResponse(
             status="completed",
             progress="完了",
@@ -857,6 +895,7 @@ async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
                 future=result.future,
                 year=result.year,
                 prompt=result.prompt or None,
+                args=args_response,
             ),
         )
     except Exception as e:

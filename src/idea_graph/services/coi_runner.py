@@ -41,6 +41,18 @@ def _normalize_entities(value: object) -> str:
     return str(value)
 
 
+class CoIArgs(BaseModel):
+    """CoI実行時の引数"""
+
+    topic: str = Field(description="研究トピック")
+    anchor_paper_path: str | None = Field(default=None, description="アンカー論文PDFパス")
+    max_chain_length: int = Field(description="アイデアチェーン最大長")
+    min_chain_length: int = Field(description="アイデアチェーン最小長")
+    max_chain_numbers: int = Field(description="処理するチェーン最大数")
+    improve_cnt: int = Field(description="実験改善反復回数")
+    exclude_anchor_content: bool = Field(description="アンカー論文内容除外フラグ")
+
+
 class CoIResult(BaseModel):
     """CoI-Agentの出力モデル"""
 
@@ -55,6 +67,7 @@ class CoIResult(BaseModel):
     ideas: list[str] = Field(default_factory=list, description="生成されたアイデアリスト")
     human: str = Field(default="", description="人間可読な説明")
     prompt: str = Field(default="", description="最終的に使用したCoIプロンプト")
+    args: CoIArgs | None = Field(default=None, description="CoI実行時の引数")
 
 
 class CoIProgress(BaseModel):
@@ -126,27 +139,6 @@ class CoIRunner:
             env["EMBEDDING_MODEL"] = coi_settings.embedding_model
 
         return env
-
-    def _save_coi_artifacts(self, topic: str, result: CoIResult, save_path: Path) -> None:
-        """CoIのプロンプトとアイデアを保存"""
-        try:
-            from idea_graph.config import settings
-
-            target_dir = settings.cache_dir / "proposals" / "chain-of-ideas"
-            target_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"{save_path.name}.json" if save_path else f"coi_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            payload = {
-                "saved_at": datetime.now().isoformat(),
-                "topic": topic,
-                "prompt": result.prompt,
-                "idea": result.idea,
-            }
-            (target_dir / filename).write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as e:
-            logger.warning(f"Failed to save CoI artifacts: {e}")
 
     async def run(
         self,
@@ -281,7 +273,16 @@ class CoIRunner:
             with open(result_path, encoding="utf-8") as f:
                 result_data = json.load(f)
 
-            # CoIResultに変換
+            # CoIResultに変換（引数情報を含める）
+            coi_args = CoIArgs(
+                topic=topic,
+                anchor_paper_path=anchor_paper_path,
+                max_chain_length=self.max_chain_length,
+                min_chain_length=self.min_chain_length,
+                max_chain_numbers=self.max_chain_numbers,
+                improve_cnt=self.improve_cnt,
+                exclude_anchor_content=exclude_anchor_content,
+            )
             result = CoIResult(
                 idea=result_data.get("idea", ""),
                 idea_chain=result_data.get("idea_chain", ""),
@@ -296,8 +297,8 @@ class CoIRunner:
                 ideas=result_data.get("ideas", []),
                 human=result_data.get("human", ""),
                 prompt=result_data.get("prompt", ""),
+                args=coi_args,
             )
-            self._save_coi_artifacts(topic, result, save_path)
 
             logger.info("CoI-Agent completed successfully")
             yield CoIProgress(status="completed", progress="完了", result=result)
