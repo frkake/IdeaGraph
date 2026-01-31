@@ -1,0 +1,3 @@
+[submodule "3rdparty/CoI-Agent"]
+	path = 3rdparty/CoI-Agent
+	url = https://github.com/DAMO-NLP-SG/CoI-Agent

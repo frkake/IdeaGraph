@@ -1162,7 +1162,6 @@ def _get_paper_full_text(paper_id: str) -> str | None:
         logging.warning(f"PDF full text extraction not directly supported, no extraction cache found")
         return None
 
-
 def cmd_evaluate(args: argparse.Namespace) -> int:
     """評価コマンド"""
     import json

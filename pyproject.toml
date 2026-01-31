@@ -30,8 +30,30 @@ dev = [
     "pytest-cov>=6.0.0",
 ]
 
+[dependency-groups]
+coi = [
+    "aiohttp>=3.0.0",
+    "beautifulsoup4>=4.0.0",
+    "httpx>=0.28.0",
+    "lmdb>=1.0.0",
+    "lxml>=5.0.0",
+    "numpy>=1.0.0",
+    "openai>=1.0.0",
+    "pandas>=2.0.0",
+    "protobuf>=4.0.0",
+    "PyYAML>=6.0.0",
+    "requests>=2.0.0",
+    "spacy>=3.0.0",
+    "tenacity>=8.0.0",
+    "textstat>=0.7.0",
+    "tqdm>=4.0.0",
+    "nest-asyncio>=1.5.0",
+    "scipdf @ git+https://github.com/titipata/scipdf_parser.git",
+]
+
 [project.scripts]
 idea-graph = "idea_graph.cli:main"
+coi = "idea_graph.coi.cli:main"
 
 [build-system]
 requires = ["hatchling"]

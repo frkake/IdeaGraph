@@ -889,3 +889,33 @@ rm -rf cache/papers cache/extractions cache/progress.json
 ```
 
 これで最初からインジェストをやり直せます。
+
+## 再現
+
+### Chain-of-Ideas
+
+#### 依存関係インストール
+
+```
+uv sync --group coi
+```
+
+grobidのセットアップ
+
+```
+wget  https://download.oracle.com/java/GA/jdk11/9/GPL/openjdk-11.0.2_linux-x64_bin.tar.gz
+tar -zxvf openjdk-11.0.2_linux-x64_bin.tar.gz
+export JAVA_HOME=Your_path/jdk-11.0.2
+```
+
+#### spaCyモデルダウンロード（初回のみ）
+
+```
+uv run --group coi python -m ensurepip --upgrade
+uv run --group coi python -m spacy download en_core_web_sm
+```
+
+#### 実行
+```
+uv run --group coi coi --topic "研究トピック"
+```
