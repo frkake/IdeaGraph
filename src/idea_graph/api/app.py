@@ -718,6 +718,156 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
     )
 
 
+class EvaluationProgressResponse(BaseModel):
+    """評価進捗レスポンス"""
+
+    event_type: str  # progress, extracting_target, completed, error
+    current_comparison: int = 0
+    total_comparisons: int = 0
+    phase: str = "comparing"
+    message: str | None = None
+    error: str | None = None
+    result: EvaluateResponse | None = None
+
+
+@app.post("/api/evaluate/stream")
+async def evaluate_proposals_stream(request: EvaluateRequest):
+    """提案をペアワイズ比較して評価（SSEストリーミング版）"""
+    from fastapi.responses import StreamingResponse
+
+    from idea_graph.services.proposal import Proposal as ProposalModel
+    from idea_graph.services.proposal import Experiment as ExperimentModel
+    from idea_graph.services.proposal import Grounding as GroundingModel
+    from idea_graph.cli import _get_paper_full_text
+    from idea_graph.models.evaluation import EvaluationProgressEvent, EvaluationResult
+
+    # バリデーション
+    if len(request.proposals) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 2 proposals are required for pairwise comparison"
+        )
+
+    # ターゲット論文の内容を取得
+    target_paper_content = request.target_paper_content
+    target_paper_title = request.target_paper_title
+    if request.target_paper_id and not target_paper_content:
+        target_paper_content = _get_paper_full_text(request.target_paper_id)
+        if not target_paper_title:
+            target_paper_title = request.target_paper_id
+
+    # リクエストをProposalモデルに変換
+    proposals = []
+    for p in request.proposals:
+        proposal = ProposalModel(
+            title=p.title,
+            rationale=p.rationale,
+            research_trends=p.research_trends,
+            motivation=p.motivation,
+            method=p.method,
+            experiment=ExperimentModel(
+                datasets=p.experiment.datasets,
+                baselines=p.experiment.baselines,
+                metrics=p.experiment.metrics,
+                ablations=p.experiment.ablations,
+                expected_results=p.experiment.expected_results,
+                failure_interpretation=p.experiment.failure_interpretation,
+            ),
+            grounding=GroundingModel(
+                papers=p.grounding.papers,
+                entities=p.grounding.entities,
+                path_mermaid=p.grounding.path_mermaid,
+            ),
+            differences=p.differences,
+        )
+        proposals.append(proposal)
+
+    async def generate():
+        service = EvaluationService(model_name=request.model_name)
+
+        try:
+            async for event in service.evaluate_streaming(
+                proposals,
+                include_experiment=request.include_experiment,
+                target_paper_content=target_paper_content,
+                target_paper_title=target_paper_title,
+                target_paper_id=request.target_paper_id,
+                proposal_sources=request.proposal_sources,
+            ):
+                if isinstance(event, EvaluationProgressEvent):
+                    response = EvaluationProgressResponse(
+                        event_type=event.event_type,
+                        current_comparison=event.current_comparison,
+                        total_comparisons=event.total_comparisons,
+                        phase=event.phase,
+                        message=event.message,
+                    )
+                    yield f"data: {response.model_dump_json()}\n\n"
+                elif isinstance(event, EvaluationResult):
+                    # 最終結果
+                    ranking_response = [
+                        RankingEntryResponse(
+                            rank=entry.rank,
+                            idea_id=entry.idea_id,
+                            idea_title=entry.idea_title,
+                            overall_score=entry.overall_score,
+                            scores_by_metric={m.value: s for m, s in entry.scores_by_metric.items()},
+                            is_target_paper=entry.is_target_paper,
+                            source=entry.source.value if hasattr(entry, 'source') else "ideagraph",
+                        )
+                        for entry in event.ranking
+                    ]
+
+                    pairwise_response = [
+                        PairwiseResultResponse(
+                            idea_a_id=pr.idea_a_id,
+                            idea_b_id=pr.idea_b_id,
+                            scores=[
+                                MetricScoreResponse(
+                                    metric=ms.metric.value,
+                                    winner=ms.winner.value,
+                                    reasoning=ms.reasoning,
+                                )
+                                for ms in pr.scores
+                            ],
+                        )
+                        for pr in event.pairwise_results
+                    ]
+
+                    eval_response = EvaluateResponse(
+                        evaluated_at=event.evaluated_at.isoformat(),
+                        model_name=event.model_name,
+                        ranking=ranking_response,
+                        pairwise_results=pairwise_response,
+                    )
+
+                    response = EvaluationProgressResponse(
+                        event_type="completed",
+                        current_comparison=len(event.pairwise_results),
+                        total_comparisons=len(event.pairwise_results),
+                        phase="completed",
+                        message="評価完了",
+                        result=eval_response,
+                    )
+                    yield f"data: {response.model_dump_json()}\n\n"
+        except Exception as e:
+            response = EvaluationProgressResponse(
+                event_type="error",
+                phase="error",
+                error=str(e),
+            )
+            yield f"data: {response.model_dump_json()}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 # ========== CoI API ==========
 
 

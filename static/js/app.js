@@ -138,6 +138,15 @@ const FILTER_QUERIES = {
 };
 
 // ========== ユーティリティ ==========
+function getNumProposals() {
+    const el = document.getElementById('numProposals');
+    if (!el) return 1;
+    const value = parseInt(el.value, 10);
+    if (Number.isNaN(value) || value < 1) return 1;
+    if (value > 10) return 10;
+    return value;
+}
+
 function getEntityColor(type) {
     return ENTITY_COLORS[type] || DEFAULT_ENTITY_COLOR;
 }
@@ -856,6 +865,12 @@ async function runAnalysis() {
         // 分析タブに切り替えて結果表示
         switchTab('analyze');
 
+        // 提案生成設定セクションを表示
+        const proposalSettingsSection = document.getElementById('proposalSettingsSection');
+        if (proposalSettingsSection) {
+            proposalSettingsSection.style.display = 'block';
+        }
+
         if (AppState.analysisId) {
             await loadSavedHistory();
         }
@@ -1401,7 +1416,7 @@ async function previewPrompt() {
                 target_paper_id: AppState.selectedPaperId,
                 analysis_id: AppState.analysisId || null,
                 analysis_result: AppState.analysisId ? null : AppState.analysisResult,
-                num_proposals: 3,
+                num_proposals: getNumProposals(),
                 prompt_options: promptOptions,
             }),
         });
@@ -1536,7 +1551,7 @@ async function generateProposals() {
                 target_paper_id: AppState.selectedPaperId,
                 analysis_id: AppState.analysisId || null,
                 analysis_result: AppState.analysisId ? null : AppState.analysisResult,
-                num_proposals: 3,
+                num_proposals: getNumProposals(),
                 prompt_options: promptOptions,
             }),
         });
@@ -1966,18 +1981,25 @@ async function runEvaluation() {
         : `${AppState.proposals.length}件の提案`;
     if (content) {
         content.innerHTML = `
-            <div class="loading">
-                <div class="loading-spinner"></div>
-            </div>
-            <div style="text-align: center; color: #888; margin-top: 1rem;">
-                LLMでペアワイズ比較を実行中...<br>
-                <span style="font-size: 0.75rem;">${evaluationInfo}を評価しています</span>
+            <div class="evaluation-progress">
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                </div>
+                <div style="text-align: center; color: #888; margin-top: 1rem;">
+                    <div id="evaluationPhase">初期化中...</div>
+                    <div id="evaluationProgressText" style="font-size: 0.85rem; margin-top: 0.5rem;"></div>
+                    <div style="margin-top: 0.75rem; padding: 0 1rem;">
+                        <div style="background: var(--bg-primary); border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div id="evaluationProgressBar" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                    <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #666;">${evaluationInfo}を評価しています</div>
+                </div>
             </div>
         `;
     }
 
     // リクエストボディを構築
-    // proposal_sourcesを配列形式で作成（proposalsと同じ順序）
     const proposalSources = AppState.proposals.map((_, index) => {
         return AppState.proposalSources[index] || 'ideagraph';
     });
@@ -1992,7 +2014,7 @@ async function runEvaluation() {
     }
 
     try {
-        const response = await fetch('/api/evaluate', {
+        const response = await fetch('/api/evaluate/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
@@ -2002,13 +2024,39 @@ async function runEvaluation() {
             throw new Error(await response.text());
         }
 
-        const result = await response.json();
-        AppState.evaluationResult = result;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-        updateStatus(`評価完了: ${result.ranking?.length || 0}件をランキング`);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-        // 評価タブに切り替え
-        switchTab('evaluate');
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const event = JSON.parse(line.slice(6));
+                        updateEvaluationProgress(event);
+
+                        if (event.event_type === 'completed' && event.result) {
+                            AppState.evaluationResult = event.result;
+                            updateStatus(`評価完了: ${event.result.ranking?.length || 0}件をランキング`);
+                            switchTab('evaluate');
+                        } else if (event.event_type === 'error') {
+                            throw new Error(event.error || '評価中にエラーが発生しました');
+                        }
+                    } catch (e) {
+                        if (e.message && !e.message.includes('JSON')) {
+                            throw e;
+                        }
+                    }
+                }
+            }
+        }
 
     } catch (error) {
         updateStatus('評価エラー: ' + error.message);
@@ -2020,6 +2068,32 @@ async function runEvaluation() {
                 </div>
             `;
         }
+    }
+}
+
+function updateEvaluationProgress(event) {
+    const phaseEl = document.getElementById('evaluationPhase');
+    const progressTextEl = document.getElementById('evaluationProgressText');
+    const progressBarEl = document.getElementById('evaluationProgressBar');
+
+    if (!phaseEl || !progressTextEl || !progressBarEl) return;
+
+    const phaseMessages = {
+        'extracting_target': 'ターゲット論文を分析中...',
+        'comparing': 'ペアワイズ比較を実行中...',
+        'calculating_elo': 'ELOレーティングを計算中...',
+        'completed': '評価完了！',
+    };
+
+    phaseEl.textContent = phaseMessages[event.phase] || event.message || '処理中...';
+
+    if (event.total_comparisons > 0) {
+        const percent = Math.round((event.current_comparison / event.total_comparisons) * 100);
+        progressBarEl.style.width = `${percent}%`;
+        progressTextEl.textContent = `${event.current_comparison}/${event.total_comparisons}件の比較完了`;
+    } else if (event.phase === 'extracting_target') {
+        progressBarEl.style.width = '10%';
+        progressTextEl.textContent = 'ターゲット論文からアイデアを抽出中...';
     }
 }
 

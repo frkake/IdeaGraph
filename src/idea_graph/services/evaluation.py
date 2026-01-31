@@ -1,11 +1,12 @@
 """評価サービス"""
 
+import asyncio
 import json
 import logging
 from datetime import datetime
 from itertools import combinations
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, AsyncIterator
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -15,6 +16,7 @@ from idea_graph.config import settings
 from idea_graph.constants import OUTPUT_CONSTRAINTS
 from idea_graph.models.evaluation import (
     EvaluationMetric,
+    EvaluationProgressEvent,
     EvaluationResult,
     ExperimentMetric,
     ExperimentMetricScore,
@@ -398,6 +400,47 @@ Focus on substantive differences, not superficial ones."""
         # swap test結果を統合
         return self._resolve_swap_test(result_ab, result_ba, idea_a_id, idea_b_id)
 
+    async def _evaluate_pair_async(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+    ) -> RawComparisonResult:
+        """単一順序での評価実行（非同期版）"""
+        prompt = self._build_evaluation_prompt(idea_a, idea_b)
+        structured_llm = self.llm.with_structured_output(LLMComparisonOutput)
+        message = HumanMessage(content=prompt)
+        result: LLMComparisonOutput = await structured_llm.ainvoke([message])
+        return result.to_raw_comparison_result()
+
+    async def compare_async(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+        idea_a_id: str,
+        idea_b_id: str,
+    ) -> PairwiseResult:
+        """2つのアイデアを5指標で比較（非同期版、swap test並列実行）
+
+        Args:
+            idea_a: 1つ目のアイデア
+            idea_b: 2つ目のアイデア
+            idea_a_id: アイデアAのID
+            idea_b_id: アイデアBのID
+
+        Returns:
+            比較結果（各指標の勝敗、理由）
+        """
+        logger.info(f"Comparing async {idea_a_id} vs {idea_b_id}")
+
+        # swap testを並列実行
+        result_ab, result_ba = await asyncio.gather(
+            self._evaluate_pair_async(idea_a, idea_b),
+            self._evaluate_pair_async(idea_b, idea_a),
+        )
+
+        # swap test結果を統合
+        return self._resolve_swap_test(result_ab, result_ba, idea_a_id, idea_b_id)
+
 
 class LLMExperimentComparisonOutput(BaseModel):
     """実験計画比較用のLLM構造化出力"""
@@ -539,6 +582,66 @@ For each metric, provide:
             else:
                 winner = Winner.TIE
                 reasoning = f"Inconsistent results"
+
+            scores.append(
+                ExperimentMetricScore(
+                    metric=metric,
+                    winner=winner,
+                    reasoning=reasoning,
+                )
+            )
+
+        return scores
+
+    async def compare_async(
+        self,
+        idea_a: "Proposal",
+        idea_b: "Proposal",
+    ) -> list[ExperimentMetricScore]:
+        """2つのアイデアの実験計画を3指標で比較（非同期版）"""
+        logger.info(f"Comparing experiment plans async: {idea_a.title} vs {idea_b.title}")
+
+        # 順序A→B、B→Aで並列評価
+        prompt_ab = self._build_experiment_prompt(idea_a, idea_b)
+        prompt_ba = self._build_experiment_prompt(idea_b, idea_a)
+        structured_llm = self.llm.with_structured_output(LLMExperimentComparisonOutput)
+
+        result_ab, result_ba = await asyncio.gather(
+            structured_llm.ainvoke([HumanMessage(content=prompt_ab)]),
+            structured_llm.ainvoke([HumanMessage(content=prompt_ba)]),
+        )
+
+        # swap test結果を統合
+        scores = []
+        for metric, (score_ab, reasoning_ab), (score_ba, reasoning_ba) in [
+            (ExperimentMetric.FEASIBILITY,
+             (result_ab.feasibility_score, result_ab.feasibility_reasoning),
+             (result_ba.feasibility_score, result_ba.feasibility_reasoning)),
+            (ExperimentMetric.QUALITY,
+             (result_ab.quality_score, result_ab.quality_reasoning),
+             (result_ba.quality_score, result_ba.quality_reasoning)),
+            (ExperimentMetric.CLARITY,
+             (result_ab.clarity_score, result_ab.clarity_reasoning),
+             (result_ba.clarity_score, result_ba.clarity_reasoning)),
+        ]:
+            if score_ba == 0:
+                score_ba_normalized = 1
+            elif score_ba == 1:
+                score_ba_normalized = 0
+            else:
+                score_ba_normalized = 2
+
+            if score_ab == score_ba_normalized:
+                if score_ab == 0:
+                    winner = Winner.IDEA_A
+                elif score_ab == 1:
+                    winner = Winner.IDEA_B
+                else:
+                    winner = Winner.TIE
+                reasoning = reasoning_ab
+            else:
+                winner = Winner.TIE
+                reasoning = "Inconsistent results"
 
             scores.append(
                 ExperimentMetricScore(
@@ -870,6 +973,169 @@ class EvaluationService:
         logger.info(f"Evaluation completed. Top ranked: {ranking[0].idea_title if ranking else 'N/A'}")
 
         return eval_result
+
+    async def evaluate_streaming(
+        self,
+        proposals: list["Proposal"],
+        include_experiment: bool = True,
+        target_paper_content: str | None = None,
+        target_paper_title: str | None = None,
+        target_paper_id: str | None = None,
+        proposal_sources: list[str] | None = None,
+        batch_size: int = 2,
+    ) -> AsyncIterator[EvaluationProgressEvent | EvaluationResult]:
+        """提案群を評価してランキングを生成（ストリーミング版、バッチ並列実行）
+
+        Args:
+            proposals: 評価対象のProposalリスト
+            include_experiment: 実験計画評価を含めるかどうか
+            target_paper_content: ターゲット論文の全文テキスト（オプション）
+            target_paper_title: ターゲット論文のタイトル（オプション）
+            target_paper_id: ターゲット論文のID（オプション）
+            proposal_sources: 各提案のソース（ideagraph, coi）のリスト（オプション）
+            batch_size: 並列実行するバッチサイズ
+
+        Yields:
+            EvaluationProgressEvent: 進捗イベント
+            EvaluationResult: 最終結果（最後に1回）
+        """
+        all_proposals = list(proposals)
+        target_paper_idea_id: str | None = None
+        target_paper_extraction: TargetPaperExtraction | None = None
+
+        # ターゲット論文がある場合、アイデアを抽出して追加
+        if target_paper_content:
+            yield EvaluationProgressEvent(
+                event_type="extracting_target",
+                phase="extracting_target",
+                message="ターゲット論文からアイデアを抽出中...",
+            )
+
+            logger.info("Extracting idea from target paper for comparison")
+            extractor = IdeaExtractor(model_name=self.model_name)
+            extraction = extractor.extract_from_text(target_paper_content)
+
+            target_paper_extraction = TargetPaperExtraction(
+                paper_id=target_paper_id or TARGET_PAPER_IDEA_ID,
+                paper_title=target_paper_title,
+                extracted_title=extraction.title,
+                motivation=extraction.motivation,
+                method=extraction.method,
+                key_differences=extraction.key_differences,
+                datasets=extraction.datasets,
+                baselines=extraction.baselines,
+                metrics=extraction.metrics,
+                ablations=extraction.ablations,
+                main_results=extraction.main_results,
+                extracted_at=datetime.now(),
+                extraction_model=self.model_name,
+            )
+
+            self.save_target_extraction(target_paper_extraction)
+
+            target_proposal = convert_extraction_to_proposal(
+                extraction, paper_title=target_paper_title
+            )
+            all_proposals.append(target_proposal)
+            target_paper_idea_id = TARGET_PAPER_IDEA_ID
+            logger.info(f"Added target paper idea: {target_proposal.title}")
+
+        logger.info(f"Starting evaluation of {len(all_proposals)} proposals")
+
+        # アイデアIDを生成
+        idea_ids = []
+        for i, p in enumerate(all_proposals):
+            if i == len(all_proposals) - 1 and target_paper_idea_id:
+                idea_ids.append(target_paper_idea_id)
+            else:
+                idea_ids.append(self._generate_idea_id(i, p))
+
+        proposal_map = dict(zip(idea_ids, all_proposals))
+
+        # 全ペアを生成
+        pairs = list(combinations(enumerate(zip(idea_ids, all_proposals)), 2))
+        total_comparisons = len(pairs)
+
+        yield EvaluationProgressEvent(
+            event_type="progress",
+            current_comparison=0,
+            total_comparisons=total_comparisons,
+            phase="comparing",
+            message=f"0/{total_comparisons}件の比較を開始",
+        )
+
+        # バッチごとに並列実行
+        pairwise_results: list[PairwiseResult] = []
+
+        for batch_start in range(0, len(pairs), batch_size):
+            batch = pairs[batch_start:batch_start + batch_size]
+
+            # バッチ内を並列実行
+            async def process_pair(pair_data):
+                (i, (id_a, proposal_a)), (j, (id_b, proposal_b)) = pair_data
+                result = await self.comparator.compare_async(proposal_a, proposal_b, id_a, id_b)
+                if include_experiment:
+                    exp_scores = await self.experiment_comparator.compare_async(proposal_a, proposal_b)
+                    result.experiment_scores = exp_scores
+                return result
+
+            batch_results = await asyncio.gather(*[process_pair(pair) for pair in batch])
+            pairwise_results.extend(batch_results)
+
+            # 進捗を通知
+            current = len(pairwise_results)
+            yield EvaluationProgressEvent(
+                event_type="progress",
+                current_comparison=current,
+                total_comparisons=total_comparisons,
+                phase="comparing",
+                message=f"{current}/{total_comparisons}件の比較完了",
+            )
+
+        # ELOレーティング計算フェーズ
+        yield EvaluationProgressEvent(
+            event_type="progress",
+            current_comparison=total_comparisons,
+            total_comparisons=total_comparisons,
+            phase="calculating_elo",
+            message="ELOレーティングを計算中...",
+        )
+
+        elo_ratings = self.elo_calculator.calculate(pairwise_results, idea_ids)
+        ranking = self.elo_calculator.generate_ranking(elo_ratings)
+
+        idea_id_to_index = {idea_id: i for i, idea_id in enumerate(idea_ids)}
+
+        for entry in ranking:
+            if entry.idea_id in proposal_map:
+                entry.idea_title = proposal_map[entry.idea_id].title
+            if entry.idea_id == TARGET_PAPER_IDEA_ID:
+                entry.is_target_paper = True
+                entry.source = IdeaSource.TARGET_PAPER
+            elif proposal_sources and entry.idea_id in idea_id_to_index:
+                idx = idea_id_to_index[entry.idea_id]
+                if idx < len(proposal_sources):
+                    source_str = proposal_sources[idx]
+                    if source_str == 'coi':
+                        entry.source = IdeaSource.COI
+                    elif source_str == 'target_paper':
+                        entry.source = IdeaSource.TARGET_PAPER
+                    else:
+                        entry.source = IdeaSource.IDEAGRAPH
+
+        eval_result = EvaluationResult(
+            evaluated_at=datetime.now(),
+            model_name=self.model_name,
+            proposals=all_proposals,
+            pairwise_results=pairwise_results,
+            elo_ratings=elo_ratings,
+            ranking=ranking,
+            target_paper_extraction=target_paper_extraction,
+        )
+
+        logger.info(f"Evaluation completed. Top ranked: {ranking[0].idea_title if ranking else 'N/A'}")
+
+        yield eval_result
 
     def save_result(self, result: EvaluationResult, filename: str | None = None) -> Path:
         """評価結果をJSONファイルに保存

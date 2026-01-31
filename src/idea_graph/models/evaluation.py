@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
@@ -146,3 +146,19 @@ class EvaluationResult(BaseModel):
         default=None,
         description="ターゲット論文から抽出されたアイデア情報",
     )
+
+
+class EvaluationProgressEvent(BaseModel):
+    """評価進捗イベント（SSE用）"""
+
+    event_type: Literal["progress", "extracting_target", "completed", "error"] = Field(
+        description="イベントタイプ"
+    )
+    current_comparison: int = Field(default=0, description="現在の比較番号")
+    total_comparisons: int = Field(default=0, description="総比較数")
+    phase: str = Field(
+        default="comparing",
+        description="フェーズ（extracting_target, comparing, calculating_elo）"
+    )
+    message: str | None = Field(default=None, description="進捗メッセージ")
+    error: str | None = Field(default=None, description="エラーメッセージ")

@@ -102,6 +102,16 @@
                     <button class="full-width secondary" onclick="runAnalysis()">分析実行</button>
                 </div>
 
+                <!-- 提案生成設定 -->
+                <div class="section" id="proposalSettingsSection" style="display: none;">
+                    <h2>提案生成設定</h2>
+                    <label for="numProposals">生成数</label>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="number" id="numProposals" value="1" min="1" max="10" style="width: 60px;">
+                        <span style="font-size: 0.8rem; color: #888;">件（1-10）</span>
+                    </div>
+                </div>
+
                 <!-- ノード詳細 -->
                 <div id="nodeInfo" class="node-info" style="display: none;">
                     <h3>選択ノード</h3>
