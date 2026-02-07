@@ -611,7 +611,8 @@ function switchTab(tabName) {
         'analyze': '分析モード',
         'propose': '提案モード',
         'evaluate': '評価モード',
-        'history': '履歴モード'
+        'history': '履歴モード',
+        'experiment': '実験モード'
     };
     updateStatus(tabNames[tabName] || tabName);
 }
@@ -634,6 +635,9 @@ function updateRightPanelContent(tabName) {
     } else if (tabName === 'history') {
         if (headerTitle) headerTitle.textContent = '履歴';
         renderHistory();
+    } else if (tabName === 'experiment') {
+        if (headerTitle) headerTitle.textContent = '実験管理';
+        renderExperimentTab();
     }
 }
 
@@ -3387,6 +3391,316 @@ async function loadCoIResult() {
 
     } catch (error) {
         if (errorEl) errorEl.textContent = 'エラー: ' + error.message;
+    }
+}
+
+// ========== 実験タブ ==========
+
+async function renderExperimentTab() {
+    const content = document.getElementById('rightPanelContent');
+    if (!content) return;
+
+    content.innerHTML = `
+        <div class="experiment-tab">
+            <div class="experiment-section">
+                <h4>実験実行</h4>
+                <div id="experimentConfigList" class="experiment-config-list">
+                    <div class="empty-state-text">読み込み中...</div>
+                </div>
+            </div>
+            <div class="experiment-section">
+                <h4>実行履歴</h4>
+                <div id="experimentRunList" class="experiment-run-list">
+                    <div class="empty-state-text">読み込み中...</div>
+                </div>
+            </div>
+            <div class="experiment-section">
+                <h4>キャッシュ</h4>
+                <div id="experimentCacheStatus" class="experiment-cache-status">
+                    <div class="empty-state-text">読み込み中...</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    await Promise.all([
+        loadExperimentConfigs(),
+        loadExperimentRuns(),
+        loadExperimentCacheStatus(),
+    ]);
+}
+
+async function loadExperimentConfigs() {
+    const container = document.getElementById('experimentConfigList');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/experiments/configs');
+        const data = await res.json();
+        const configs = data.configs || [];
+
+        if (configs.length === 0) {
+            container.innerHTML = '<div class="empty-state-text">設定ファイルがありません</div>';
+            return;
+        }
+
+        const categories = {};
+        for (const c of configs) {
+            const cat = c.category || 'other';
+            if (!categories[cat]) categories[cat] = [];
+            categories[cat].push(c);
+        }
+
+        const categoryLabels = {
+            system_effectiveness: 'システム有効性',
+            ablation: 'アブレーション',
+            comparison: '比較',
+            evaluation_validity: '評価妥当性',
+            other: 'その他',
+        };
+
+        let html = '';
+        for (const [cat, items] of Object.entries(categories)) {
+            html += `<div class="experiment-category">
+                <div class="experiment-category-header">${categoryLabels[cat] || cat}</div>`;
+            for (const c of items) {
+                const evalModeLabel = {'single': 'Single', 'pairwise': 'Pairwise', 'both': 'Both'}[c.eval_mode] || c.eval_mode || '-';
+                const conditionTags = (c.condition_names || []).map(n => `<span class="experiment-condition-tag">${escapeHtml(n)}</span>`).join('');
+                html += `<div class="experiment-config-item">
+                    <div class="experiment-config-info">
+                        <span class="experiment-config-id">${escapeHtml(c.exp_id)}</span>
+                        <span class="experiment-config-name">${escapeHtml(c.name)}</span>
+                    </div>
+                    <div class="experiment-config-desc">${escapeHtml(c.description)}</div>
+                    <div class="experiment-config-meta">
+                        <span class="experiment-meta-item">論文数: <strong>${c.num_papers || '-'}</strong></span>
+                        <span class="experiment-meta-item">条件数: <strong>${c.num_conditions || '-'}</strong></span>
+                        <span class="experiment-meta-item">評価: <strong>${evalModeLabel}</strong></span>
+                    </div>
+                    <div class="experiment-config-conditions">${conditionTags}</div>
+                    <div class="experiment-config-actions">
+                        <label class="experiment-limit-label">
+                            Limit: <input type="number" class="experiment-limit-input" min="1" value="1" data-path="${escapeHtml(c.path)}">
+                        </label>
+                        <button class="btn-experiment-run" onclick="runExperiment('${escapeHtml(c.path)}', this)">実行</button>
+                    </div>
+                </div>`;
+            }
+            html += '</div>';
+        }
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function loadExperimentRuns() {
+    const container = document.getElementById('experimentRunList');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/experiments/runs');
+        const data = await res.json();
+        const runs = data.runs || [];
+
+        if (runs.length === 0) {
+            container.innerHTML = '<div class="empty-state-text">実行履歴がありません</div>';
+            return;
+        }
+
+        let html = '<table class="experiment-table"><thead><tr>' +
+            '<th>Exp ID</th><th>タイムスタンプ</th><th>サマリー</th><th>図</th><th>操作</th>' +
+            '</tr></thead><tbody>';
+        for (const run of runs) {
+            html += `<tr>
+                <td>${escapeHtml(run.exp_id)}</td>
+                <td class="experiment-timestamp">${escapeHtml(run.timestamp)}</td>
+                <td>${run.has_summary ? '<span class="badge-ok">OK</span>' : '<span class="badge-none">-</span>'}</td>
+                <td>${run.has_figures ? '<span class="badge-ok">OK</span>' : '<span class="badge-none">-</span>'}</td>
+                <td><button class="btn-small" onclick="viewExperimentRun('${escapeHtml(run.run_id)}')">詳細</button></td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function loadExperimentCacheStatus() {
+    const container = document.getElementById('experimentCacheStatus');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/experiments/cache/status');
+        const data = await res.json();
+        const stages = data.stages || {};
+
+        const entries = Object.entries(stages);
+        if (entries.length === 0) {
+            container.innerHTML = '<div class="empty-state-text">キャッシュは空です</div>';
+            return;
+        }
+
+        let html = '<table class="experiment-table"><thead><tr><th>ステージ</th><th>件数</th></tr></thead><tbody>';
+        let total = 0;
+        for (const [stage, count] of entries) {
+            html += `<tr><td>${escapeHtml(stage)}</td><td>${count}</td></tr>`;
+            total += count;
+        }
+        html += `<tr class="experiment-total-row"><td>合計</td><td>${total}</td></tr>`;
+        html += '</tbody></table>';
+        html += '<button class="btn-small btn-danger" onclick="clearExperimentCache()">キャッシュクリア</button>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function runExperiment(configPath, btnEl) {
+    const limitInput = btnEl?.parentElement?.querySelector('.experiment-limit-input');
+    const limit = limitInput ? parseInt(limitInput.value, 10) : null;
+
+    btnEl.disabled = true;
+    btnEl.textContent = '実行中...';
+    updateStatus('実験実行中...');
+
+    try {
+        const res = await fetch('/api/experiments/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                config_path: configPath,
+                limit: isNaN(limit) ? null : limit,
+                no_cache: false,
+                clear_cache: false,
+            }),
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const event = JSON.parse(line.slice(6));
+                        if (event.event === 'completed') {
+                            updateStatus('実験完了: ' + (event.run_dir || ''));
+                        } else if (event.event === 'error') {
+                            updateStatus('実験エラー: ' + (event.error || ''));
+                        }
+                    } catch (_) {}
+                }
+            }
+        }
+    } catch (e) {
+        updateStatus('実験エラー: ' + e.message);
+    } finally {
+        btnEl.disabled = false;
+        btnEl.textContent = '実行';
+        await loadExperimentRuns();
+    }
+}
+
+async function viewExperimentRun(runId) {
+    const content = document.getElementById('rightPanelContent');
+    if (!content) return;
+
+    content.innerHTML = '<div class="empty-state-text">読み込み中...</div>';
+
+    try {
+        const res = await fetch(`/api/experiments/runs/${runId}`);
+        if (!res.ok) throw new Error('Run not found');
+        const data = await res.json();
+
+        let html = `<div class="experiment-detail">
+            <div class="experiment-detail-header">
+                <button class="btn-small" onclick="renderExperimentTab()">← 一覧に戻る</button>
+                <span class="experiment-detail-title">${escapeHtml(runId)}</span>
+            </div>`;
+
+        // サマリーテーブル
+        if (data.summary && data.summary.single_summary) {
+            html += '<div class="experiment-section"><h4>スコアサマリー</h4>';
+            html += '<table class="experiment-table"><thead><tr><th>条件</th><th>指標</th><th>N</th><th>平均</th><th>標準偏差</th></tr></thead><tbody>';
+            for (const [condition, metrics] of Object.entries(data.summary.single_summary)) {
+                for (const [metric, stats] of Object.entries(metrics)) {
+                    html += `<tr>
+                        <td>${escapeHtml(condition)}</td>
+                        <td>${escapeHtml(metric)}</td>
+                        <td>${stats.n || 0}</td>
+                        <td>${typeof stats.mean === 'number' ? stats.mean.toFixed(2) : '-'}</td>
+                        <td>${typeof stats.std === 'number' ? stats.std.toFixed(2) : '-'}</td>
+                    </tr>`;
+                }
+            }
+            html += '</tbody></table></div>';
+        }
+
+        // 比較テスト
+        if (data.summary && data.summary.comparison_tests) {
+            const tests = data.summary.comparison_tests;
+            if (Object.keys(tests).length > 0) {
+                html += '<div class="experiment-section"><h4>統計検定結果</h4>';
+                html += '<table class="experiment-table"><thead><tr><th>比較</th><th>p値</th><th>Cohen\'s d</th><th>有意</th></tr></thead><tbody>';
+                for (const [key, result] of Object.entries(tests)) {
+                    const sig = result.holm_bonferroni_significant;
+                    html += `<tr>
+                        <td>${escapeHtml(key)}</td>
+                        <td>${typeof result.pvalue_permutation === 'number' ? result.pvalue_permutation.toFixed(4) : '-'}</td>
+                        <td>${typeof result.cohen_d === 'number' ? result.cohen_d.toFixed(3) : '-'}</td>
+                        <td>${sig === true ? '<span class="badge-ok">有意</span>' : sig === false ? '<span class="badge-none">n.s.</span>' : '-'}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table></div>';
+            }
+        }
+
+        // 図
+        if (data.figures && data.figures.length > 0) {
+            html += '<div class="experiment-section"><h4>チャート</h4><div class="experiment-figures">';
+            for (const fig of data.figures) {
+                html += `<div class="experiment-figure">
+                    <img src="/api/experiments/runs/${escapeHtml(runId)}/figures/${escapeHtml(fig)}" alt="${escapeHtml(fig)}" loading="lazy">
+                    <div class="experiment-figure-name">${escapeHtml(fig)}</div>
+                </div>`;
+            }
+            html += '</div></div>';
+        }
+
+        // レポート
+        if (data.report) {
+            html += `<div class="experiment-section"><h4>レポート</h4>
+                <pre class="experiment-report">${escapeHtml(data.report)}</pre>
+            </div>`;
+        }
+
+        html += '</div>';
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function clearExperimentCache() {
+    if (!confirm('実験キャッシュを全て削除しますか？')) return;
+
+    try {
+        const res = await fetch('/api/experiments/cache', { method: 'DELETE' });
+        const data = await res.json();
+        updateStatus(`キャッシュクリア: ${data.cleared}件削除`);
+        await loadExperimentCacheStatus();
+    } catch (e) {
+        updateStatus('キャッシュクリアエラー: ' + e.message);
     }
 }
 

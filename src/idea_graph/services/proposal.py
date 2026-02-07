@@ -369,3 +369,92 @@ Generate diverse ideas that don't overlap. Focus on practical, implementable res
         except Exception as e:
             logger.error(f"Proposal generation failed: {e}")
             raise ValueError(f"Failed to generate proposals: {e}")
+
+    def propose_direct(
+        self,
+        target_paper_id: str,
+        num_proposals: int = 3,
+    ) -> ProposalResult:
+        """グラフコンテキストなしで研究アイデアを提案（Direct LLM ベースライン）
+
+        Args:
+            target_paper_id: ターゲット論文ID
+            num_proposals: 提案数
+
+        Returns:
+            提案結果（grounding は空）
+        """
+        paper_context = self._get_paper_context(target_paper_id)
+        if not paper_context:
+            paper_context = {"title": target_paper_id, "summary": "", "claims": [], "entities": []}
+
+        # 簡略プロンプト（グラフコンテキストなし）
+        entities_text = ""
+        if paper_context.get("entities"):
+            entities_lines = [f"- {e['name']} ({e.get('type', 'Entity')})" for e in paper_context["entities"][:20]]
+            entities_text = "\n".join(entities_lines)
+
+        claims_text = ""
+        if paper_context.get("claims"):
+            claims_text = "\n".join(f"- {c}" for c in paper_context["claims"][:10])
+
+        prompt = f"""You are an AI research advisor. Based on the following paper information, propose {num_proposals} novel research ideas.
+
+## Target Paper
+Title: {paper_context.get('title', target_paper_id)}
+
+Summary: {paper_context.get('summary', 'N/A')}
+
+Claims:
+{claims_text or 'N/A'}
+
+Key Entities:
+{entities_text or 'N/A'}
+
+## Requirements for each proposal
+1. **Title**: A concise, descriptive title for the research idea ({_C.TITLE})
+2. **Rationale**: Explain WHY you are proposing this specific idea ({_C.RATIONALE_WORDS})
+3. **Research Trends**: Describe the research trends you observe ({_C.RESEARCH_TRENDS_WORDS})
+4. **Motivation**: What problem remains unsolved? Why is it important? ({_C.MOTIVATION_WORDS})
+5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation). ({_C.METHOD_WORDS})
+6. **Experiment Plan**:
+   - Datasets: {_C.datasets_constraint()}
+   - Baselines: {_C.baselines_constraint()}
+   - Metrics: {_C.metrics_constraint()}
+   - Ablation studies: {_C.ablations_constraint()}
+   - Expected results ({_C.EXPECTED_RESULTS_WORDS}) and failure interpretation ({_C.FAILURE_INTERPRETATION_WORDS})
+7. **Grounding**: Set papers, entities, and path_mermaid to empty lists/string since no graph context is available.
+8. **Differences**: How this differs from existing work {_C.differences_constraint()}
+
+Generate diverse ideas that don't overlap. Focus on practical, implementable research directions.
+"""
+
+        class ProposalsOutput(BaseModel):
+            proposals: list[Proposal]
+
+        try:
+            structured_llm = self.llm.with_structured_output(ProposalsOutput)
+            message = HumanMessage(content=prompt)
+            result = structured_llm.invoke([message])
+
+            # grounding を空に強制
+            for proposal in result.proposals:
+                proposal.grounding.papers = []
+                proposal.grounding.entities = []
+                proposal.grounding.path_mermaid = ""
+
+            target_paper_info = TargetPaperInfo(
+                id=target_paper_id,
+                title=paper_context.get("title", target_paper_id),
+            )
+
+            return ProposalResult(
+                target_paper_id=target_paper_id,
+                target_paper=target_paper_info,
+                proposals=result.proposals[:num_proposals],
+                prompt=prompt,
+            )
+
+        except Exception as e:
+            logger.error(f"Direct LLM proposal generation failed: {e}")
+            raise ValueError(f"Failed to generate direct proposals: {e}")

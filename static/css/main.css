@@ -1438,3 +1438,275 @@ header h1 {
 .proposal-card[data-source="ideagraph"] {
     border-left: 3px solid #2196F3;
 }
+
+/* ========== 実験タブ ========== */
+.experiment-tab {
+    padding: 0.5rem 0;
+}
+
+.experiment-section {
+    margin-bottom: 1.5rem;
+}
+
+.experiment-section h4 {
+    font-size: 0.9rem;
+    color: var(--accent-green);
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.experiment-category {
+    margin-bottom: 0.75rem;
+}
+
+.experiment-category-header {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.3rem;
+    padding: 0.2rem 0.4rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 3px;
+}
+
+.experiment-config-item {
+    padding: 0.5rem;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    margin-bottom: 0.4rem;
+}
+
+.experiment-config-info {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    margin-bottom: 0.2rem;
+}
+
+.experiment-config-id {
+    font-weight: bold;
+    font-size: 0.8rem;
+    color: var(--accent-blue);
+}
+
+.experiment-config-name {
+    font-size: 0.75rem;
+    color: #ccc;
+}
+
+.experiment-config-desc {
+    font-size: 0.75rem;
+    color: #aaa;
+    margin-bottom: 0.4rem;
+    line-height: 1.4;
+}
+
+.experiment-config-meta {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.experiment-meta-item {
+    font-size: 0.7rem;
+    color: #999;
+}
+
+.experiment-meta-item strong {
+    color: #ddd;
+}
+
+.experiment-config-conditions {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.4rem;
+}
+
+.experiment-condition-tag {
+    font-size: 0.65rem;
+    background: #333;
+    color: #bbb;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    border: 1px solid #444;
+}
+
+.experiment-config-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.experiment-limit-label {
+    font-size: 0.7rem;
+    color: #aaa;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.experiment-limit-input {
+    width: 50px;
+    padding: 0.2rem 0.3rem;
+    font-size: 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--bg-tertiary);
+    border-radius: 3px;
+    color: #eee;
+}
+
+.btn-experiment-run {
+    padding: 0.25rem 0.6rem;
+    background: var(--accent-blue);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+}
+
+.btn-experiment-run:hover:not(:disabled) {
+    background: #5aa0e9;
+}
+
+.btn-experiment-run:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.experiment-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.experiment-table th {
+    text-align: left;
+    padding: 0.3rem 0.5rem;
+    background: var(--bg-tertiary);
+    color: #ccc;
+    font-weight: 600;
+    font-size: 0.7rem;
+}
+
+.experiment-table td {
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid var(--card-border);
+    color: #ddd;
+}
+
+.experiment-table tr:hover td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.experiment-total-row td {
+    font-weight: bold;
+    border-top: 2px solid var(--bg-tertiary);
+}
+
+.experiment-timestamp {
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: #999;
+}
+
+.badge-ok {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    background: rgba(76, 175, 80, 0.2);
+    color: #4CAF50;
+}
+
+.badge-none {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    font-size: 0.65rem;
+    color: #666;
+}
+
+.btn-small {
+    padding: 0.2rem 0.5rem;
+    background: var(--bg-tertiary);
+    color: #ccc;
+    border: 1px solid var(--card-border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    transition: all 0.2s;
+}
+
+.btn-small:hover {
+    background: var(--accent-blue);
+    color: #fff;
+    border-color: var(--accent-blue);
+}
+
+.btn-danger {
+    margin-top: 0.5rem;
+    color: #F44336;
+    border-color: rgba(244, 67, 54, 0.3);
+}
+
+.btn-danger:hover {
+    background: #F44336;
+    color: #fff;
+}
+
+.experiment-detail {
+    padding: 0;
+}
+
+.experiment-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.experiment-detail-title {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: var(--accent-blue);
+}
+
+.experiment-figures {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+}
+
+.experiment-figure img {
+    width: 100%;
+    border-radius: 4px;
+    border: 1px solid var(--card-border);
+}
+
+.experiment-figure-name {
+    font-size: 0.65rem;
+    color: #888;
+    margin-top: 0.2rem;
+    text-align: center;
+    font-family: monospace;
+}
+
+.experiment-report {
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--card-border);
+    font-size: 0.7rem;
+    color: #ccc;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 500px;
+    overflow-y: auto;
+}

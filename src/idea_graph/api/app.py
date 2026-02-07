@@ -1316,6 +1316,219 @@ def load_coi_result(request: CoILoadRequest) -> CoIResultResponse:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ========== 実験 API ==========
+
+
+class ExperimentRunRequest(BaseModel):
+    """実験実行リクエスト"""
+
+    config_path: str
+    limit: int | None = None
+    no_cache: bool = False
+    clear_cache: bool = False
+
+
+class ExperimentRunSummary(BaseModel):
+    """実験実行一覧のエントリ"""
+
+    run_id: str
+    exp_id: str
+    name: str
+    timestamp: str
+    has_summary: bool = False
+    has_figures: bool = False
+
+
+@app.get("/api/experiments/configs")
+def list_experiment_configs():
+    """実験設定ファイル一覧を取得"""
+    configs_dir = BASE_DIR / "experiments" / "configs"
+    if not configs_dir.exists():
+        return {"configs": []}
+
+    configs = []
+    for f in sorted(configs_dir.glob("EXP-*.yaml")):
+        try:
+            import yaml
+
+            data = yaml.safe_load(f.read_text(encoding="utf-8"))
+            exp = data.get("experiment", {})
+            conditions = data.get("conditions", [])
+            targets = data.get("targets", {})
+            evaluation = data.get("evaluation", {})
+            configs.append({
+                "filename": f.name,
+                "path": str(f),
+                "exp_id": exp.get("id", data.get("exp_id", f.stem)),
+                "name": exp.get("name", data.get("name", f.stem)),
+                "description": exp.get("description", data.get("description", "")),
+                "category": exp.get("category", data.get("category", "")),
+                "num_conditions": len(conditions),
+                "condition_names": [c.get("name", "") for c in conditions],
+                "num_papers": targets.get("count", 0),
+                "eval_mode": evaluation.get("mode", ""),
+            })
+        except Exception:
+            configs.append({
+                "filename": f.name,
+                "path": str(f),
+                "exp_id": f.stem,
+                "name": f.stem,
+                "description": "",
+                "category": "",
+            })
+    return {"configs": configs}
+
+
+@app.get("/api/experiments/runs")
+def list_experiment_runs():
+    """実験実行一覧を取得"""
+    runs_dir = BASE_DIR / "experiments" / "runs"
+    if not runs_dir.exists():
+        return {"runs": []}
+
+    import json
+
+    runs = []
+    for run_dir in sorted(runs_dir.iterdir(), reverse=True):
+        if not run_dir.is_dir():
+            continue
+        parts = run_dir.name.split("_", 1)
+        exp_id = parts[0] if parts else run_dir.name
+        timestamp = parts[1] if len(parts) > 1 else ""
+
+        name = exp_id
+        summary_path = run_dir / "summary" / "aggregate.json"
+        has_summary = summary_path.exists()
+        if has_summary:
+            try:
+                summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+                name = summary_data.get("name", exp_id)
+            except Exception:
+                pass
+
+        figures_dir = run_dir / "figures"
+        has_figures = figures_dir.exists() and any(figures_dir.glob("*.png"))
+
+        runs.append(ExperimentRunSummary(
+            run_id=run_dir.name,
+            exp_id=exp_id,
+            name=name,
+            timestamp=timestamp,
+            has_summary=has_summary,
+            has_figures=has_figures,
+        ))
+    return {"runs": [r.model_dump() for r in runs]}
+
+
+@app.get("/api/experiments/runs/{run_id}")
+def get_experiment_run(run_id: str):
+    """実験実行の詳細を取得"""
+    import json
+
+    run_dir = BASE_DIR / "experiments" / "runs" / run_id
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    result: dict[str, Any] = {"run_id": run_id, "run_dir": str(run_dir)}
+
+    # aggregate.json
+    summary_path = run_dir / "summary" / "aggregate.json"
+    if summary_path.exists():
+        try:
+            result["summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            result["summary"] = None
+
+    # report.md
+    report_path = run_dir / "summary" / "report.md"
+    if report_path.exists():
+        result["report"] = report_path.read_text(encoding="utf-8")
+
+    # figures
+    figures_dir = run_dir / "figures"
+    if figures_dir.exists():
+        result["figures"] = sorted(f.name for f in figures_dir.glob("*.png"))
+    else:
+        result["figures"] = []
+
+    return result
+
+
+@app.post("/api/experiments/run")
+async def run_experiment(request: ExperimentRunRequest):
+    """実験を実行（同期）"""
+    from fastapi.responses import StreamingResponse
+
+    config_path = Path(request.config_path)
+    if not config_path.is_absolute():
+        config_path = BASE_DIR / config_path
+
+    if not config_path.exists():
+        raise HTTPException(status_code=404, detail=f"Config not found: {config_path}")
+
+    import json
+
+    from idea_graph.services.experiment_runner import ExperimentRunner
+
+    async def generate():
+        try:
+            yield f"data: {json.dumps({'event': 'started', 'config': str(config_path)})}\n\n"
+
+            runner = ExperimentRunner(no_cache=request.no_cache)
+            run_dir = runner.run(
+                config_path=str(config_path),
+                limit=request.limit,
+                no_cache=request.no_cache,
+                clear_cache=request.clear_cache,
+            )
+
+            yield f"data: {json.dumps({'event': 'completed', 'run_dir': str(run_dir)})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/api/experiments/runs/{run_id}/figures/{name}")
+def get_experiment_figure(run_id: str, name: str):
+    """実験図を取得"""
+    from fastapi.responses import FileResponse
+
+    figure_path = BASE_DIR / "experiments" / "runs" / run_id / "figures" / name
+    if not figure_path.exists():
+        raise HTTPException(status_code=404, detail="Figure not found")
+
+    media_type = "image/png" if name.endswith(".png") else "image/svg+xml"
+    return FileResponse(str(figure_path), media_type=media_type)
+
+
+@app.get("/api/experiments/cache/status")
+def get_experiment_cache_status():
+    """実験キャッシュの状況を取得"""
+    from idea_graph.services.experiment_cache import ExperimentCache
+
+    cache = ExperimentCache()
+    return {"stages": cache.status()}
+
+
+@app.delete("/api/experiments/cache")
+def clear_experiment_cache(stage: str | None = None):
+    """実験キャッシュをクリア"""
+    from idea_graph.services.experiment_cache import ExperimentCache
+
+    cache = ExperimentCache()
+    count = cache.clear(stage=stage)
+    return {"cleared": count, "stage": stage or "all"}
+
+
 # ========== フロントエンド ==========
 
 
