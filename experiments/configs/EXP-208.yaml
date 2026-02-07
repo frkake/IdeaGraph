@@ -1,0 +1,46 @@
+experiment:
+  id: "EXP-208"
+  name: "ドメイン一般化"
+  category: "comparison"
+  description: "接続性の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。connectivity_stratifiedにより高/中/低接続の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定していれば一般化性能ありと判断する。EXP-209（交互作用分析）とは分析観点が異なる：EXP-208は各層の絶対性能、EXP-209は手法×層の差分効果を見る"
+seed:
+  paper_selection: 20260207
+  evaluation_shuffle: 20260207
+targets:
+  paper_ids: []
+  selection_strategy: "connectivity_stratified"
+  connectivity_tier_filter: null
+  count: 15
+analysis:
+  max_hops: 3
+  top_k: 10
+prompt:
+  graph_format: "mermaid"
+  scope: "path"
+  max_paths: 10
+  max_nodes: 50
+  max_edges: 100
+  neighbor_k: 2
+  include_inline_edges: true
+conditions:
+  - name: "ideagraph_default"
+    method: "ideagraph"
+    generation:
+      num_proposals: 3
+      model: "gpt-5.2-2025-12-11"
+      temperature: 0.0
+  - name: "direct_llm_baseline"
+    method: "direct_llm"
+    generation:
+      num_proposals: 3
+      model: "gpt-5.2-2025-12-11"
+      temperature: 0.0
+evaluation:
+  mode: "both"
+  model: "gpt-5.2-2025-12-11"
+  temperature: 0.0
+  include_experiment: true
+  include_target: false
+  repeat: 1
+output:
+  base_dir: "experiments/runs"

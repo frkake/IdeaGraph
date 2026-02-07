@@ -1,0 +1,46 @@
+experiment:
+  id: "EXP-306"
+  name: "根拠トレーサビリティ評価"
+  category: "evaluation_validity"
+  description: "提案内容がグラフ根拠に支えられているかを測る。IdeaGraphはDirect LLMより根拠リンク可能率が高いという仮説を検証する。提案文の主張単位でグラフ上のノード/エッジに紐づく割合を計測し、人手監査で精度を確認する"
+seed:
+  paper_selection: 20260207
+  evaluation_shuffle: 20260207
+targets:
+  paper_ids: []
+  selection_strategy: "connectivity_stratified"
+  connectivity_tier_filter: null
+  count: 10
+analysis:
+  max_hops: 3
+  top_k: 10
+prompt:
+  graph_format: "mermaid"
+  scope: "path"
+  max_paths: 10
+  max_nodes: 50
+  max_edges: 100
+  neighbor_k: 2
+  include_inline_edges: true
+conditions:
+  - name: "ideagraph_default"
+    method: "ideagraph"
+    generation:
+      num_proposals: 3
+      model: "gpt-5.2-2025-12-11"
+      temperature: 0.0
+  - name: "direct_llm_baseline"
+    method: "direct_llm"
+    generation:
+      num_proposals: 3
+      model: "gpt-5.2-2025-12-11"
+      temperature: 0.0
+evaluation:
+  mode: "single"
+  model: "gpt-5.2-2025-12-11"
+  temperature: 0.0
+  include_experiment: true
+  include_target: false
+  repeat: 1
+output:
+  base_dir: "experiments/runs"
