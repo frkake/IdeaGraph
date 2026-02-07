@@ -630,11 +630,14 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
     from idea_graph.services.proposal import Grounding as GroundingModel
     from idea_graph.cli import _get_paper_full_text
 
-    # バリデーション
-    if len(request.proposals) < 2:
+    # バリデーション: 提案数 + ターゲット論文(指定時は1) >= 2 で判断
+    proposal_count = len(request.proposals)
+    target_paper_count = 1 if (request.target_paper_id or request.target_paper_content) else 0
+    total_count = proposal_count + target_paper_count
+    if total_count < 2:
         raise HTTPException(
             status_code=400,
-            detail="At least 2 proposals are required for pairwise comparison"
+            detail="At least 2 ideas are required for pairwise comparison (proposals + target paper)"
         )
 
     # ターゲット論文の内容を取得（IDが指定されていて内容がない場合）
@@ -744,11 +747,14 @@ async def evaluate_proposals_stream(request: EvaluateRequest):
     from idea_graph.cli import _get_paper_full_text
     from idea_graph.models.evaluation import EvaluationProgressEvent, EvaluationResult
 
-    # バリデーション
-    if len(request.proposals) < 2:
+    # バリデーション: 提案数 + ターゲット論文(指定時は1) >= 2 で判断
+    proposal_count = len(request.proposals)
+    target_paper_count = 1 if (request.target_paper_id or request.target_paper_content) else 0
+    total_count = proposal_count + target_paper_count
+    if total_count < 2:
         raise HTTPException(
             status_code=400,
-            detail="At least 2 proposals are required for pairwise comparison"
+            detail="At least 2 ideas are required for pairwise comparison (proposals + target paper)"
         )
 
     # ターゲット論文の内容を取得

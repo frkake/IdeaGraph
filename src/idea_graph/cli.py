@@ -1325,8 +1325,12 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     else:
         # === ペアワイズ比較評価モード（既存） ===
-        if len(proposals) < 2:
-            logging.error("At least 2 proposals are required for pairwise evaluation.")
+        # バリデーション: 提案数 + ターゲット論文(指定時は1) >= 2 で判断
+        proposal_count = len(proposals)
+        target_paper_count = 1 if target_paper_content else 0
+        total_count = proposal_count + target_paper_count
+        if total_count < 2:
+            logging.error("At least 2 ideas are required for pairwise evaluation (proposals + target paper).")
             return 1
 
         logging.info("Starting pairwise evaluation...")

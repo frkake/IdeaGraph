@@ -2131,14 +2131,18 @@ function updateSingleEvaluationProgress(event) {
 }
 
 async function runEvaluation() {
-    if (!AppState.proposals || AppState.proposals.length < 2) {
-        alert('評価には2件以上の提案が必要です');
-        return;
-    }
-
     // ターゲット論文を含めるかどうかチェック
     const includeTargetCheckbox = document.getElementById('includeTargetPaper');
     const includeTarget = includeTargetCheckbox?.checked && AppState.selectedPaperId;
+
+    // 提案数 + ターゲット論文(選択時は1) >= 2 で判断
+    const proposalCount = AppState.proposals ? AppState.proposals.length : 0;
+    const targetPaperCount = includeTarget ? 1 : 0;
+    const totalCount = proposalCount + targetPaperCount;
+    if (totalCount < 2) {
+        alert('評価には2件以上のアイデアが必要です（提案 + ターゲット論文）');
+        return;
+    }
 
     updateStatus('提案を評価中... (数分かかる場合があります)');
 

@@ -779,7 +779,7 @@ class LLMIdeaExtraction(BaseModel):
         description=f"The problem being addressed and why it matters ({_C.MOTIVATION_WORDS})"
     )
     method: str = Field(description=f"The proposed approach/solution ({_C.METHOD_WORDS})")
-    key_differences: list[str] = Field(
+    differences: list[str] = Field(
         description=f"Key differences from prior work {_C.differences_constraint()}"
     )
     # 実験計画フィールド
@@ -795,7 +795,7 @@ class LLMIdeaExtraction(BaseModel):
     ablations: list[str] = Field(
         description=f"Ablation studies conducted {_C.ablations_constraint()} describing what is tested"
     )
-    main_results: str = Field(
+    expected_results: str = Field(
         description=f"Key experimental results and findings ({_C.MAIN_RESULTS_WORDS})"
     )
     rationale: str = Field(
@@ -845,12 +845,12 @@ For each field, provide comprehensive, detailed content that fully explains the 
    - How does the proposed method work step by step?
    - What are the key components or modules of the approach?
    - How do the components interact to achieve the desired outcome?
-4. **key_differences**: How this work differs from prior approaches {_C.differences_constraint()}
+4. **differences**: How this work differs from prior approaches {_C.differences_constraint()}
 5. **datasets**: List of datasets used in experiments {_C.datasets_constraint()} describing the dataset
 6. **baselines**: Methods compared against in experiments {_C.baselines_constraint()} describing the method
 7. **metrics**: Evaluation metrics used {_C.metrics_constraint()} describing the metric
 8. **ablations**: Ablation studies conducted {_C.ablations_constraint()} describing what is tested
-9. **main_results**: Key experimental findings and improvements over baselines ({_C.MAIN_RESULTS_WORDS})
+9. **expected_results**: Key experimental findings and improvements over baselines ({_C.MAIN_RESULTS_WORDS})
 10. **rationale**: Why the authors propose this specific approach ({_C.RATIONALE_WORDS})
     - What theoretical or empirical motivation led to this direction?
     - What insight from related work inspired this approach?
@@ -919,7 +919,7 @@ def convert_extraction_to_proposal(
             baselines=extraction.baselines,
             metrics=extraction.metrics,
             ablations=extraction.ablations,
-            expected_results=extraction.main_results,
+            expected_results=extraction.expected_results,
             failure_interpretation=extraction.failure_interpretation,
         ),
         grounding=Grounding(
@@ -927,7 +927,7 @@ def convert_extraction_to_proposal(
             entities=[],
             path_mermaid="graph LR\n  A[Target Paper]",
         ),
-        differences=extraction.key_differences,
+        differences=extraction.differences,
     )
 
 
@@ -1029,33 +1029,23 @@ class EvaluationService:
             extractor = IdeaExtractor(model_name=self.model_name)
             extraction = extractor.extract_from_text(target_paper_content)
 
-            # 抽出データを保存用に変換
+            # Proposal形式に変換
+            target_proposal = convert_extraction_to_proposal(
+                extraction, paper_title=target_paper_title
+            )
+
+            # 抽出データを保存用に変換（dataにProposalを格納）
             target_paper_extraction = TargetPaperExtraction(
                 paper_id=target_paper_id or TARGET_PAPER_IDEA_ID,
                 paper_title=target_paper_title,
-                extracted_title=extraction.title,
-                motivation=extraction.motivation,
-                method=extraction.method,
-                key_differences=extraction.key_differences,
-                datasets=extraction.datasets,
-                baselines=extraction.baselines,
-                metrics=extraction.metrics,
-                ablations=extraction.ablations,
-                main_results=extraction.main_results,
-                rationale=extraction.rationale,
-                research_trends=extraction.research_trends,
-                failure_interpretation=extraction.failure_interpretation,
                 extracted_at=datetime.now(),
                 extraction_model=self.model_name,
+                data=target_proposal,
             )
 
             # 抽出結果をファイルに保存
             self.save_target_extraction(target_paper_extraction)
 
-            # Proposal形式に変換
-            target_proposal = convert_extraction_to_proposal(
-                extraction, paper_title=target_paper_title
-            )
             all_proposals.append(target_proposal)
             target_paper_idea_id = TARGET_PAPER_IDEA_ID
             logger.info(f"Added target paper idea: {target_proposal.title}")
@@ -1176,30 +1166,22 @@ class EvaluationService:
             extractor = IdeaExtractor(model_name=self.model_name)
             extraction = extractor.extract_from_text(target_paper_content)
 
+            # Proposal形式に変換
+            target_proposal = convert_extraction_to_proposal(
+                extraction, paper_title=target_paper_title
+            )
+
+            # 抽出データを保存用に変換（dataにProposalを格納）
             target_paper_extraction = TargetPaperExtraction(
                 paper_id=target_paper_id or TARGET_PAPER_IDEA_ID,
                 paper_title=target_paper_title,
-                extracted_title=extraction.title,
-                motivation=extraction.motivation,
-                method=extraction.method,
-                key_differences=extraction.key_differences,
-                datasets=extraction.datasets,
-                baselines=extraction.baselines,
-                metrics=extraction.metrics,
-                ablations=extraction.ablations,
-                main_results=extraction.main_results,
-                rationale=extraction.rationale,
-                research_trends=extraction.research_trends,
-                failure_interpretation=extraction.failure_interpretation,
                 extracted_at=datetime.now(),
                 extraction_model=self.model_name,
+                data=target_proposal,
             )
 
             self.save_target_extraction(target_paper_extraction)
 
-            target_proposal = convert_extraction_to_proposal(
-                extraction, paper_title=target_paper_title
-            )
             all_proposals.append(target_proposal)
             target_paper_idea_id = TARGET_PAPER_IDEA_ID
             logger.info(f"Added target paper idea: {target_proposal.title}")
@@ -1433,36 +1415,36 @@ class EvaluationService:
                 "",
                 "### Extracted Idea",
                 "",
-                f"**Title**: {ext.extracted_title}",
+                f"**Title**: {ext.data.title}",
                 "",
                 "**Motivation**:",
                 "",
-                ext.motivation,
+                ext.data.motivation,
                 "",
                 "**Method**:",
                 "",
-                ext.method,
+                ext.data.method,
                 "",
             ])
-            if ext.rationale:
+            if ext.data.rationale:
                 lines.extend([
                     "**Rationale**:",
                     "",
-                    ext.rationale,
+                    ext.data.rationale,
                     "",
                 ])
-            if ext.research_trends:
+            if ext.data.research_trends:
                 lines.extend([
                     "**Research Trends**:",
                     "",
-                    ext.research_trends,
+                    ext.data.research_trends,
                     "",
                 ])
             lines.extend([
                 "**Key Differences from Prior Work**:",
                 "",
             ])
-            for diff in ext.key_differences:
+            for diff in ext.data.differences:
                 lines.append(f"- {diff}")
             lines.append("")
 
@@ -1471,45 +1453,45 @@ class EvaluationService:
                 "### Experiment Plan",
                 "",
             ])
-            if ext.datasets:
-                lines.append(f"**Datasets**: {', '.join(ext.datasets)}")
+            if ext.data.experiment.datasets:
+                lines.append(f"**Datasets**: {', '.join(ext.data.experiment.datasets)}")
             else:
                 lines.append("**Datasets**: N/A")
             lines.append("")
 
-            if ext.baselines:
-                lines.append(f"**Baselines**: {', '.join(ext.baselines)}")
+            if ext.data.experiment.baselines:
+                lines.append(f"**Baselines**: {', '.join(ext.data.experiment.baselines)}")
             else:
                 lines.append("**Baselines**: N/A")
             lines.append("")
 
-            if ext.metrics:
-                lines.append(f"**Metrics**: {', '.join(ext.metrics)}")
+            if ext.data.experiment.metrics:
+                lines.append(f"**Metrics**: {', '.join(ext.data.experiment.metrics)}")
             else:
                 lines.append("**Metrics**: N/A")
             lines.append("")
 
-            if ext.ablations:
+            if ext.data.experiment.ablations:
                 lines.append("**Ablation Studies**:")
                 lines.append("")
-                for abl in ext.ablations:
+                for abl in ext.data.experiment.ablations:
                     lines.append(f"- {abl}")
             else:
                 lines.append("**Ablation Studies**: N/A")
             lines.append("")
 
-            if ext.main_results:
-                lines.append("**Main Results**:")
+            if ext.data.experiment.expected_results:
+                lines.append("**Expected Results**:")
                 lines.append("")
-                lines.append(ext.main_results)
+                lines.append(ext.data.experiment.expected_results)
             else:
-                lines.append("**Main Results**: N/A")
+                lines.append("**Expected Results**: N/A")
             lines.append("")
 
-            if ext.failure_interpretation:
+            if ext.data.experiment.failure_interpretation:
                 lines.append("**Failure Interpretation**:")
                 lines.append("")
-                lines.append(ext.failure_interpretation)
+                lines.append(ext.data.experiment.failure_interpretation)
                 lines.append("")
 
         return "\n".join(lines)
