@@ -8,6 +8,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterator
 
+from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
@@ -28,6 +29,7 @@ from idea_graph.models.evaluation import (
     RankingEntry,
     SingleEvaluationResult,
     SingleIdeaResult,
+    SwapTestRawData,
     TargetPaperExtraction,
     Winner,
 )
@@ -39,6 +41,32 @@ if TYPE_CHECKING:
     from idea_graph.services.proposal import Proposal
 
 logger = logging.getLogger(__name__)
+
+
+def _create_chat_model(model_name: str, temperature: float = 0.0) -> BaseChatModel:
+    """モデル名に基づいて適切なLLMインスタンスを生成する。"""
+    if "gemini" in model_name.lower():
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=settings.google_api_key,
+            temperature=temperature,
+        )
+    elif "claude" in model_name.lower():
+        from langchain_anthropic import ChatAnthropic
+
+        return ChatAnthropic(
+            model=model_name,
+            api_key=settings.anthropic_api_key,
+            temperature=temperature,
+        )
+    else:
+        return ChatOpenAI(
+            model=model_name,
+            api_key=settings.openai_api_key,
+            temperature=temperature,
+        )
 
 
 class EloRatingCalculator:
@@ -284,14 +312,10 @@ Be rigorous and calibrated. A score of 5 means average quality for a research pr
         self._llm = None
 
     @property
-    def llm(self) -> ChatOpenAI:
+    def llm(self) -> BaseChatModel:
         """LLMインスタンスを取得"""
         if self._llm is None:
-            self._llm = ChatOpenAI(
-                model=self.model_name,
-                api_key=settings.openai_api_key,
-                temperature=0.0,
-            )
+            self._llm = _create_chat_model(self.model_name)
         return self._llm
 
     def _build_prompt(self, idea: "Proposal") -> str:
@@ -369,14 +393,10 @@ Focus on substantive differences, not superficial ones."""
         self._llm = None
 
     @property
-    def llm(self) -> ChatOpenAI:
+    def llm(self) -> BaseChatModel:
         """LLMインスタンスを取得"""
         if self._llm is None:
-            self._llm = ChatOpenAI(
-                model=self.model_name,
-                api_key=settings.openai_api_key,
-                temperature=0.0,
-            )
+            self._llm = _create_chat_model(self.model_name)
         return self._llm
 
     def _build_evaluation_prompt(
@@ -443,10 +463,16 @@ Focus on substantive differences, not superficial ones."""
             統合されたペアワイズ比較結果
         """
         scores = []
+        ab_raw: dict[str, int] = {}
+        ba_raw: dict[str, int] = {}
 
         for metric in EvaluationMetric:
             score_ab, reasoning_ab = result_ab.scores[metric]
             score_ba, reasoning_ba = result_ba.scores[metric]
+
+            # 生スコアを保存
+            ab_raw[metric.value] = score_ab
+            ba_raw[metric.value] = score_ba
 
             # swap testの解決
             # score_ab: 0=A wins, 1=B wins, 2=tie
@@ -486,6 +512,7 @@ Focus on substantive differences, not superficial ones."""
             idea_a_id=idea_a_id,
             idea_b_id=idea_b_id,
             scores=scores,
+            swap_test_raw=SwapTestRawData(ab_scores=ab_raw, ba_scores=ba_raw),
         )
 
     def compare(
@@ -611,14 +638,10 @@ For each metric, provide:
         self._llm = None
 
     @property
-    def llm(self) -> ChatOpenAI:
+    def llm(self) -> BaseChatModel:
         """LLMインスタンスを取得"""
         if self._llm is None:
-            self._llm = ChatOpenAI(
-                model=self.model_name,
-                api_key=settings.openai_api_key,
-                temperature=0.0,
-            )
+            self._llm = _create_chat_model(self.model_name)
         return self._llm
 
     def _build_experiment_prompt(
@@ -818,14 +841,10 @@ class IdeaExtractor:
         self._llm = None
 
     @property
-    def llm(self) -> ChatOpenAI:
+    def llm(self) -> BaseChatModel:
         """LLMインスタンスを取得"""
         if self._llm is None:
-            self._llm = ChatOpenAI(
-                model=self.model_name,
-                api_key=settings.openai_api_key,
-                temperature=0.0,
-            )
+            self._llm = _create_chat_model(self.model_name)
         return self._llm
 
     def _build_extraction_prompt(self, content: str) -> str:

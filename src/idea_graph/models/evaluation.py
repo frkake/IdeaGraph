@@ -108,6 +108,19 @@ class SingleEvaluationResult(BaseModel):
     )
 
 
+class SwapTestRawData(BaseModel):
+    """swap test のAB/BA生スコア（ポジションバイアス分析用）"""
+
+    ab_scores: dict[str, int] = Field(
+        default_factory=dict,
+        description="AB順での各指標スコア (0=A wins, 1=B wins, 2=tie)",
+    )
+    ba_scores: dict[str, int] = Field(
+        default_factory=dict,
+        description="BA順での各指標スコア (0=B wins, 1=A wins, 2=tie)",
+    )
+
+
 class PairwiseResult(BaseModel):
     """ペアワイズ比較結果"""
 
@@ -116,6 +129,9 @@ class PairwiseResult(BaseModel):
     scores: list[MetricScore] = Field(description="各指標の評価スコア")
     experiment_scores: list[ExperimentMetricScore] | None = Field(
         default=None, description="実験計画の評価スコア（オプション）"
+    )
+    swap_test_raw: SwapTestRawData | None = Field(
+        default=None, description="swap test生データ（ポジションバイアス分析用）"
     )
 
 

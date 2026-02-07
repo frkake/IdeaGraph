@@ -90,9 +90,10 @@ class ProposalResult(BaseModel):
 class ProposalService:
     """研究アイデア提案サービス"""
 
-    def __init__(self, model_name: str | None = None):
+    def __init__(self, model_name: str | None = None, temperature: float = 0.0):
         """初期化"""
         self.model_name = model_name or settings.openai_model
+        self.temperature = temperature
         self._llm = None
 
     @property
@@ -102,7 +103,7 @@ class ProposalService:
             self._llm = ChatOpenAI(
                 model=self.model_name,
                 api_key=settings.openai_api_key,
-                temperature=0.0,
+                temperature=self.temperature,
             )
         return self._llm
 

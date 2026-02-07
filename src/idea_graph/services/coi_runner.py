@@ -195,11 +195,27 @@ class CoIRunner:
         # 環境変数を準備
         env = self._setup_environment()
 
-        # コマンドを構築（uv経由で実行）
-        cmd = [
-            sys.executable,
-            "-m",
-            "idea_graph.coi.cli",
+        # コマンドを構築（uv run --group coi 経由で実行）
+        import shutil
+
+        uv_path = shutil.which("uv")
+        if uv_path:
+            cmd = [
+                uv_path,
+                "run",
+                "--group",
+                "coi",
+                "python",
+                "-m",
+                "idea_graph.coi.cli",
+            ]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "idea_graph.coi.cli",
+            ]
+        cmd += [
             "--topic",
             topic,
             "--save-file",

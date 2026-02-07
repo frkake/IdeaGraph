@@ -18,6 +18,9 @@ class Settings(BaseModel):
     # OpenAI API
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
 
+    # Anthropic API
+    anthropic_api_key: str = Field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+
     # Neo4j
     neo4j_uri: str = Field(default_factory=lambda: os.getenv("NEO4J_URI", "bolt://localhost:7687"))
     neo4j_user: str = Field(default_factory=lambda: os.getenv("NEO4J_USER", "neo4j"))

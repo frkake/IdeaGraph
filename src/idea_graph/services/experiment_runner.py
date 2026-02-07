@@ -305,7 +305,10 @@ class ExperimentRunner:
         if proposal_data is not None:
             proposal_result = ProposalResult.model_validate(proposal_data)
         else:
-            proposal_service = ProposalService(model_name=condition.generation.model)
+            proposal_service = ProposalService(
+                model_name=condition.generation.model,
+                temperature=condition.generation.temperature,
+            )
             proposal_result = proposal_service.propose(
                 target_paper_id=paper_id,
                 analysis_result=analysis_result,
@@ -328,7 +331,10 @@ class ExperimentRunner:
         if proposal_data is not None:
             return ProposalResult.model_validate(proposal_data)
 
-        proposal_service = ProposalService(model_name=condition.generation.model)
+        proposal_service = ProposalService(
+            model_name=condition.generation.model,
+            temperature=condition.generation.temperature,
+        )
         result = proposal_service.propose_direct(
             target_paper_id=paper_id,
             num_proposals=condition.generation.num_proposals,
@@ -770,9 +776,8 @@ class ExperimentRunner:
                         )
                     )
 
-                    first = proposal_result.proposals[0] if proposal_result.proposals else None
-                    if first is not None:
-                        pairwise_cache.setdefault(paper_id, []).append((condition.method, first))
+                    for proposal in proposal_result.proposals:
+                        pairwise_cache.setdefault(paper_id, []).append((condition.method, proposal))
 
                 except Exception as e:
                     logger.warning("Skipped paper %s for condition %s: %s", paper_id, condition.name, e)
