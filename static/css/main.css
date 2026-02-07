@@ -1415,6 +1415,21 @@ header h1 {
     background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(56, 142, 60, 0.05));
 }
 
+/* 単体評価の評価理由 */
+.single-eval-reasoning summary {
+    user-select: none;
+}
+
+.single-eval-reasoning[open] summary {
+    margin-bottom: 0.25rem;
+}
+
+/* 評価モードセレクタ */
+.eval-mode-selector select:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
 /* 提案カードのソース表示 */
 .proposal-card[data-source="coi"] {
     border-left: 3px solid #4CAF50;

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from idea_graph.config import settings
 from idea_graph.constants import OUTPUT_CONSTRAINTS
 from idea_graph.models.evaluation import (
+    AbsoluteMetricScore,
     EvaluationMetric,
     EvaluationProgressEvent,
     EvaluationResult,
@@ -25,6 +26,8 @@ from idea_graph.models.evaluation import (
     MetricScore,
     PairwiseResult,
     RankingEntry,
+    SingleEvaluationResult,
+    SingleIdeaResult,
     TargetPaperExtraction,
     Winner,
 )
@@ -203,6 +206,120 @@ class LLMComparisonOutput(BaseModel):
         )
 
 
+class LLMSingleEvaluationOutput(BaseModel):
+    """LLMからの単一アイデア単体評価の構造化出力"""
+
+    novelty_score: int = Field(description="Novelty score: 1 (lowest) to 10 (highest)")
+    novelty_reasoning: str = Field(description="Reasoning for novelty evaluation")
+    significance_score: int = Field(description="Significance score: 1 (lowest) to 10 (highest)")
+    significance_reasoning: str = Field(description="Reasoning for significance evaluation")
+    feasibility_score: int = Field(description="Feasibility score: 1 (lowest) to 10 (highest)")
+    feasibility_reasoning: str = Field(description="Reasoning for feasibility evaluation")
+    clarity_score: int = Field(description="Clarity score: 1 (lowest) to 10 (highest)")
+    clarity_reasoning: str = Field(description="Reasoning for clarity evaluation")
+    effectiveness_score: int = Field(description="Effectiveness score: 1 (lowest) to 10 (highest)")
+    effectiveness_reasoning: str = Field(description="Reasoning for effectiveness evaluation")
+
+    def to_absolute_metric_scores(self) -> list[AbsoluteMetricScore]:
+        """AbsoluteMetricScoreリストに変換"""
+        return [
+            AbsoluteMetricScore(metric=EvaluationMetric.NOVELTY, score=self.novelty_score, reasoning=self.novelty_reasoning),
+            AbsoluteMetricScore(metric=EvaluationMetric.SIGNIFICANCE, score=self.significance_score, reasoning=self.significance_reasoning),
+            AbsoluteMetricScore(metric=EvaluationMetric.FEASIBILITY, score=self.feasibility_score, reasoning=self.feasibility_reasoning),
+            AbsoluteMetricScore(metric=EvaluationMetric.CLARITY, score=self.clarity_score, reasoning=self.clarity_reasoning),
+            AbsoluteMetricScore(metric=EvaluationMetric.EFFECTIVENESS, score=self.effectiveness_score, reasoning=self.effectiveness_reasoning),
+        ]
+
+
+class SingleIdeaEvaluator:
+    """単一アイデアの単体評価サービス"""
+
+    EVALUATION_PROMPT_TEMPLATE = """You are an expert research proposal evaluator. Evaluate the following research idea on an absolute scale from 1 to 10 for each metric.
+
+## Evaluation Metrics
+
+1. **Novelty** (1-10): Is the problem or approach new? Is it a new combination of known techniques? Is the difference from prior work clear?
+   - 1-3: Incremental or derivative work with minimal new elements
+   - 4-6: Moderate novelty, some new elements or combinations
+   - 7-10: Highly novel approach or problem formulation
+
+2. **Significance** (1-10): Is the idea important? Will other researchers use or build upon it? Does it address a meaningful problem?
+   - 1-3: Marginal impact, limited applicability
+   - 4-6: Moderate impact potential
+   - 7-10: High potential for widespread impact
+
+3. **Feasibility** (1-10): Can it be implemented with existing technology? Are there no major technical barriers?
+   - 1-3: Major technical challenges, unclear implementation path
+   - 4-6: Feasible with some effort and problem-solving
+   - 7-10: Clearly implementable with well-defined approach
+
+4. **Clarity** (1-10): Is the description clear and well-organized? Does it inform the reader appropriately?
+   - 1-3: Poorly organized, hard to understand
+   - 4-6: Adequately clear with some ambiguities
+   - 7-10: Exceptionally clear and well-structured
+
+5. **Effectiveness** (1-10): Is the proposed idea likely to work? Is it likely better than existing methods?
+   - 1-3: Unlikely to outperform existing methods
+   - 4-6: Moderate chance of improvement
+   - 7-10: Strong evidence of potential effectiveness
+
+## Research Idea: {idea_title}
+
+**Motivation**: {idea_motivation}
+
+**Method**: {idea_method}
+
+**Key Differences from Existing Work**: {idea_differences}
+
+## Instructions
+For each metric, provide:
+- A score from 1 to 10
+- A brief reasoning (1-2 sentences) explaining your score
+
+Be rigorous and calibrated. A score of 5 means average quality for a research proposal."""
+
+    def __init__(self, model_name: str | None = None) -> None:
+        """初期化"""
+        self.model_name = model_name or settings.evaluation_model
+        self._llm = None
+
+    @property
+    def llm(self) -> ChatOpenAI:
+        """LLMインスタンスを取得"""
+        if self._llm is None:
+            self._llm = ChatOpenAI(
+                model=self.model_name,
+                api_key=settings.openai_api_key,
+                temperature=0.0,
+            )
+        return self._llm
+
+    def _build_prompt(self, idea: "Proposal") -> str:
+        """評価プロンプトを構築"""
+        return self.EVALUATION_PROMPT_TEMPLATE.format(
+            idea_title=idea.title,
+            idea_motivation=idea.motivation,
+            idea_method=idea.method,
+            idea_differences=", ".join(idea.differences),
+        )
+
+    def evaluate(self, idea: "Proposal") -> list[AbsoluteMetricScore]:
+        """単一アイデアを単体評価（同期版）"""
+        prompt = self._build_prompt(idea)
+        structured_llm = self.llm.with_structured_output(LLMSingleEvaluationOutput)
+        message = HumanMessage(content=prompt)
+        result: LLMSingleEvaluationOutput = structured_llm.invoke([message])
+        return result.to_absolute_metric_scores()
+
+    async def evaluate_async(self, idea: "Proposal") -> list[AbsoluteMetricScore]:
+        """単一アイデアを単体評価（非同期版）"""
+        prompt = self._build_prompt(idea)
+        structured_llm = self.llm.with_structured_output(LLMSingleEvaluationOutput)
+        message = HumanMessage(content=prompt)
+        result: LLMSingleEvaluationOutput = await structured_llm.ainvoke([message])
+        return result.to_absolute_metric_scores()
+
+
 class PairwiseComparator:
     """ペアワイズ比較サービス"""
 
@@ -248,7 +365,7 @@ Focus on substantive differences, not superficial ones."""
         Args:
             model_name: 使用するLLMモデル名
         """
-        self.model_name = model_name or settings.openai_model
+        self.model_name = model_name or settings.evaluation_model
         self._llm = None
 
     @property
@@ -490,7 +607,7 @@ For each metric, provide:
 
     def __init__(self, model_name: str | None = None) -> None:
         """初期化"""
-        self.model_name = model_name or settings.openai_model
+        self.model_name = model_name or settings.evaluation_model
         self._llm = None
 
     @property
@@ -688,7 +805,7 @@ class IdeaExtractor:
 
     def __init__(self, model_name: str | None = None) -> None:
         """初期化"""
-        self.model_name = model_name or settings.openai_model
+        self.model_name = model_name or settings.evaluation_model
         self._llm = None
 
     @property
@@ -799,7 +916,7 @@ class EvaluationService:
             model_name: 使用するLLMモデル名
             output_dir: 評価結果の出力ディレクトリ
         """
-        self.model_name = model_name or settings.openai_model
+        self.model_name = model_name or settings.evaluation_model
         self.output_dir = output_dir or (settings.cache_dir / "evaluations")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -810,6 +927,7 @@ class EvaluationService:
         self._comparator = None
         self._experiment_comparator = None
         self._elo_calculator = None
+        self._single_evaluator = None
 
     @property
     def comparator(self) -> PairwiseComparator:
@@ -831,6 +949,13 @@ class EvaluationService:
         if self._elo_calculator is None:
             self._elo_calculator = EloRatingCalculator()
         return self._elo_calculator
+
+    @property
+    def single_evaluator(self) -> SingleIdeaEvaluator:
+        """単一アイデア評価器を取得"""
+        if self._single_evaluator is None:
+            self._single_evaluator = SingleIdeaEvaluator(model_name=self.model_name)
+        return self._single_evaluator
 
     def _generate_idea_id(self, index: int, proposal: "Proposal") -> str:
         """アイデアIDを生成"""
@@ -1350,3 +1475,211 @@ class EvaluationService:
 
         logger.info(f"Saved markdown report to {output_path}")
         return output_path
+
+    # ========== 単体（絶対）評価 ==========
+
+    def _resolve_source(self, index: int, proposal_sources: list[str] | None) -> IdeaSource:
+        """proposal_sourcesからIdeaSourceを解決"""
+        if proposal_sources and index < len(proposal_sources):
+            source_str = proposal_sources[index]
+            if source_str == "coi":
+                return IdeaSource.COI
+            elif source_str == "target_paper":
+                return IdeaSource.TARGET_PAPER
+        return IdeaSource.IDEAGRAPH
+
+    def evaluate_single(
+        self,
+        proposals: list["Proposal"],
+        proposal_sources: list[str] | None = None,
+    ) -> SingleEvaluationResult:
+        """提案群を単体（絶対）評価してランキングを生成
+
+        Args:
+            proposals: 評価対象のProposalリスト（1件以上）
+            proposal_sources: 各提案のソースリスト（オプション）
+
+        Returns:
+            単体評価結果
+        """
+        logger.info(f"Starting single evaluation of {len(proposals)} proposals")
+
+        idea_results: list[SingleIdeaResult] = []
+        for i, proposal in enumerate(proposals):
+            idea_id = self._generate_idea_id(i, proposal)
+            logger.info(f"Evaluating idea {i + 1}/{len(proposals)}: {proposal.title}")
+
+            scores = self.single_evaluator.evaluate(proposal)
+            overall = sum(s.score for s in scores) / len(scores)
+
+            idea_results.append(
+                SingleIdeaResult(
+                    idea_id=idea_id,
+                    idea_title=proposal.title,
+                    scores=scores,
+                    overall_score=overall,
+                    source=self._resolve_source(i, proposal_sources),
+                )
+            )
+
+        ranking = sorted(idea_results, key=lambda x: x.overall_score, reverse=True)
+
+        result = SingleEvaluationResult(
+            evaluated_at=datetime.now(),
+            model_name=self.model_name,
+            proposals=proposals,
+            idea_results=idea_results,
+            ranking=ranking,
+        )
+
+        logger.info(
+            f"Single evaluation completed. Top ranked: "
+            f"{ranking[0].idea_title if ranking else 'N/A'}"
+        )
+        return result
+
+    async def evaluate_single_streaming(
+        self,
+        proposals: list["Proposal"],
+        proposal_sources: list[str] | None = None,
+        batch_size: int = 3,
+    ) -> AsyncIterator[EvaluationProgressEvent | SingleEvaluationResult]:
+        """提案群を単体（絶対）評価（ストリーミング版、バッチ並列実行）
+
+        Args:
+            proposals: 評価対象のProposalリスト（1件以上）
+            proposal_sources: 各提案のソースリスト（オプション）
+            batch_size: 並列実行するバッチサイズ
+
+        Yields:
+            EvaluationProgressEvent: 進捗イベント
+            SingleEvaluationResult: 最終結果（最後に1回）
+        """
+        total = len(proposals)
+        logger.info(f"Starting single evaluation (streaming) of {total} proposals")
+
+        yield EvaluationProgressEvent(
+            event_type="progress",
+            current_comparison=0,
+            total_comparisons=total,
+            phase="evaluating",
+            message=f"0/{total}件のアイデアを評価開始",
+        )
+
+        idea_results: list[SingleIdeaResult] = []
+
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch_proposals = [
+                (i, proposals[i]) for i in range(batch_start, batch_end)
+            ]
+
+            # バッチ内を並列実行
+            batch_scores = await asyncio.gather(
+                *[self.single_evaluator.evaluate_async(p) for _, p in batch_proposals]
+            )
+
+            for (i, proposal), scores in zip(batch_proposals, batch_scores):
+                idea_id = self._generate_idea_id(i, proposal)
+                overall = sum(s.score for s in scores) / len(scores)
+
+                idea_results.append(
+                    SingleIdeaResult(
+                        idea_id=idea_id,
+                        idea_title=proposal.title,
+                        scores=scores,
+                        overall_score=overall,
+                        source=self._resolve_source(i, proposal_sources),
+                    )
+                )
+
+            yield EvaluationProgressEvent(
+                event_type="progress",
+                current_comparison=len(idea_results),
+                total_comparisons=total,
+                phase="evaluating",
+                message=f"{len(idea_results)}/{total}件の評価完了",
+            )
+
+        ranking = sorted(idea_results, key=lambda x: x.overall_score, reverse=True)
+
+        result = SingleEvaluationResult(
+            evaluated_at=datetime.now(),
+            model_name=self.model_name,
+            proposals=proposals,
+            idea_results=idea_results,
+            ranking=ranking,
+        )
+
+        logger.info(
+            f"Single evaluation completed. Top ranked: "
+            f"{ranking[0].idea_title if ranking else 'N/A'}"
+        )
+
+        yield result
+
+    def save_single_result(
+        self, result: SingleEvaluationResult, filename: str | None = None
+    ) -> Path:
+        """単体評価結果をJSONファイルに保存"""
+        if filename is None:
+            timestamp = result.evaluated_at.strftime("%Y%m%d_%H%M%S")
+            filename = f"single_evaluation_{timestamp}.json"
+
+        output_path = self.output_dir / filename
+        output_path.write_text(
+            result.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+        logger.info(f"Saved single evaluation result to {output_path}")
+        return output_path
+
+    def generate_single_markdown_report(self, result: SingleEvaluationResult) -> str:
+        """単体評価結果をMarkdownレポートとして生成"""
+        metric_labels = {
+            "novelty": "Novelty",
+            "significance": "Significance",
+            "feasibility": "Feasibility",
+            "clarity": "Clarity",
+            "effectiveness": "Effectiveness",
+        }
+
+        lines = [
+            "# Idea Single Evaluation Report",
+            "",
+            f"**Evaluated at**: {result.evaluated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**Model**: {result.model_name}",
+            f"**Number of proposals**: {len(result.proposals)}",
+            f"**Evaluation mode**: Single (Absolute)",
+            "",
+            "## Rankings",
+            "",
+            "| Rank | Title | Overall | Novelty | Significance | Feasibility | Clarity | Effectiveness |",
+            "|------|-------|---------|---------|--------------|-------------|---------|---------------|",
+        ]
+
+        for rank, entry in enumerate(result.ranking, 1):
+            title = entry.idea_title or entry.idea_id
+            scores_dict = {s.metric.value: s.score for s in entry.scores}
+            lines.append(
+                f"| {rank} | {title} | {entry.overall_score:.1f} "
+                f"| {scores_dict.get('novelty', '-')} "
+                f"| {scores_dict.get('significance', '-')} "
+                f"| {scores_dict.get('feasibility', '-')} "
+                f"| {scores_dict.get('clarity', '-')} "
+                f"| {scores_dict.get('effectiveness', '-')} |"
+            )
+
+        lines.extend(["", "## Detailed Evaluations", ""])
+
+        for rank, entry in enumerate(result.ranking, 1):
+            title = entry.idea_title or entry.idea_id
+            lines.append(f"### {rank}. {title} (Overall: {entry.overall_score:.1f})")
+            lines.append("")
+            for s in entry.scores:
+                label = metric_labels.get(s.metric.value, s.metric.value)
+                lines.append(f"- **{label}** ({s.score}/10): {s.reasoning}")
+            lines.append("")
+
+        return "\n".join(lines)

@@ -120,6 +120,8 @@ const AppState = {
         include_inline_edges: true,
     },
     evaluationResult: null,
+    singleEvaluationResult: null,
+    evaluationMode: 'pairwise',  // 'pairwise' or 'single'
     savedAnalyses: [],
     savedProposals: [],
     savedProposalGroups: [],
@@ -1657,12 +1659,16 @@ function renderProposals() {
     ` : '';
 
     let html = `
-        <div class="proposal-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            ${AppState.proposals.length >= 2 ? `
-            <button class="btn-evaluate" onclick="runEvaluation()" title="提案を評価・ランキング">
-                🏆 評価を実行
-            </button>
-            ` : ''}
+        <div class="proposal-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+            <div class="eval-mode-selector" style="display: flex; gap: 0.25rem; align-items: center;">
+                <select id="evaluationMode" onchange="AppState.evaluationMode = this.value" style="padding: 0.35rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); color: var(--text-primary); font-size: 0.8rem; cursor: pointer;">
+                    <option value="pairwise" ${AppState.evaluationMode === 'pairwise' ? 'selected' : ''}>ペアワイズ比較</option>
+                    <option value="single" ${AppState.evaluationMode === 'single' ? 'selected' : ''}>単体評価</option>
+                </select>
+                <button class="btn-evaluate" onclick="runEvaluationByMode()" title="提案を評価・ランキング">
+                    🏆 評価を実行
+                </button>
+            </div>
             <button class="btn-secondary" onclick="openComparisonModal()">
                 比較ビュー
             </button>
@@ -1991,6 +1997,139 @@ function closeComparisonModal() {
 }
 
 // ========== 提案評価 ==========
+function runEvaluationByMode() {
+    if (AppState.evaluationMode === 'single') {
+        runSingleEvaluation();
+    } else {
+        runEvaluation();
+    }
+}
+
+async function runSingleEvaluation() {
+    if (!AppState.proposals || AppState.proposals.length < 1) {
+        alert('評価には1件以上の提案が必要です');
+        return;
+    }
+
+    updateStatus('提案を単体評価中... (数分かかる場合があります)');
+
+    // 右パネルにローディング表示
+    openRightPanel();
+    const content = document.getElementById('rightPanelContent');
+    const headerTitle = document.querySelector('.right-panel-header h3');
+    if (headerTitle) headerTitle.textContent = '単体評価';
+    const evaluationInfo = `${AppState.proposals.length}件の提案`;
+    if (content) {
+        content.innerHTML = `
+            <div class="evaluation-progress">
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                </div>
+                <div style="text-align: center; color: #888; margin-top: 1rem;">
+                    <div id="singleEvalPhase">初期化中...</div>
+                    <div id="singleEvalProgressText" style="font-size: 0.85rem; margin-top: 0.5rem;"></div>
+                    <div style="margin-top: 0.75rem; padding: 0 1rem;">
+                        <div style="background: var(--bg-primary); border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div id="singleEvalProgressBar" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                    <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #666;">${evaluationInfo}を単体評価しています</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // リクエストボディを構築
+    const evalModels = getSelectedModels();
+    const proposalSources = AppState.proposals.map((_, index) => {
+        return AppState.proposalSources[index] || 'ideagraph';
+    });
+    const requestBody = {
+        proposals: AppState.proposals,
+        proposal_sources: proposalSources,
+        model_name: evalModels.ideagraph,
+    };
+
+    try {
+        const response = await fetch('/api/evaluate/single/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const event = JSON.parse(line.slice(6));
+                        updateSingleEvaluationProgress(event);
+
+                        if (event.event_type === 'completed' && event.result) {
+                            AppState.singleEvaluationResult = event.result;
+                            AppState.evaluationResult = null;  // ペアワイズ結果をクリア
+                            updateStatus(`単体評価完了: ${event.result.ranking?.length || 0}件をランキング`);
+                            switchTab('evaluate');
+                        } else if (event.event_type === 'error') {
+                            throw new Error(event.error || '評価中にエラーが発生しました');
+                        }
+                    } catch (e) {
+                        if (e.message && !e.message.includes('JSON')) {
+                            throw e;
+                        }
+                    }
+                }
+            }
+        }
+
+    } catch (error) {
+        updateStatus('評価エラー: ' + error.message);
+        if (content) {
+            content.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">⚠️</div>
+                    <div class="empty-state-text">評価エラー<br>${escapeHtml(error.message)}</div>
+                </div>
+            `;
+        }
+    }
+}
+
+function updateSingleEvaluationProgress(event) {
+    const phaseEl = document.getElementById('singleEvalPhase');
+    const progressTextEl = document.getElementById('singleEvalProgressText');
+    const progressBarEl = document.getElementById('singleEvalProgressBar');
+
+    if (!phaseEl || !progressTextEl || !progressBarEl) return;
+
+    const phaseMessages = {
+        'evaluating': 'アイデアを評価中...',
+        'completed': '評価完了！',
+    };
+
+    phaseEl.textContent = phaseMessages[event.phase] || event.message || '処理中...';
+
+    if (event.total_evaluations > 0) {
+        const percent = Math.round((event.current_evaluation / event.total_evaluations) * 100);
+        progressBarEl.style.width = `${percent}%`;
+        progressTextEl.textContent = `${event.current_evaluation}/${event.total_evaluations}件の評価完了`;
+    }
+}
+
 async function runEvaluation() {
     if (!AppState.proposals || AppState.proposals.length < 2) {
         alert('評価には2件以上の提案が必要です');
@@ -2078,6 +2217,7 @@ async function runEvaluation() {
 
                         if (event.event_type === 'completed' && event.result) {
                             AppState.evaluationResult = event.result;
+                            AppState.singleEvaluationResult = null;  // 単体評価結果をクリア
                             updateStatus(`評価完了: ${event.result.ranking?.length || 0}件をランキング`);
                             switchTab('evaluate');
                         } else if (event.event_type === 'error') {
@@ -2134,6 +2274,12 @@ function updateEvaluationProgress(event) {
 function renderEvaluation() {
     const content = document.getElementById('rightPanelContent');
     if (!content) return;
+
+    // 単体評価結果がある場合はそちらを表示
+    if (AppState.singleEvaluationResult && AppState.singleEvaluationResult.ranking && AppState.singleEvaluationResult.ranking.length > 0) {
+        renderSingleEvaluation();
+        return;
+    }
 
     const result = AppState.evaluationResult;
 
@@ -2277,6 +2423,162 @@ function renderEvaluation() {
     `;
 
     content.innerHTML = html;
+}
+
+function renderSingleEvaluation() {
+    const content = document.getElementById('rightPanelContent');
+    if (!content) return;
+
+    const result = AppState.singleEvaluationResult;
+    if (!result || !result.ranking || result.ranking.length === 0) return;
+
+    const ranking = result.ranking;
+
+    const metricLabels = {
+        'novelty': '独自性',
+        'significance': '重要性',
+        'feasibility': '実現可能性',
+        'clarity': '明確さ',
+        'effectiveness': '有効性',
+    };
+
+    let html = `
+        <div class="evaluation-header" style="margin-bottom: 0.75rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px;">
+            <div style="font-size: 0.75rem; color: #888;">単体評価</div>
+            <div style="font-size: 0.9rem; color: #fff; font-weight: bold;">
+                ${ranking.length}件の提案をランキング
+            </div>
+            <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">
+                各指標1-10の絶対スコアで評価
+            </div>
+        </div>
+
+        <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">ランキング:</div>
+        <div class="evaluation-ranking">
+    `;
+
+    ranking.forEach((item, index) => {
+        const rank = index + 1;
+        const medalClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+        const overallScore = item.overall_score?.toFixed(1) || 'N/A';
+        const source = item.source || 'ideagraph';
+        const sourceBadge = getSourceBadge(source);
+        const sourceClass = source === 'coi' ? 'coi-source' : '';
+
+        html += `
+            <div class="evaluation-rank-card ${medalClass} ${sourceClass}" data-index="${index}" data-source="${source}">
+                <div class="rank-header">
+                    <span class="rank-badge ${medalClass}">#${rank}</span>
+                    <span class="rank-title">${truncateText(item.idea_title || '提案' + rank, 25)}</span>
+                    ${sourceBadge}
+                </div>
+                <div class="rank-scores">
+                    <div class="rank-score-item">
+                        <span class="score-label">総合スコア</span>
+                        <span class="score-value">${overallScore}</span>
+                    </div>
+                </div>
+        `;
+
+        // スコア内訳（1-10スケール）
+        if (item.scores && item.scores.length > 0) {
+            html += `<div class="rank-score-breakdown">`;
+            item.scores.forEach(s => {
+                const label = metricLabels[s.metric] || s.metric;
+                html += renderScoreBar(label, s.score);
+            });
+            html += `</div>`;
+
+            // 評価理由（折り畳み）
+            html += `
+                <details class="single-eval-reasoning" style="margin-top: 0.5rem;">
+                    <summary style="cursor: pointer; font-size: 0.75rem; color: var(--accent-blue); padding: 0.25rem 0;">
+                        評価理由を表示
+                    </summary>
+                    <div style="margin-top: 0.25rem; font-size: 0.75rem; color: #999;">
+            `;
+            item.scores.forEach(s => {
+                const label = metricLabels[s.metric] || s.metric;
+                html += `<div style="margin: 0.25rem 0;"><strong>${label}</strong> (${s.score}/10): ${escapeHtml(s.reasoning)}</div>`;
+            });
+            html += `</div></details>`;
+        }
+
+        html += `</div>`;
+    });
+
+    html += `</div>`;
+
+    // エクスポートボタン
+    html += `
+        <div class="evaluation-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+            <button class="btn-secondary" onclick="exportSingleEvaluation('json')" style="flex: 1;">
+                📋 JSONエクスポート
+            </button>
+            <button class="btn-secondary" onclick="exportSingleEvaluation('markdown')" style="flex: 1;">
+                📄 Markdownエクスポート
+            </button>
+        </div>
+    `;
+
+    content.innerHTML = html;
+}
+
+function exportSingleEvaluation(format) {
+    const result = AppState.singleEvaluationResult;
+    if (!result) return;
+
+    if (format === 'json') {
+        const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `single_evaluation_${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } else {
+        // Markdown生成
+        const ranking = result.ranking || [];
+        const metricLabels = {
+            'novelty': 'Novelty',
+            'significance': 'Significance',
+            'feasibility': 'Feasibility',
+            'clarity': 'Clarity',
+            'effectiveness': 'Effectiveness',
+        };
+
+        let md = `# Idea Single Evaluation Report\n\n`;
+        md += `**Evaluated at**: ${result.evaluated_at}\n`;
+        md += `**Model**: ${result.model_name}\n`;
+        md += `**Proposals**: ${ranking.length}\n\n`;
+        md += `## Rankings\n\n`;
+        md += `| Rank | Title | Overall | Novelty | Significance | Feasibility | Clarity | Effectiveness |\n`;
+        md += `|------|-------|---------|---------|--------------|-------------|---------|---------------|\n`;
+
+        ranking.forEach((item, index) => {
+            const scores = {};
+            (item.scores || []).forEach(s => { scores[s.metric] = s.score; });
+            md += `| ${index + 1} | ${item.idea_title || item.idea_id} | ${item.overall_score?.toFixed(1)} | ${scores.novelty || '-'} | ${scores.significance || '-'} | ${scores.feasibility || '-'} | ${scores.clarity || '-'} | ${scores.effectiveness || '-'} |\n`;
+        });
+
+        md += `\n## Detailed Evaluations\n\n`;
+        ranking.forEach((item, index) => {
+            md += `### ${index + 1}. ${item.idea_title || item.idea_id} (Overall: ${item.overall_score?.toFixed(1)})\n\n`;
+            (item.scores || []).forEach(s => {
+                const label = metricLabels[s.metric] || s.metric;
+                md += `- **${label}** (${s.score}/10): ${s.reasoning}\n`;
+            });
+            md += `\n`;
+        });
+
+        const blob = new Blob([md], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `single_evaluation_${new Date().toISOString().slice(0, 10)}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
 }
 
 function renderScoreBar(label, score) {

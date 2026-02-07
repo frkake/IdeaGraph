@@ -1004,6 +1004,54 @@ def _print_evaluation_rich(result) -> None:
     console.print()
 
 
+def _print_single_evaluation_rich(result) -> None:
+    """単体評価結果をリッチフォーマットで表示"""
+    console.print()
+    console.print(Panel(
+        f"[bold]Single Evaluation Results[/bold]\n"
+        f"Model: {result.model_name}\n"
+        f"Proposals: {len(result.proposals)}\n"
+        f"Evaluated at: {result.evaluated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        title="Idea Single Evaluation Report",
+        border_style="green",
+    ))
+
+    table = Table(title="Rankings (Absolute Score)", show_header=True, header_style="bold magenta")
+    table.add_column("Rank", style="dim", width=6)
+    table.add_column("Title", style="cyan")
+    table.add_column("Overall", justify="right")
+    table.add_column("Novelty", justify="right")
+    table.add_column("Significance", justify="right")
+    table.add_column("Feasibility", justify="right")
+    table.add_column("Clarity", justify="right")
+    table.add_column("Effectiveness", justify="right")
+
+    for rank, entry in enumerate(result.ranking, 1):
+        title = (entry.idea_title or entry.idea_id)[:40]
+        scores_dict = {s.metric.value: s.score for s in entry.scores}
+        table.add_row(
+            str(rank),
+            title,
+            f"{entry.overall_score:.1f}",
+            str(scores_dict.get("novelty", "-")),
+            str(scores_dict.get("significance", "-")),
+            str(scores_dict.get("feasibility", "-")),
+            str(scores_dict.get("clarity", "-")),
+            str(scores_dict.get("effectiveness", "-")),
+        )
+
+    console.print(table)
+
+    # 各アイデアの評価理由を表示
+    console.print()
+    for rank, entry in enumerate(result.ranking, 1):
+        title = entry.idea_title or entry.idea_id
+        console.print(f"[bold cyan]{rank}. {title}[/] (Overall: {entry.overall_score:.1f})")
+        for s in entry.scores:
+            console.print(f"  [dim]{s.metric.value.capitalize()}[/] ({s.score}/10): {s.reasoning}")
+        console.print()
+
+
 def _build_text_from_extraction_cache(data: dict) -> str:
     """抽出キャッシュから LLM 用の入力テキストを構築"""
     summary = data.get("paper_summary", "") or ""
@@ -1228,57 +1276,102 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         logging.error(f"Failed to load proposals: {e}")
         return 1
 
-    if len(proposals) < 2:
-        logging.error("At least 2 proposals are required for evaluation.")
-        return 1
-
     # 評価サービスの初期化
     service = EvaluationService(model_name=args.model)
+    eval_mode = getattr(args, "mode", "pairwise")
 
-    # 評価実行
-    logging.info("Starting evaluation...")
-    if target_paper_content:
-        logging.info("Including target paper in comparison")
+    if eval_mode == "single":
+        # === 単体（絶対）評価モード ===
+        if len(proposals) < 1:
+            logging.error("At least 1 proposal is required for single evaluation.")
+            return 1
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Evaluating proposals...", total=None)
-        result = service.evaluate(
-            proposals=proposals,
-            include_experiment=not args.no_experiment,
-            target_paper_content=target_paper_content,
-            target_paper_title=target_paper_title,
-            target_paper_id=target_paper_id,
-        )
-        progress.update(task, completed=True)
+        logging.info("Starting single (absolute) evaluation...")
 
-    # 結果出力
-    if args.format == "json":
-        output = result.model_dump_json(indent=2)
-        if args.output:
-            Path(args.output).write_text(output, encoding="utf-8")
-            logging.info(f"Output written to: {args.output}")
-        else:
-            print(output)
-    elif args.format == "markdown":
-        output = service.generate_markdown_report(result)
-        if args.output:
-            Path(args.output).write_text(output, encoding="utf-8")
-            logging.info(f"Output written to: {args.output}")
-        else:
-            print(output)
-    else:  # rich
-        _print_evaluation_rich(result)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Evaluating proposals (single mode)...", total=None)
+            result = service.evaluate_single(
+                proposals=proposals,
+                proposal_sources=None,
+            )
+            progress.update(task, completed=True)
 
-    # 結果を自動保存
-    json_path = service.save_result(result)
-    md_path = service.save_markdown_report(result)
-    console.print(f"[green]Results saved to:[/]")
-    console.print(f"  JSON: {json_path}")
-    console.print(f"  Markdown: {md_path}")
+        # 結果出力
+        if args.format == "json":
+            output = result.model_dump_json(indent=2)
+            if args.output:
+                Path(args.output).write_text(output, encoding="utf-8")
+                logging.info(f"Output written to: {args.output}")
+            else:
+                print(output)
+        elif args.format == "markdown":
+            output = service.generate_single_markdown_report(result)
+            if args.output:
+                Path(args.output).write_text(output, encoding="utf-8")
+                logging.info(f"Output written to: {args.output}")
+            else:
+                print(output)
+        else:  # rich
+            _print_single_evaluation_rich(result)
+
+        # 結果を自動保存
+        json_path = service.save_single_result(result)
+        console.print("[green]Results saved to:[/]")
+        console.print(f"  JSON: {json_path}")
+
+    else:
+        # === ペアワイズ比較評価モード（既存） ===
+        if len(proposals) < 2:
+            logging.error("At least 2 proposals are required for pairwise evaluation.")
+            return 1
+
+        logging.info("Starting pairwise evaluation...")
+        if target_paper_content:
+            logging.info("Including target paper in comparison")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Evaluating proposals...", total=None)
+            result = service.evaluate(
+                proposals=proposals,
+                include_experiment=not args.no_experiment,
+                target_paper_content=target_paper_content,
+                target_paper_title=target_paper_title,
+                target_paper_id=target_paper_id,
+            )
+            progress.update(task, completed=True)
+
+        # 結果出力
+        if args.format == "json":
+            output = result.model_dump_json(indent=2)
+            if args.output:
+                Path(args.output).write_text(output, encoding="utf-8")
+                logging.info(f"Output written to: {args.output}")
+            else:
+                print(output)
+        elif args.format == "markdown":
+            output = service.generate_markdown_report(result)
+            if args.output:
+                Path(args.output).write_text(output, encoding="utf-8")
+                logging.info(f"Output written to: {args.output}")
+            else:
+                print(output)
+        else:  # rich
+            _print_evaluation_rich(result)
+
+        # 結果を自動保存
+        json_path = service.save_result(result)
+        md_path = service.save_markdown_report(result)
+        console.print("[green]Results saved to:[/]")
+        console.print(f"  JSON: {json_path}")
+        console.print(f"  Markdown: {md_path}")
 
     return 0
 
@@ -1504,6 +1597,12 @@ def main() -> int:
         "--include-target",
         action="store_true",
         help="ターゲット論文のアイデアを比較に含める（ProposalResult形式の入力時のみ）",
+    )
+    evaluate_parser.add_argument(
+        "--mode",
+        choices=["pairwise", "single"],
+        default="pairwise",
+        help="評価モード: pairwise (ペアワイズ比較) / single (単体評価) (デフォルト: pairwise)",
     )
 
     args = parser.parse_args()

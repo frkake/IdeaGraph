@@ -673,7 +673,7 @@ def evaluate_proposals(request: EvaluateRequest) -> EvaluateResponse:
         proposals.append(proposal)
 
     # 評価を実行
-    service = EvaluationService(model_name=request.model_name)
+    service = EvaluationService()
     result = service.evaluate(
         proposals,
         include_experiment=request.include_experiment,
@@ -786,7 +786,7 @@ async def evaluate_proposals_stream(request: EvaluateRequest):
         proposals.append(proposal)
 
     async def generate():
-        service = EvaluationService(model_name=request.model_name)
+        service = EvaluationService()
 
         try:
             async for event in service.evaluate_streaming(
@@ -855,6 +855,196 @@ async def evaluate_proposals_stream(request: EvaluateRequest):
                     yield f"data: {response.model_dump_json()}\n\n"
         except Exception as e:
             response = EvaluationProgressResponse(
+                event_type="error",
+                phase="error",
+                error=str(e),
+            )
+            yield f"data: {response.model_dump_json()}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ========== 単体（絶対）評価 API ==========
+
+
+class SingleEvaluateRequest(BaseModel):
+    """単体評価リクエスト"""
+
+    proposals: list[EvaluateProposal]
+    proposal_sources: list[str] | None = None
+    model_name: str | None = None
+
+
+class AbsoluteMetricScoreResponse(BaseModel):
+    """絶対スコアレスポンス"""
+
+    metric: str
+    score: int
+    reasoning: str
+
+
+class SingleIdeaResultResponse(BaseModel):
+    """単一アイデア評価結果レスポンス"""
+
+    idea_id: str
+    idea_title: str | None
+    scores: list[AbsoluteMetricScoreResponse]
+    overall_score: float
+    source: str = "ideagraph"
+
+
+class SingleEvaluateResponse(BaseModel):
+    """単体評価レスポンス"""
+
+    evaluated_at: str
+    model_name: str
+    evaluation_mode: str = "single"
+    ranking: list[SingleIdeaResultResponse]
+
+
+class SingleEvaluationProgressResponse(BaseModel):
+    """単体評価進捗レスポンス"""
+
+    event_type: str
+    current_evaluation: int = 0
+    total_evaluations: int = 0
+    phase: str = "evaluating"
+    message: str | None = None
+    error: str | None = None
+    result: SingleEvaluateResponse | None = None
+
+
+def _convert_evaluate_proposals(proposals: list[EvaluateProposal]) -> list:
+    """EvaluateProposalリストをサービス用Proposalモデルに変換"""
+    from idea_graph.services.proposal import Proposal as ProposalModel
+    from idea_graph.services.proposal import Experiment as ExperimentModel
+    from idea_graph.services.proposal import Grounding as GroundingModel
+
+    result = []
+    for p in proposals:
+        proposal = ProposalModel(
+            title=p.title,
+            rationale=p.rationale,
+            research_trends=p.research_trends,
+            motivation=p.motivation,
+            method=p.method,
+            experiment=ExperimentModel(
+                datasets=p.experiment.datasets,
+                baselines=p.experiment.baselines,
+                metrics=p.experiment.metrics,
+                ablations=p.experiment.ablations,
+                expected_results=p.experiment.expected_results,
+                failure_interpretation=p.experiment.failure_interpretation,
+            ),
+            grounding=GroundingModel(
+                papers=p.grounding.papers,
+                entities=p.grounding.entities,
+                path_mermaid=p.grounding.path_mermaid,
+            ),
+            differences=p.differences,
+        )
+        result.append(proposal)
+    return result
+
+
+def _build_single_evaluate_response(result) -> SingleEvaluateResponse:
+    """SingleEvaluationResultからレスポンスを構築"""
+    ranking_response = [
+        SingleIdeaResultResponse(
+            idea_id=entry.idea_id,
+            idea_title=entry.idea_title,
+            scores=[
+                AbsoluteMetricScoreResponse(
+                    metric=s.metric.value,
+                    score=s.score,
+                    reasoning=s.reasoning,
+                )
+                for s in entry.scores
+            ],
+            overall_score=entry.overall_score,
+            source=entry.source.value if hasattr(entry, "source") else "ideagraph",
+        )
+        for entry in result.ranking
+    ]
+
+    return SingleEvaluateResponse(
+        evaluated_at=result.evaluated_at.isoformat(),
+        model_name=result.model_name,
+        ranking=ranking_response,
+    )
+
+
+@app.post("/api/evaluate/single")
+def evaluate_proposals_single(request: SingleEvaluateRequest) -> SingleEvaluateResponse:
+    """提案を単体（絶対）評価"""
+    if len(request.proposals) < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 1 proposal is required for single evaluation",
+        )
+
+    proposals = _convert_evaluate_proposals(request.proposals)
+    service = EvaluationService()
+    result = service.evaluate_single(
+        proposals,
+        proposal_sources=request.proposal_sources,
+    )
+
+    return _build_single_evaluate_response(result)
+
+
+@app.post("/api/evaluate/single/stream")
+async def evaluate_proposals_single_stream(request: SingleEvaluateRequest):
+    """提案を単体（絶対）評価（SSEストリーミング版）"""
+    from fastapi.responses import StreamingResponse
+
+    from idea_graph.models.evaluation import EvaluationProgressEvent, SingleEvaluationResult
+
+    if len(request.proposals) < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 1 proposal is required for single evaluation",
+        )
+
+    proposals = _convert_evaluate_proposals(request.proposals)
+
+    async def generate():
+        service = EvaluationService()
+
+        try:
+            async for event in service.evaluate_single_streaming(
+                proposals,
+                proposal_sources=request.proposal_sources,
+            ):
+                if isinstance(event, EvaluationProgressEvent):
+                    response = SingleEvaluationProgressResponse(
+                        event_type=event.event_type,
+                        current_evaluation=event.current_comparison,
+                        total_evaluations=event.total_comparisons,
+                        phase=event.phase,
+                        message=event.message,
+                    )
+                    yield f"data: {response.model_dump_json()}\n\n"
+                elif isinstance(event, SingleEvaluationResult):
+                    eval_response = _build_single_evaluate_response(event)
+                    response = SingleEvaluationProgressResponse(
+                        event_type="completed",
+                        current_evaluation=len(event.idea_results),
+                        total_evaluations=len(event.idea_results),
+                        phase="completed",
+                        message="評価完了",
+                        result=eval_response,
+                    )
+                    yield f"data: {response.model_dump_json()}\n\n"
+        except Exception as e:
+            response = SingleEvaluationProgressResponse(
                 event_type="error",
                 phase="error",
                 error=str(e),

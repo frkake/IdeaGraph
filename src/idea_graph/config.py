@@ -51,6 +51,7 @@ class Settings(BaseModel):
     # LLM settings
     gemini_model: str = Field(default="gemini-3-flash-preview")
     openai_model: str = Field(default="gpt-5.2-2025-12-11")
+    evaluation_model: str = Field(default="gpt-5.2-2025-12-11")
 
     def ensure_cache_dirs(self) -> None:
         """キャッシュディレクトリを作成"""

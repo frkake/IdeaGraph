@@ -73,6 +73,42 @@ class ExperimentMetricScore(BaseModel):
     reasoning: str = Field(description="評価理由")
 
 
+class AbsoluteMetricScore(BaseModel):
+    """指標ごとの単体評価スコア"""
+
+    metric: EvaluationMetric = Field(description="評価指標")
+    score: int = Field(ge=1, le=10, description="1-10の絶対スコア")
+    reasoning: str = Field(description="評価理由")
+
+
+class SingleIdeaResult(BaseModel):
+    """単一アイデアの評価結果"""
+
+    idea_id: str = Field(description="アイデアID")
+    idea_title: str | None = Field(default=None, description="アイデアのタイトル")
+    scores: list[AbsoluteMetricScore] = Field(description="各指標の絶対スコア")
+    overall_score: float = Field(description="総合スコア（各指標の平均）")
+    source: IdeaSource = Field(
+        default=IdeaSource.IDEAGRAPH,
+        description="アイデアのソース（ideagraph, coi, target_paper）",
+    )
+
+
+class SingleEvaluationResult(BaseModel):
+    """単体（絶対）評価結果（評価セッション全体）"""
+
+    evaluated_at: datetime = Field(description="評価実行日時")
+    model_name: str = Field(description="使用したLLMモデル名")
+    evaluation_mode: Literal["single"] = Field(
+        default="single", description="評価モード"
+    )
+    proposals: list = Field(description="評価対象のProposalリスト")
+    idea_results: list[SingleIdeaResult] = Field(description="各アイデアの評価結果")
+    ranking: list[SingleIdeaResult] = Field(
+        description="スコア順のランキング（overall_score降順）"
+    )
+
+
 class PairwiseResult(BaseModel):
     """ペアワイズ比較結果"""
 
