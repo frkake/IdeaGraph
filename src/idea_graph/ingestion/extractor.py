@@ -1,5 +1,7 @@
 """Gemini API による論文情報抽出モジュール"""
 
+from __future__ import annotations
+
 import base64
 import io
 import json
@@ -7,8 +9,10 @@ import logging
 import random
 import re
 import tarfile
+import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
@@ -16,6 +20,9 @@ from pydantic import BaseModel, Field
 
 from idea_graph.config import settings
 from idea_graph.ingestion.downloader import FileType
+
+if TYPE_CHECKING:
+    from idea_graph.ingestion.parallel import RateLimiters
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +237,7 @@ class ExtractorService:
         model_name: str | None = None,
         cache_dir: Path | None = None,
         max_retries: int = 3,
+        rate_limiters: RateLimiters | None = None,
     ):
         """初期化
 
@@ -237,26 +245,31 @@ class ExtractorService:
             model_name: Gemini モデル名
             cache_dir: キャッシュディレクトリ
             max_retries: 最大リトライ回数
+            rate_limiters: 外部サービスのレートリミッター（並列処理時に使用）
         """
         self.model_name = model_name or settings.gemini_model
         self.cache_dir = cache_dir or settings.extractions_cache_dir
         self.max_retries = max_retries
+        self.rate_limiters = rate_limiters
 
         # キャッシュディレクトリを作成
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # LLM の初期化
+        # LLM の初期化（スレッドセーフ）
         self._llm = None
+        self._llm_lock = threading.Lock()
 
     @property
     def llm(self) -> ChatGoogleGenerativeAI:
-        """LLM インスタンスを取得（遅延初期化）"""
+        """LLM インスタンスを取得（遅延初期化、スレッドセーフ）"""
         if self._llm is None:
-            self._llm = ChatGoogleGenerativeAI(
-                model=self.model_name,
-                google_api_key=settings.google_api_key,
-                temperature=0.0,
-            )
+            with self._llm_lock:
+                if self._llm is None:
+                    self._llm = ChatGoogleGenerativeAI(
+                        model=self.model_name,
+                        google_api_key=settings.google_api_key,
+                        temperature=0.0,
+                    )
         return self._llm
 
     def _get_cache_path(self, paper_id: str) -> Path:
@@ -446,7 +459,11 @@ class ExtractorService:
         for attempt in range(self.max_retries):
             try:
                 message = HumanMessage(content=message_content)
-                result = structured_llm.invoke([message])
+                if self.rate_limiters:
+                    with self.rate_limiters.gemini:
+                        result = structured_llm.invoke([message])
+                else:
+                    result = structured_llm.invoke([message])
 
                 # paper_id を設定
                 result.paper_id = paper_id
@@ -497,7 +514,11 @@ class ExtractorService:
 
                     title_llm = self.llm.with_structured_output(_FreeformTitleExtraction)
                     try:
-                        extracted = title_llm.invoke([HumanMessage(content=[{"type": "text", "text": prompt}])])
+                        if self.rate_limiters:
+                            with self.rate_limiters.gemini:
+                                extracted = title_llm.invoke([HumanMessage(content=[{"type": "text", "text": prompt}])])
+                        else:
+                            extracted = title_llm.invoke([HumanMessage(content=[{"type": "text", "text": prompt}])])
                         if extracted and extracted.results:
                             by_index = {r.index: (r.title or "").strip() for r in extracted.results}
                             for idx, _txt in limited:

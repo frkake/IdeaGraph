@@ -10,6 +10,7 @@ from idea_graph.ingestion.downloader import (
     DownloaderService,
     DownloadResult,
     FileType,
+    PaperSource,
 )
 from idea_graph.ingestion.extractor import (
     ExtractorService,
@@ -19,6 +20,8 @@ from idea_graph.ingestion.extractor import (
 )
 from idea_graph.ingestion.graph_writer import GraphWriterService
 from idea_graph.ingestion.crawler import CitationCrawler, CrawlTarget, CrawlResult
+from idea_graph.ingestion.rate_limiter import ServiceRateLimiter
+from idea_graph.ingestion.parallel import RateLimiters
 
 __all__ = [
     "DatasetLoaderService",
@@ -28,6 +31,7 @@ __all__ = [
     "DownloaderService",
     "DownloadResult",
     "FileType",
+    "PaperSource",
     "ExtractorService",
     "ExtractedInfo",
     "Entity",
@@ -36,4 +40,6 @@ __all__ = [
     "CitationCrawler",
     "CrawlTarget",
     "CrawlResult",
+    "ServiceRateLimiter",
+    "RateLimiters",
 ]

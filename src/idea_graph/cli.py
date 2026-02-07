@@ -513,6 +513,9 @@ def _format_proposals_markdown(result: "ProposalResult") -> str:
 
 def cmd_ingest(args: argparse.Namespace) -> int:
     """インジェストコマンド"""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from idea_graph.ingestion import (
         DatasetLoaderService,
         DownloaderService,
@@ -520,6 +523,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         GraphWriterService,
         CitationCrawler,
     )
+    from idea_graph.ingestion.parallel import RateLimiters
     from idea_graph.ingestion.progress import ProgressManager
 
     logging.info("Starting ingestion pipeline...")
@@ -527,12 +531,18 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     # 設定の確認
     settings.ensure_cache_dirs()
 
-    # サービスの初期化
+    # 並列数の決定
+    workers = args.workers or settings.ingestion_max_workers
+
+    # レートリミッター・サービスの初期化
+    rate_limiters = RateLimiters()
     loader = DatasetLoaderService()
-    downloader = DownloaderService()
-    extractor = ExtractorService()
+    downloader = DownloaderService(rate_limiters=rate_limiters)
+    extractor = ExtractorService(rate_limiters=rate_limiters)
     writer = GraphWriterService()
     progress = ProgressManager()
+
+    logging.info(f"Using {workers} workers for parallel processing")
 
     # インデックスの作成
     logging.info("Ensuring Neo4j indexes...")
@@ -565,8 +575,44 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     logging.info("Writing Paper nodes...")
     writer.write_papers(papers)
 
-    # 各論文を処理
+    # 各論文を処理（並列）
     extractions = []
+    extractions_lock = threading.Lock()
+
+    def process_paper(paper):
+        """単一論文のダウンロード→抽出を行うワーカー関数"""
+        progress.register_paper(paper.paper_id, paper.title)
+
+        if args.skip_download:
+            return
+
+        # ダウンロード
+        progress.update_status(paper.paper_id, "downloading")
+        result = downloader.download(paper.paper_id, paper.title)
+
+        if not result.success:
+            progress.update_status(paper.paper_id, "failed", result.error_message)
+            return
+
+        # 公開日を保存
+        writer.update_paper_published_date(paper.paper_id, result.published_date)
+
+        if args.skip_extract:
+            progress.update_status(paper.paper_id, "completed")
+            return
+
+        # 抽出
+        progress.update_status(paper.paper_id, "extracting")
+        extracted = extractor.extract(paper.paper_id, result.file_path, result.file_type)
+
+        if extracted is None:
+            progress.update_status(paper.paper_id, "failed", "Extraction failed")
+            return
+
+        with extractions_lock:
+            extractions.append(extracted)
+        progress.update_status(paper.paper_id, "completed")
+
     with logging_redirect_tqdm():
         with tqdm(
             total=len(papers),
@@ -576,43 +622,18 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             dynamic_ncols=True,
             leave=True,
         ) as pbar:
-            for paper in papers_to_process:
-                progress.register_paper(paper.paper_id, paper.title)
-
-                if args.skip_download:
-                    # ループは進むが「完了」ではないので status は触らない
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(process_paper, p): p
+                    for p in papers_to_process
+                }
+                for future in as_completed(futures):
+                    paper = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        progress.update_status(paper.paper_id, "failed", str(e))
                     pbar.update(1)
-                    continue
-
-                # ダウンロード
-                progress.update_status(paper.paper_id, "downloading")
-                result = downloader.download(paper.paper_id, paper.title)
-
-                if not result.success:
-                    progress.update_status(paper.paper_id, "failed", result.error_message)
-                    pbar.update(1)
-                    continue
-
-                # 公開日を保存
-                writer.update_paper_published_date(paper.paper_id, result.published_date)
-
-                if args.skip_extract:
-                    progress.update_status(paper.paper_id, "completed")
-                    pbar.update(1)
-                    continue
-
-                # 抽出
-                progress.update_status(paper.paper_id, "extracting")
-                extracted = extractor.extract(paper.paper_id, result.file_path, result.file_type)
-
-                if extracted is None:
-                    progress.update_status(paper.paper_id, "failed", "Extraction failed")
-                    pbar.update(1)
-                    continue
-
-                extractions.append(extracted)
-                progress.update_status(paper.paper_id, "completed")
-                pbar.update(1)
 
     # 抽出結果をグラフに書き込み
     if extractions:
@@ -649,22 +670,40 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 dynamic_ncols=True,
                 leave=True,
             ) as pbar:
-                for result in crawler.crawl():
-                    crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
+                if workers > 1:
+                    for result in crawler.crawl_parallel(max_workers=workers):
+                        crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
 
-                    if limit:
-                        if result.status != "skipped":
+                        if limit:
+                            if result.status != "skipped":
+                                pbar.update(1)
+                        else:
                             pbar.update(1)
-                    else:
-                        pbar.update(1)
 
-                    pbar.set_postfix(
-                        completed=crawl_stats["completed"],
-                        failed=crawl_stats["failed"],
-                        not_found=crawl_stats["not_found"],
-                        skipped=crawl_stats["skipped"],
-                        queued=crawler.get_queue_size(),
-                    )
+                        pbar.set_postfix(
+                            completed=crawl_stats["completed"],
+                            failed=crawl_stats["failed"],
+                            not_found=crawl_stats["not_found"],
+                            skipped=crawl_stats["skipped"],
+                            queued=crawler.get_queue_size(),
+                        )
+                else:
+                    for result in crawler.crawl():
+                        crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
+
+                        if limit:
+                            if result.status != "skipped":
+                                pbar.update(1)
+                        else:
+                            pbar.update(1)
+
+                        pbar.set_postfix(
+                            completed=crawl_stats["completed"],
+                            failed=crawl_stats["failed"],
+                            not_found=crawl_stats["not_found"],
+                            skipped=crawl_stats["skipped"],
+                            queued=crawler.get_queue_size(),
+                        )
                 # 上限 total より少ない件数で終わった場合、見た目上も 100% で閉じる
                 if limit is None and pbar.total is not None and pbar.n < pbar.total:
                     pbar.total = pbar.n
@@ -1412,6 +1451,12 @@ def main() -> int:
         type=int,
         default=5,
         help="各論文から探索する引用の最大数（重要度上位N件）",
+    )
+    ingest_parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="並列処理のワーカー数 (default: 設定値)",
     )
 
     # rebuild コマンド

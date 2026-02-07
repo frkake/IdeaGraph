@@ -2,6 +2,8 @@
 
 import heapq
 import logging
+import queue
+import threading
 from dataclasses import dataclass, field
 from typing import Iterator
 
@@ -185,7 +187,8 @@ class CitationCrawler:
 
         if not download_result.success:
             # arXivで見つからない場合は not_found として記録（失敗カウントに含めない）
-            if "not found" in (download_result.error_message or "").lower():
+            msg_lower = (download_result.error_message or "").lower()
+            if "not found" in msg_lower or "no open access pdf" in msg_lower:
                 self.progress.update_status(target.paper_id, "not_found", download_result.error_message)
                 return CrawlResult(
                     paper_id=target.paper_id,
@@ -294,6 +297,118 @@ class CitationCrawler:
                 target = self._create_target(cited_id, cited_title, next_depth, importance_score)
                 heapq.heappush(self._queue, target)
                 self._visited.add(cited_id)
+
+    def crawl_parallel(self, max_workers: int = 3) -> Iterator[CrawlResult]:
+        """重要度優先で並列クロール実行
+
+        ワーカースレッドが共有キューから取り出して処理し、
+        結果をメインスレッドに返す。
+
+        Args:
+            max_workers: ワーカースレッド数
+
+        Yields:
+            CrawlResult: 各論文の処理結果
+        """
+        results_queue: queue.Queue[CrawlResult | None] = queue.Queue()
+        # キューアクセスの排他制御
+        queue_lock = threading.Lock()
+        # ワーカーの待機/通知用
+        condition = threading.Condition(queue_lock)
+        # 現在処理中のワーカー数
+        active_workers = 0
+        # 終了フラグ
+        shutdown = False
+
+        def dequeue_target() -> CrawlTarget | None:
+            """キューからターゲットを取り出す。空なら待機、全員完了なら None を返す。"""
+            nonlocal active_workers
+            with condition:
+                while True:
+                    if shutdown:
+                        return None
+                    if self._queue:
+                        # クロール制限チェック
+                        if self.crawl_limit and self._crawled_count >= self.crawl_limit:
+                            return None
+                        target = heapq.heappop(self._queue)
+                        active_workers += 1
+                        return target
+                    elif active_workers > 0:
+                        # 他のワーカーが処理中 → 引用追加でキューが復活する可能性あり
+                        condition.wait()
+                    else:
+                        # キュー空 & 全ワーカー完了 → 終了
+                        return None
+
+        def finish_processing() -> None:
+            """ワーカーが1つの処理を終えたときに呼ぶ"""
+            nonlocal active_workers
+            with condition:
+                active_workers -= 1
+                condition.notify_all()
+
+        def worker() -> None:
+            """ワーカースレッド"""
+            while True:
+                target = dequeue_target()
+                if target is None:
+                    break
+
+                # 深度チェック
+                if target.depth > self.max_depth:
+                    finish_processing()
+                    continue
+
+                # 既に処理済みかチェック
+                if self.progress.is_completed(target.paper_id):
+                    if target.depth < self.max_depth:
+                        with queue_lock:
+                            self._enqueue_citations(target.paper_id, target.depth + 1)
+                    results_queue.put(CrawlResult(
+                        paper_id=target.paper_id,
+                        title=target.title,
+                        depth=target.depth,
+                        status="skipped",
+                    ))
+                    finish_processing()
+                    continue
+
+                logger.info(
+                    f"Processing: {target.title[:50]}... "
+                    f"(importance={target.importance_score}, depth={target.depth})"
+                )
+
+                result = self._process_paper(target)
+
+                with queue_lock:
+                    self._crawled_count += 1
+
+                results_queue.put(result)
+                finish_processing()
+
+            # センチネル
+            results_queue.put(None)
+
+        # ワーカースレッドを起動
+        threads = []
+        for _ in range(max_workers):
+            t = threading.Thread(target=worker, daemon=True)
+            t.start()
+            threads.append(t)
+
+        # メインスレッドで結果を yield
+        finished_count = 0
+        while finished_count < max_workers:
+            result = results_queue.get()
+            if result is None:
+                finished_count += 1
+                continue
+            yield result
+
+        # 全スレッドの完了を待つ
+        for t in threads:
+            t.join()
 
     def get_stats(self) -> dict:
         """クロール統計を取得"""

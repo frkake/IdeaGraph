@@ -45,6 +45,23 @@ class Settings(BaseModel):
         default_factory=lambda: float(os.getenv("ARXIV_SEARCH_JITTER_SECONDS", "1.0"))
     )
 
+    # Semantic Scholar API settings
+    semantic_scholar_api_key: str = Field(
+        default_factory=lambda: os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+    )
+    semantic_scholar_max_retries: int = Field(default=3)
+    semantic_scholar_backoff_base_seconds: float = Field(default=3.0)
+    semantic_scholar_backoff_max_seconds: float = Field(default=60.0)
+    semantic_scholar_request_delay_seconds: float = Field(default=3.5)
+
+    # Concurrency settings
+    ingestion_max_workers: int = Field(
+        default_factory=lambda: int(os.getenv("INGESTION_MAX_WORKERS", "3"))
+    )
+    gemini_max_concurrent: int = Field(
+        default_factory=lambda: int(os.getenv("GEMINI_MAX_CONCURRENT", "3"))
+    )
+
     # Batch settings
     batch_size: int = Field(default=1000)
 
