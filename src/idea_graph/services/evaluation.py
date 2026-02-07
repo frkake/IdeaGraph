@@ -798,6 +798,15 @@ class LLMIdeaExtraction(BaseModel):
     main_results: str = Field(
         description=f"Key experimental results and findings ({_C.MAIN_RESULTS_WORDS})"
     )
+    rationale: str = Field(
+        description=f"Why the authors propose this specific approach ({_C.RATIONALE_WORDS})"
+    )
+    research_trends: str = Field(
+        description=f"Related research context and trends ({_C.RESEARCH_TRENDS_WORDS})"
+    )
+    failure_interpretation: str = Field(
+        description=f"Acknowledged limitations and failure modes ({_C.FAILURE_INTERPRETATION_WORDS})"
+    )
 
 
 class IdeaExtractor:
@@ -821,18 +830,42 @@ class IdeaExtractor:
 
     def _build_extraction_prompt(self, content: str) -> str:
         """論文抽出用プロンプトを構築"""
-        return f"""You are an expert AI research paper analyzer. Extract the core research idea from the following paper.
+        return f"""You are an expert AI research paper analyzer. Extract and elaborate the core research idea from the following paper.
 
-Focus on:
+For each field, provide comprehensive, detailed content that fully explains the research idea.
+
 1. **title**: A concise description of the main contribution ({_C.TITLE})
 2. **motivation**: The problem being addressed and its significance ({_C.MOTIVATION_WORDS})
+   - What specific gap or limitation exists in current approaches?
+   - Why is this problem important for the research community?
+   - What are the real-world implications of solving this problem?
+   - What prior attempts have been made and why were they insufficient?
 3. **method**: The proposed approach or solution ({_C.METHOD_WORDS})
+   - What is the core technical innovation?
+   - How does the proposed method work step by step?
+   - What are the key components or modules of the approach?
+   - How do the components interact to achieve the desired outcome?
 4. **key_differences**: How this work differs from prior approaches {_C.differences_constraint()}
 5. **datasets**: List of datasets used in experiments {_C.datasets_constraint()} describing the dataset
 6. **baselines**: Methods compared against in experiments {_C.baselines_constraint()} describing the method
 7. **metrics**: Evaluation metrics used {_C.metrics_constraint()} describing the metric
 8. **ablations**: Ablation studies conducted {_C.ablations_constraint()} describing what is tested
 9. **main_results**: Key experimental findings and improvements over baselines ({_C.MAIN_RESULTS_WORDS})
+10. **rationale**: Why the authors propose this specific approach ({_C.RATIONALE_WORDS})
+    - What theoretical or empirical motivation led to this direction?
+    - What insight from related work inspired this approach?
+    - Why was this approach chosen over other possible directions?
+    - What evidence supports the viability of this direction?
+11. **research_trends**: Related research context and trends ({_C.RESEARCH_TRENDS_WORDS})
+    - What technologies or methods are evolving and in which direction?
+    - What is the lineage of related techniques?
+    - Where is the research heading based on recent developments?
+    - How does this paper fit into the broader research landscape?
+12. **failure_interpretation**: Limitations and failure modes ({_C.FAILURE_INTERPRETATION_WORDS})
+    - Under what conditions might the proposed method underperform?
+    - What assumptions could be violated in practice?
+
+CRITICAL: Each field MUST meet its minimum word count. Do NOT produce short summaries or single-sentence answers. Provide thorough, detailed explanations for every field.
 
 Paper content:
 {content}
@@ -877,8 +910,8 @@ def convert_extraction_to_proposal(
 
     return Proposal(
         title=paper_title or extraction.title,
-        rationale="Original paper contribution extracted for comparison",
-        research_trends="N/A (original paper - represents current state)",
+        rationale=extraction.rationale,
+        research_trends=extraction.research_trends,
         motivation=extraction.motivation,
         method=extraction.method,
         experiment=Experiment(
@@ -887,7 +920,7 @@ def convert_extraction_to_proposal(
             metrics=extraction.metrics,
             ablations=extraction.ablations,
             expected_results=extraction.main_results,
-            failure_interpretation="N/A (original paper - results are actual)",
+            failure_interpretation=extraction.failure_interpretation,
         ),
         grounding=Grounding(
             papers=[],
@@ -1009,6 +1042,9 @@ class EvaluationService:
                 metrics=extraction.metrics,
                 ablations=extraction.ablations,
                 main_results=extraction.main_results,
+                rationale=extraction.rationale,
+                research_trends=extraction.research_trends,
+                failure_interpretation=extraction.failure_interpretation,
                 extracted_at=datetime.now(),
                 extraction_model=self.model_name,
             )
@@ -1152,6 +1188,9 @@ class EvaluationService:
                 metrics=extraction.metrics,
                 ablations=extraction.ablations,
                 main_results=extraction.main_results,
+                rationale=extraction.rationale,
+                research_trends=extraction.research_trends,
+                failure_interpretation=extraction.failure_interpretation,
                 extracted_at=datetime.now(),
                 extraction_model=self.model_name,
             )
@@ -1404,6 +1443,22 @@ class EvaluationService:
                 "",
                 ext.method,
                 "",
+            ])
+            if ext.rationale:
+                lines.extend([
+                    "**Rationale**:",
+                    "",
+                    ext.rationale,
+                    "",
+                ])
+            if ext.research_trends:
+                lines.extend([
+                    "**Research Trends**:",
+                    "",
+                    ext.research_trends,
+                    "",
+                ])
+            lines.extend([
                 "**Key Differences from Prior Work**:",
                 "",
             ])
@@ -1450,6 +1505,12 @@ class EvaluationService:
             else:
                 lines.append("**Main Results**: N/A")
             lines.append("")
+
+            if ext.failure_interpretation:
+                lines.append("**Failure Interpretation**:")
+                lines.append("")
+                lines.append(ext.failure_interpretation)
+                lines.append("")
 
         return "\n".join(lines)
 

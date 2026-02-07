@@ -21,6 +21,7 @@ dependencies = [
     "arxiv>=2.0.0",
     "rich>=13.0.0",
     "pillow>=12.1.0",
+    "polars>=1.38.1",
 ]
 
 [project.optional-dependencies]

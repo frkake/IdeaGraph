@@ -165,6 +165,10 @@ class TargetPaperExtraction(BaseModel):
     metrics: list[str] = Field(default_factory=list, description="評価指標")
     ablations: list[str] = Field(default_factory=list, description="アブレーション実験")
     main_results: str = Field(default="", description="主要な実験結果")
+    # 追加フィールド（後方互換性のためデフォルト値を設定）
+    rationale: str = Field(default="", description="著者がこのアプローチを提案した理由")
+    research_trends: str = Field(default="", description="関連研究の文脈と動向")
+    failure_interpretation: str = Field(default="", description="著者が認める制約・失敗モード")
     extracted_at: datetime = Field(description="抽出日時")
     extraction_model: str = Field(description="抽出に使用したLLMモデル名")
 
