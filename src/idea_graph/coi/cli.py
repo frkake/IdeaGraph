@@ -141,24 +141,10 @@ def main() -> int:
     print(f"LLMモデル: メイン={os.environ.get('MAIN_LLM_MODEL')}, サブ={os.environ.get('CHEAP_LLM_MODEL')}")
     main_llm, cheap_llm = get_llms()
 
-    # エージェント初期化
-    review_agent = ReviewAgent(
-        save_file=args.save_file,
-        llm=main_llm,
-        cheap_llm=cheap_llm,
-    )
-    deep_research_agent = DeepResearchAgent(
-        llm=main_llm,
-        cheap_llm=cheap_llm,
-        save_file=args.save_file,
-        max_chain_length=args.max_chain_length,
-        min_chain_length=args.min_chain_length,
-        max_chain_numbers=args.max_chain_numbers,
-    )
-
-    # アンカー論文のフィルタリング処理
+    # アンカー論文のフィルタリング処理（エージェント初期化前に実行）
     topic = args.topic
     anchor_paper_path = args.anchor_paper_path
+    ban_paper: list[str] = []
 
     if args.exclude_anchor_content and anchor_paper_path:
         from idea_graph.coi.anchor_filter import AnchorFilter, AnchorFilterError
@@ -173,11 +159,31 @@ def main() -> int:
             )
             topic = filter_result.topic
             anchor_paper_path = filter_result.anchor_paper_path
+            # ban_paper にアンカー論文タイトルを追加
+            if filter_result.anchor_title:
+                ban_paper = [filter_result.anchor_title]
             print(f"抽出されたタイトル: {filter_result.anchor_title}")
             print(f"処理後のトピック: {topic}")
+            print(f"除外対象論文: {ban_paper}")
         except AnchorFilterError as e:
             print(f"エラー: アンカー論文のフィルタリングに失敗しました: {e}")
             return 1
+
+    # エージェント初期化（ban_paperを渡す）
+    review_agent = ReviewAgent(
+        save_file=args.save_file,
+        llm=main_llm,
+        cheap_llm=cheap_llm,
+    )
+    deep_research_agent = DeepResearchAgent(
+        llm=main_llm,
+        cheap_llm=cheap_llm,
+        save_file=args.save_file,
+        ban_paper=ban_paper,
+        max_chain_length=args.max_chain_length,
+        min_chain_length=args.min_chain_length,
+        max_chain_numbers=args.max_chain_numbers,
+    )
 
     # アイデア生成
     print(f"\nトピック '{topic}' のアイデアと実験を生成中...")
