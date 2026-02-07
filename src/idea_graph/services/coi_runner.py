@@ -45,12 +45,10 @@ class CoIArgs(BaseModel):
     """CoI実行時の引数"""
 
     topic: str = Field(description="研究トピック")
-    anchor_paper_path: str | None = Field(default=None, description="アンカー論文PDFパス")
     max_chain_length: int = Field(description="アイデアチェーン最大長")
     min_chain_length: int = Field(description="アイデアチェーン最小長")
     max_chain_numbers: int = Field(description="処理するチェーン最大数")
     improve_cnt: int = Field(description="実験改善反復回数")
-    exclude_anchor_content: bool = Field(description="アンカー論文内容除外フラグ")
 
 
 class CoIResult(BaseModel):
@@ -88,7 +86,8 @@ class CoIRunner:
         min_chain_length: int = 3,
         max_chain_numbers: int = 1,
         improve_cnt: int = 1,
-        exclude_anchor_content: bool = True,
+        main_model: str | None = None,
+        cheap_model: str | None = None,
     ) -> None:
         """初期化
 
@@ -97,13 +96,15 @@ class CoIRunner:
             min_chain_length: アイデアチェーンの最小長
             max_chain_numbers: 処理するチェーンの最大数
             improve_cnt: 実験改善の反復回数
-            exclude_anchor_content: アンカー論文内容を除外するか（デフォルト: True）
+            main_model: CoIメインLLMモデル名（Noneならcoi_settingsのデフォルト）
+            cheap_model: CoI安価LLMモデル名（Noneならcoi_settingsのデフォルト）
         """
         self.max_chain_length = max_chain_length
         self.min_chain_length = min_chain_length
         self.max_chain_numbers = max_chain_numbers
         self.improve_cnt = improve_cnt
-        self.exclude_anchor_content = exclude_anchor_content
+        self.main_model = main_model
+        self.cheap_model = cheap_model
 
     def _setup_environment(self) -> dict[str, str]:
         """CoI-Agent用の環境変数を準備
@@ -121,8 +122,8 @@ class CoIRunner:
             env["OPENAI_BASE_URL"] = coi_settings.openai_base_url
         elif "OPENAI_BASE_URL" in env:
             del env["OPENAI_BASE_URL"]
-        env["MAIN_LLM_MODEL"] = coi_settings.main_llm_model
-        env["CHEAP_LLM_MODEL"] = coi_settings.cheap_llm_model
+        env["MAIN_LLM_MODEL"] = self.main_model or coi_settings.main_llm_model
+        env["CHEAP_LLM_MODEL"] = self.cheap_model or coi_settings.cheap_llm_model
 
         # Azure設定
         if coi_settings.is_azure:
@@ -143,17 +144,13 @@ class CoIRunner:
     async def run(
         self,
         topic: str,
-        anchor_paper_path: str | None = None,
         save_dir: str | None = None,
-        exclude_anchor_content: bool | None = None,
     ) -> CoIResult:
         """CoI-Agentを実行してアイデアを生成（同期版）
 
         Args:
             topic: 研究トピック
-            anchor_paper_path: アンカー論文のPDFパス
             save_dir: 保存先ディレクトリ
-            exclude_anchor_content: アンカー論文内容を除外するか（Noneの場合はインスタンス設定を使用）
 
         Returns:
             CoI-Agentの実行結果
@@ -161,9 +158,7 @@ class CoIRunner:
         result: CoIResult | None = None
         error_msg: str | None = None
 
-        async for progress in self.run_streaming(
-            topic, anchor_paper_path, save_dir, exclude_anchor_content
-        ):
+        async for progress in self.run_streaming(topic, save_dir):
             if progress.status == "completed" and progress.result:
                 result = progress.result
             elif progress.status == "error":
@@ -176,24 +171,17 @@ class CoIRunner:
     async def run_streaming(
         self,
         topic: str,
-        anchor_paper_path: str | None = None,
         save_dir: str | None = None,
-        exclude_anchor_content: bool | None = None,
     ) -> AsyncIterator[CoIProgress]:
         """CoI-Agentを実行して進捗をストリーミング
 
         Args:
             topic: 研究トピック
-            anchor_paper_path: アンカー論文のPDFパス
             save_dir: 保存先ディレクトリ
-            exclude_anchor_content: アンカー論文内容を除外するか（Noneの場合はインスタンス設定を使用）
 
         Yields:
             CoIProgress: 進捗情報
         """
-        # exclude_anchor_contentがNoneの場合はインスタンス設定を使用
-        if exclude_anchor_content is None:
-            exclude_anchor_content = self.exclude_anchor_content
         # 保存先ディレクトリの設定
         if save_dir is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -225,12 +213,6 @@ class CoIRunner:
             "--improve-cnt",
             str(self.improve_cnt),
         ]
-
-        if anchor_paper_path:
-            cmd.extend(["--anchor-paper-path", anchor_paper_path])
-
-        if exclude_anchor_content:
-            cmd.append("--exclude-anchor-content")
 
         logger.info(f"Starting CoI-Agent with topic: {topic}")
         logger.debug(f"Command: {' '.join(cmd)}")
@@ -276,12 +258,10 @@ class CoIRunner:
             # CoIResultに変換（引数情報を含める）
             coi_args = CoIArgs(
                 topic=topic,
-                anchor_paper_path=anchor_paper_path,
                 max_chain_length=self.max_chain_length,
                 min_chain_length=self.min_chain_length,
                 max_chain_numbers=self.max_chain_numbers,
                 improve_cnt=self.improve_cnt,
-                exclude_anchor_content=exclude_anchor_content,
             )
             result = CoIResult(
                 idea=result_data.get("idea", ""),

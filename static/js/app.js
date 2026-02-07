@@ -67,6 +67,36 @@ function buildDefaultEdgeTypeFields() {
     );
 }
 
+// ========== モデルプリセット ==========
+const MODEL_PRESETS = {
+    gpt4o: {
+        label: 'GPT-4o',
+        coi_main: 'gpt-4o-2024-11-20',
+        coi_cheap: 'gpt-4o-mini-2024-07-18',
+        ideagraph: 'gpt-4o-2024-11-20',
+    },
+    gpt5: {
+        label: 'GPT-5',
+        coi_main: 'gpt-5-2025-08-07',
+        coi_cheap: 'gpt-5-mini-2025-08-07',
+        ideagraph: 'gpt-5-2025-08-07',
+    },
+};
+
+function getSelectedModels() {
+    const el = document.getElementById('modelPreset');
+    const key = el ? el.value : 'gpt5';
+    return MODEL_PRESETS[key] || MODEL_PRESETS.gpt5;
+}
+
+function onModelPresetChange() {
+    const models = getSelectedModels();
+    const detailsEl = document.getElementById('modelPresetDetails');
+    if (detailsEl) {
+        detailsEl.textContent = `CoI: ${models.coi_main} / ${models.coi_cheap}  |  IdeaGraph: ${models.ideagraph}`;
+    }
+}
+
 // ========== グローバル状態 ==========
 const AppState = {
     viz: null,
@@ -1544,6 +1574,7 @@ async function generateProposals() {
             return;
         }
 
+        const models = getSelectedModels();
         const response = await fetch('/api/propose', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1553,6 +1584,7 @@ async function generateProposals() {
                 analysis_result: AppState.analysisId ? null : AppState.analysisResult,
                 num_proposals: getNumProposals(),
                 prompt_options: promptOptions,
+                model_name: models.ideagraph,
             }),
         });
 
@@ -2000,6 +2032,7 @@ async function runEvaluation() {
     }
 
     // リクエストボディを構築
+    const evalModels = getSelectedModels();
     const proposalSources = AppState.proposals.map((_, index) => {
         return AppState.proposalSources[index] || 'ideagraph';
     });
@@ -2007,6 +2040,7 @@ async function runEvaluation() {
         proposals: AppState.proposals,
         proposal_sources: proposalSources,
         include_experiment: true,
+        model_name: evalModels.ideagraph,
     };
     if (includeTarget) {
         requestBody.target_paper_id = AppState.selectedPaperId;
@@ -2596,6 +2630,7 @@ async function saveAllProposals() {
     let savedCount = 0;
     let failedCount = 0;
 
+    const saveModels = getSelectedModels();
     for (const [index, proposal] of AppState.proposals.entries()) {
         try {
             const source = AppState.proposalSources[index] || 'ideagraph';
@@ -2612,6 +2647,7 @@ async function saveAllProposals() {
                     prompt: prompt,
                     rating: proposal.rating || null,
                     proposal_type: proposalType,
+                    model_name: saveModels.ideagraph,
                 }),
             });
 
@@ -2642,6 +2678,7 @@ async function saveProposal(index) {
         const source = AppState.proposalSources[index] || 'ideagraph';
         const proposalType = getProposalTypeFromSource(source);
         const prompt = getProposalPromptForSave(proposal, source);
+        const singleModels = getSelectedModels();
         const targetPaperId = getTargetPaperIdForSave();
         if (!targetPaperId) {
             alert('論文IDが未設定です');
@@ -2657,6 +2694,7 @@ async function saveProposal(index) {
                 prompt: prompt,
                 rating: proposal.rating || null,
                 proposal_type: proposalType,
+                model_name: singleModels.ideagraph,
             }),
         });
 
@@ -2865,6 +2903,7 @@ async function runCoI() {
 
     try {
         // ストリーミングでCoIを実行
+        const coiModels = getSelectedModels();
         const response = await fetch('/api/coi/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2874,6 +2913,8 @@ async function runCoI() {
                 min_chain_length: 3,
                 max_chain_numbers: 1,
                 improve_cnt: 1,
+                coi_main_model: coiModels.coi_main,
+                coi_cheap_model: coiModels.coi_cheap,
             }),
         });
 
@@ -2938,11 +2979,13 @@ async function convertCoIToProposal() {
     }
 
     try {
+        const convertModels = getSelectedModels();
         const response = await fetch('/api/coi/convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 coi_result: AppState.coiResult,
+                model_name: convertModels.ideagraph,
             }),
         });
 
@@ -3052,6 +3095,9 @@ function toggleRightPanel() {
 // ========== 初期化 ==========
 document.addEventListener('DOMContentLoaded', () => {
     initGraph();
+
+    // モデルプリセットの詳細表示を初期化
+    onModelPresetChange();
 
     // 履歴を読み込み
     loadSavedHistory();

@@ -38,6 +38,7 @@ class SavedProposal(BaseModel):
     prompt: str | None = None
     rating: int | None = None
     notes: str | None = None
+    model_name: str | None = None
     saved_at: str
     data: dict[str, Any]
 
@@ -176,6 +177,7 @@ class StorageService:
         rating: int | None = None,
         notes: str | None = None,
         proposal_type: str = "idea-graph",
+        model_name: str | None = None,
     ) -> SavedProposal:
         """提案を保存"""
         proposal_id = str(uuid4())[:8]
@@ -191,6 +193,7 @@ class StorageService:
             prompt=prompt,
             rating=rating,
             notes=notes,
+            model_name=model_name,
             saved_at=saved_at,
             data=proposal,
         )

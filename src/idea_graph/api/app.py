@@ -244,6 +244,7 @@ class ProposeRequest(BaseModel):
     num_proposals: int = 3
     constraints: dict | None = None
     prompt_options: PromptExpansionOptions | None = None
+    model_name: str | None = None
 
 
 class Experiment(BaseModel):
@@ -292,7 +293,7 @@ def propose_ideas(request: ProposeRequest) -> ProposalResult:
     from idea_graph.services.analysis import AnalysisResult as ServiceAnalysisResult
     from idea_graph.services.proposal import ProposalService
 
-    service = ProposalService()
+    service = ProposalService(model_name=request.model_name)
     try:
         analysis_result = None
         if request.analysis_id:
@@ -395,6 +396,7 @@ class SaveProposalRequest(BaseModel):
     rating: int | None = None
     notes: str | None = None
     proposal_type: str | None = None
+    model_name: str | None = None
 
 
 class UpdateProposalRequest(BaseModel):
@@ -476,6 +478,7 @@ def save_proposal_result(request: SaveProposalRequest):
         rating=request.rating,
         notes=request.notes,
         proposal_type=request.proposal_type or "idea-graph",
+        model_name=request.model_name,
     )
     return saved
 
@@ -875,24 +878,22 @@ class CoIRunRequest(BaseModel):
     """CoI実行リクエスト"""
 
     topic: str
-    anchor_paper_path: str | None = None
     max_chain_length: int = 5
     min_chain_length: int = 3
     max_chain_numbers: int = 1
     improve_cnt: int = 1
-    exclude_anchor_content: bool = True
+    coi_main_model: str | None = None
+    coi_cheap_model: str | None = None
 
 
 class CoIArgsResponse(BaseModel):
     """CoI引数レスポンス"""
 
     topic: str
-    anchor_paper_path: str | None = None
     max_chain_length: int
     min_chain_length: int
     max_chain_numbers: int
     improve_cnt: int
-    exclude_anchor_content: bool
 
 
 class CoIResultResponse(BaseModel):
@@ -952,15 +953,12 @@ async def run_coi(request: CoIRunRequest):
         min_chain_length=request.min_chain_length,
         max_chain_numbers=request.max_chain_numbers,
         improve_cnt=request.improve_cnt,
-        exclude_anchor_content=request.exclude_anchor_content,
+        main_model=request.coi_main_model,
+        cheap_model=request.coi_cheap_model,
     )
 
     async def generate():
-        async for progress in runner.run_streaming(
-            topic=request.topic,
-            anchor_paper_path=request.anchor_paper_path,
-            exclude_anchor_content=request.exclude_anchor_content,
-        ):
+        async for progress in runner.run_streaming(topic=request.topic):
             response = CoIRunResponse(
                 status=progress.status,
                 progress=progress.progress,
@@ -971,12 +969,10 @@ async def run_coi(request: CoIRunRequest):
                 if progress.result.args:
                     args_response = CoIArgsResponse(
                         topic=progress.result.args.topic,
-                        anchor_paper_path=progress.result.args.anchor_paper_path,
                         max_chain_length=progress.result.args.max_chain_length,
                         min_chain_length=progress.result.args.min_chain_length,
                         max_chain_numbers=progress.result.args.max_chain_numbers,
                         improve_cnt=progress.result.args.improve_cnt,
-                        exclude_anchor_content=progress.result.args.exclude_anchor_content,
                     )
                 response.result = CoIResultResponse(
                     idea=progress.result.idea,
@@ -1012,25 +1008,20 @@ async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
         min_chain_length=request.min_chain_length,
         max_chain_numbers=request.max_chain_numbers,
         improve_cnt=request.improve_cnt,
-        exclude_anchor_content=request.exclude_anchor_content,
+        main_model=request.coi_main_model,
+        cheap_model=request.coi_cheap_model,
     )
 
     try:
-        result = await runner.run(
-            topic=request.topic,
-            anchor_paper_path=request.anchor_paper_path,
-            exclude_anchor_content=request.exclude_anchor_content,
-        )
+        result = await runner.run(topic=request.topic)
         args_response = None
         if result.args:
             args_response = CoIArgsResponse(
                 topic=result.args.topic,
-                anchor_paper_path=result.args.anchor_paper_path,
                 max_chain_length=result.args.max_chain_length,
                 min_chain_length=result.args.min_chain_length,
                 max_chain_numbers=result.args.max_chain_numbers,
                 improve_cnt=result.args.improve_cnt,
-                exclude_anchor_content=result.args.exclude_anchor_content,
             )
         return CoIRunResponse(
             status="completed",

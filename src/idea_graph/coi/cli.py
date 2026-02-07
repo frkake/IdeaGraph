@@ -81,12 +81,6 @@ def main() -> int:
         help="研究トピック（必須）",
     )
     parser.add_argument(
-        "--anchor-paper-path",
-        type=str,
-        default=None,
-        help="アンカー論文のPDFパス（オプション）",
-    )
-    parser.add_argument(
         "--save-file",
         type=str,
         default="saves/",
@@ -116,13 +110,6 @@ def main() -> int:
         default=1,
         help="処理するチェーンの最大数（デフォルト: 1）",
     )
-    parser.add_argument(
-        "--exclude-anchor-content",
-        action="store_true",
-        default=False,
-        help="アンカー論文の内容をプロンプトから除外する（デフォルト: False）",
-    )
-
     args = parser.parse_args()
 
     # 環境設定
@@ -141,35 +128,9 @@ def main() -> int:
     print(f"LLMモデル: メイン={os.environ.get('MAIN_LLM_MODEL')}, サブ={os.environ.get('CHEAP_LLM_MODEL')}")
     main_llm, cheap_llm = get_llms()
 
-    # アンカー論文のフィルタリング処理（エージェント初期化前に実行）
     topic = args.topic
-    anchor_paper_path = args.anchor_paper_path
-    ban_paper: list[str] = []
 
-    if args.exclude_anchor_content and anchor_paper_path:
-        from idea_graph.coi.anchor_filter import AnchorFilter, AnchorFilterError
-
-        print(f"\nアンカー論文の内容除外モードで実行します")
-        anchor_filter = AnchorFilter()
-        try:
-            filter_result = anchor_filter.filter_anchor(
-                topic=topic,
-                anchor_paper_path=anchor_paper_path,
-                exclude_anchor_content=True,
-            )
-            topic = filter_result.topic
-            anchor_paper_path = filter_result.anchor_paper_path
-            # ban_paper にアンカー論文タイトルを追加
-            if filter_result.anchor_title:
-                ban_paper = [filter_result.anchor_title]
-            print(f"抽出されたタイトル: {filter_result.anchor_title}")
-            print(f"処理後のトピック: {topic}")
-            print(f"除外対象論文: {ban_paper}")
-        except AnchorFilterError as e:
-            print(f"エラー: アンカー論文のフィルタリングに失敗しました: {e}")
-            return 1
-
-    # エージェント初期化（ban_paperを渡す）
+    # エージェント初期化
     review_agent = ReviewAgent(
         save_file=args.save_file,
         llm=main_llm,
@@ -179,7 +140,6 @@ def main() -> int:
         llm=main_llm,
         cheap_llm=cheap_llm,
         save_file=args.save_file,
-        ban_paper=ban_paper,
         max_chain_length=args.max_chain_length,
         min_chain_length=args.min_chain_length,
         max_chain_numbers=args.max_chain_numbers,
@@ -190,7 +150,7 @@ def main() -> int:
     print("=" * 60)
 
     idea, related_experiments, entities, idea_chain, ideas, trend, future, human, year = asyncio.run(
-        deep_research_agent.generate_idea_with_chain(topic, anchor_paper_path)
+        deep_research_agent.generate_idea_with_chain(topic, None)
     )
     # 返り値からプロンプトを再構築
     final_prompt = get_deep_final_idea_prompt(
