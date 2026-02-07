@@ -3415,6 +3415,15 @@ async function renderExperimentTab() {
                 </div>
             </div>
             <div class="experiment-section">
+                <h4>論文図表</h4>
+                <div id="paperFiguresSection" class="paper-figures-section">
+                    <div style="margin-bottom:8px;">
+                        <button class="btn-experiment-run" onclick="generatePaperFigures(this)">論文図表を生成</button>
+                    </div>
+                    <div id="paperFiguresList"></div>
+                </div>
+            </div>
+            <div class="experiment-section">
                 <h4>キャッシュ</h4>
                 <div id="experimentCacheStatus" class="experiment-cache-status">
                     <div class="empty-state-text">読み込み中...</div>
@@ -3426,6 +3435,7 @@ async function renderExperimentTab() {
     await Promise.all([
         loadExperimentConfigs(),
         loadExperimentRuns(),
+        loadPaperFigures(),
         loadExperimentCacheStatus(),
     ]);
 }
@@ -3701,6 +3711,92 @@ async function clearExperimentCache() {
         await loadExperimentCacheStatus();
     } catch (e) {
         updateStatus('キャッシュクリアエラー: ' + e.message);
+    }
+}
+
+// ========== 論文図表 ==========
+
+async function generatePaperFigures(btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = '生成中...';
+    updateStatus('論文図表を生成中...');
+
+    try {
+        const res = await fetch('/api/paper-figures/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        });
+        const data = await res.json();
+        const count = data.count || 0;
+        updateStatus(`論文図表を${count}件生成しました`);
+        await loadPaperFigures();
+    } catch (e) {
+        updateStatus('論文図表生成エラー: ' + e.message);
+    } finally {
+        btnEl.disabled = false;
+        btnEl.textContent = '論文図表を生成';
+    }
+}
+
+async function loadPaperFigures() {
+    const container = document.getElementById('paperFiguresList');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/paper-figures');
+        const data = await res.json();
+        const figures = data.figures || [];
+        const tables = data.tables || [];
+
+        if (figures.length === 0 && tables.length === 0) {
+            container.innerHTML = '<div class="empty-state-text">論文図表がありません。「論文図表を生成」ボタンで生成してください。</div>';
+            return;
+        }
+
+        let html = '';
+
+        if (figures.length > 0) {
+            const pngs = figures.filter(f => f.type === 'png');
+            if (pngs.length > 0) {
+                html += '<div class="paper-figures-grid">';
+                for (const fig of pngs) {
+                    html += `<div class="experiment-figure">
+                        <img src="/api/paper-figures/${escapeHtml(fig.name)}" alt="${escapeHtml(fig.name)}" loading="lazy">
+                        <div class="experiment-figure-name">${escapeHtml(fig.name)}</div>
+                    </div>`;
+                }
+                html += '</div>';
+            }
+        }
+
+        if (tables.length > 0) {
+            html += '<div class="paper-tables-section"><h5>LaTeX テーブル</h5>';
+            for (const tbl of tables) {
+                html += `<div class="paper-table-item">
+                    <div class="paper-table-header">
+                        <span>${escapeHtml(tbl.name)}</span>
+                        <button class="btn-small" onclick="copyPaperTableTex(this)" data-tex="${escapeHtml(tbl.content)}">コピー</button>
+                    </div>
+                    <pre class="paper-table-tex">${escapeHtml(tbl.content)}</pre>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function copyPaperTableTex(btnEl) {
+    const tex = btnEl.getAttribute('data-tex');
+    if (tex) {
+        navigator.clipboard.writeText(tex).then(() => {
+            btnEl.textContent = 'コピー済み';
+            setTimeout(() => { btnEl.textContent = 'コピー'; }, 2000);
+        });
     }
 }
 

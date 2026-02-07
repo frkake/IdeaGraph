@@ -362,8 +362,11 @@ class ExperimentRunner:
 
         for i in range(num_proposals):
             logger.info("COI run %d/%d for %s", i + 1, num_proposals, paper_id)
+            coi_save_dir = str(
+                (self._cache._base_dir / "coi_raw" / paper_id / str(i)).resolve()
+            )
             runner = CoIRunner(main_model=condition.generation.model)
-            result = asyncio.run(runner.run(topic=paper_title))
+            result = asyncio.run(runner.run(topic=paper_title, save_dir=coi_save_dir))
             proposal = converter.convert_to_proposal(result)
             proposals.append(proposal)
             last_prompt = result.prompt

@@ -16,6 +16,7 @@ from typing import AsyncIterator
 from pydantic import BaseModel, Field
 
 from idea_graph.coi.config import COI_AGENT_DIR, coi_settings
+from idea_graph.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ class CoIRunner:
         # 保存先ディレクトリの設定
         if save_dir is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_dir = str(COI_AGENT_DIR / "saves" / f"run_{timestamp}")
+            save_dir = str((settings.cache_dir / "coi" / f"run_{timestamp}").resolve())
 
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)

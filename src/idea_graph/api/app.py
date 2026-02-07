@@ -1529,6 +1529,79 @@ def clear_experiment_cache(stage: str | None = None):
     return {"cleared": count, "stage": stage or "all"}
 
 
+# ========== 論文図表 ==========
+
+
+class PaperFiguresRequest(BaseModel):
+    output_dir: str = "experiments/paper_figures"
+    runs_base: str = "experiments/runs"
+    formats: list[str] = ["png", "svg"]
+
+
+@app.post("/api/paper-figures/generate")
+def generate_paper_figures(request: PaperFiguresRequest):
+    """論文用クロス実験図表を生成"""
+    from idea_graph.services.visualizer import ExperimentVisualizer
+
+    vis = ExperimentVisualizer()
+    results = vis.generate_paper_figures(
+        output_dir=request.output_dir,
+        runs_base=request.runs_base,
+        formats=request.formats,
+    )
+
+    return {
+        "generated": {
+            name: [str(p) for p in paths]
+            for name, paths in results.items()
+        },
+        "count": len(results),
+    }
+
+
+@app.get("/api/paper-figures")
+def list_paper_figures():
+    """生成済み論文図表の一覧"""
+    paper_dir = BASE_DIR / "experiments" / "paper_figures"
+    if not paper_dir.exists():
+        return {"figures": [], "tables": []}
+
+    figures = []
+    tables = []
+    for f in sorted(paper_dir.iterdir()):
+        if f.suffix in (".png", ".svg"):
+            figures.append({"name": f.name, "type": f.suffix[1:]})
+        elif f.suffix == ".tex":
+            tables.append({
+                "name": f.name,
+                "content": f.read_text(encoding="utf-8"),
+            })
+
+    return {"figures": figures, "tables": tables}
+
+
+@app.get("/api/paper-figures/{name}")
+def get_paper_figure(name: str):
+    """論文図表ファイルを取得"""
+    from fastapi.responses import FileResponse
+
+    paper_dir = BASE_DIR / "experiments" / "paper_figures"
+    file_path = paper_dir / name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if name.endswith(".png"):
+        media_type = "image/png"
+    elif name.endswith(".svg"):
+        media_type = "image/svg+xml"
+    elif name.endswith(".tex"):
+        media_type = "text/plain"
+    else:
+        media_type = "application/octet-stream"
+
+    return FileResponse(str(file_path), media_type=media_type)
+
+
 # ========== フロントエンド ==========
 
 

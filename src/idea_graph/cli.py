@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import NoReturn, TYPE_CHECKING
 
 from rich.console import Console
@@ -729,6 +730,14 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
 
     logging.info("Starting rebuild from cache...")
 
+    # --cache-dir が指定されていたら settings を上書き
+    if args.cache_dir:
+        custom_cache = Path(args.cache_dir)
+        settings.cache_dir = custom_cache
+        settings.papers_cache_dir = custom_cache / "papers"
+        settings.extractions_cache_dir = custom_cache / "extractions"
+        logging.info(f"Using custom cache directory: {custom_cache}")
+
     # 設定の確認
     settings.ensure_cache_dirs()
 
@@ -1331,6 +1340,27 @@ def cmd_experiment(args: argparse.Namespace) -> int:
         console.print(f"[green]Cleared {cleared} cache files.[/]")
         return 0
 
+    if sub == "paper-figures":
+        from idea_graph.services.visualizer import ExperimentVisualizer
+
+        vis = ExperimentVisualizer()
+        results = vis.generate_paper_figures(
+            output_dir=args.output,
+            runs_base=args.runs_base,
+            formats=args.formats,
+        )
+        if not results:
+            console.print("[yellow]No figures or tables generated. Check that experiments/runs/ contains run data.[/]")
+            return 0
+        table = Table(title="Generated Paper Figures & Tables", show_header=True, header_style="bold magenta")
+        table.add_column("Name", style="cyan")
+        table.add_column("Files")
+        for name, paths in sorted(results.items()):
+            table.add_row(name, ", ".join(p.name for p in paths))
+        console.print(table)
+        console.print(f"[green]Output directory: {args.output}[/]")
+        return 0
+
     return 0
 
 
@@ -1555,6 +1585,12 @@ def main() -> int:
         help="処理する件数の制限（datasetのPaper作成とcache再生の両方に適用）",
     )
     rebuild_parser.add_argument(
+        "--cache-dir",
+        type=str,
+        default=None,
+        help="キャッシュディレクトリのパス（デフォルト: settings の cache_dir）",
+    )
+    rebuild_parser.add_argument(
         "--batch-size",
         type=int,
         default=200,
@@ -1722,6 +1758,14 @@ def main() -> int:
     exp_clear = experiment_sub.add_parser("clear-cache", help="キャッシュの削除")
     exp_clear.add_argument("--stage", type=str, default=None,
                            help="削除対象ステージ (analysis|proposals|evaluations)")
+
+    exp_paper = experiment_sub.add_parser("paper-figures", help="論文用クロス実験図表を生成")
+    exp_paper.add_argument("--output", type=str, default="experiments/paper_figures",
+                           help="出力ディレクトリ (デフォルト: experiments/paper_figures)")
+    exp_paper.add_argument("--runs-base", type=str, default="experiments/runs",
+                           help="実験結果ディレクトリ (デフォルト: experiments/runs)")
+    exp_paper.add_argument("--formats", nargs="+", default=["png", "svg"],
+                           help="出力形式 (デフォルト: png svg)")
 
     # evaluate コマンド
     evaluate_parser = subparsers.add_parser("evaluate", help="提案をペアワイズ比較評価")
