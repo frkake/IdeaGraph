@@ -197,6 +197,88 @@ def load_pairwise_swap_data(run_dir: Path) -> dict[str, dict[str, str]]:
     return result
 
 
+def load_pairwise_elo_by_source(
+    run_dir: Path,
+) -> dict[str, dict[str, list[float]]]:
+    """ソース別 → 指標別 ELO レーティングリストを返す。
+    Returns: {source: {metric: [elo_values_across_papers]}}
+    """
+    result: dict[str, dict[str, list[float]]] = {}
+    root = run_dir / "evaluations" / "pairwise"
+    if not root.exists():
+        return result
+    for f in sorted(root.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            for entry in data.get("ranking", []):
+                source = str(entry.get("source", "unknown"))
+                overall = entry.get("overall_score")
+                by_metric = entry.get("scores_by_metric", {})
+                if source not in result:
+                    result[source] = {}
+                for metric, elo in by_metric.items():
+                    if elo is not None:
+                        result[source].setdefault(metric, []).append(float(elo))
+                if overall is not None:
+                    result[source].setdefault("overall", []).append(float(overall))
+        except Exception:
+            continue
+    return result
+
+
+def load_pairwise_wins_by_source(
+    run_dir: Path,
+) -> dict[str, dict[str, int]]:
+    """ペア別勝敗: {source_a: {source_b: win_count}}
+    pairwise_results の scores から勝者を source にマッピング。
+    ranking の rank=1 を勝者として各ファイルでソースペア別に集計。
+    """
+    result: dict[str, dict[str, int]] = {}
+    root = run_dir / "evaluations" / "pairwise"
+    if not root.exists():
+        return result
+    for f in sorted(root.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            ranking = data.get("ranking", [])
+            if len(ranking) < 2:
+                continue
+            # ソース別にグループ化して最上位ソースを勝者とする
+            source_best: dict[str, float] = {}
+            for entry in ranking:
+                source = str(entry.get("source", "unknown"))
+                score = entry.get("overall_score", 0)
+                if source not in source_best or score > source_best[source]:
+                    source_best[source] = score
+            sources = sorted(source_best.keys(), key=lambda s: source_best[s], reverse=True)
+            if len(sources) >= 2:
+                winner = sources[0]
+                for loser in sources[1:]:
+                    result.setdefault(winner, {})
+                    result[winner][loser] = result[winner].get(loser, 0) + 1
+        except Exception:
+            continue
+    return result
+
+
+def load_paper_degrees(run_dir: Path) -> dict[str, int]:
+    """summary.json の records から paper_id → degree マッピングを返す。"""
+    summary_path = run_dir / "summary.json"
+    if not summary_path.exists():
+        return {}
+    try:
+        data = json.loads(summary_path.read_text(encoding="utf-8"))
+        degrees: dict[str, int] = {}
+        for rec in data.get("records", []):
+            paper_id = rec.get("paper_id", "")
+            degree = rec.get("degree")
+            if paper_id and degree is not None:
+                degrees[paper_id] = int(degree)
+        return degrees
+    except Exception:
+        return {}
+
+
 def load_multi_model_scores(
     run_dir: Path,
 ) -> dict[str, dict[str, dict[str, list[float]]]]:

@@ -14,6 +14,7 @@ AI論文のナレッジグラフ構築・可視化・研究アイデア提案・
   - [idea-graph propose](#idea-graph-propose---研究アイデア提案)
   - [idea-graph evaluate](#idea-graph-evaluate---研究アイデア評価)
   - [coi](#coi---chain-of-ideas-エージェント)
+  - [idea-graph experiment](#idea-graph-experiment---実験の実行管理)
 - [Web UI](#web-ui)
 - [API エンドポイント](#api-エンドポイント)
 - [出力ファイルの場所](#出力ファイルの場所)
@@ -419,6 +420,141 @@ uv run --group coi coi --topic "Graph neural networks for drug discovery"
 # チェーン長と改善回数を指定
 uv run --group coi coi --topic "Vision Transformer" \
   --max-chain-length 7 --improve-cnt 2
+```
+
+### `idea-graph experiment` - 実験の実行・管理
+
+体系的な実験の実行、結果の集計・比較、論文品質の図表生成を行う。
+
+```bash
+uv run idea-graph experiment <サブコマンド> [オプション]
+```
+
+#### サブコマンド一覧
+
+| サブコマンド | 説明 |
+|-------------|------|
+| `run` | YAML設定ファイルに基づいて実験を実行 |
+| `list` | 実行履歴の一覧表示 |
+| `aggregate` | 結果の集計・統計解析 |
+| `compare` | 2つ以上の実行結果を比較 |
+| `cache-status` | キャッシュ状況の確認 |
+| `clear-cache` | キャッシュの削除 |
+| `paper-figures` | 論文用クロス実験図表を生成 |
+
+#### `experiment run` - 実験の実行
+
+```bash
+uv run idea-graph experiment run <config.yaml> [オプション]
+```
+
+| オプション | 説明 |
+|-----------|------|
+| `config` | YAML設定ファイルのパス（必須）|
+| `--limit N` | 対象論文数の制限 |
+| `--no-cache` | キャッシュ読み込みを無効化 |
+| `--clear-cache` | 実行前にキャッシュを削除 |
+
+**例:**
+
+```bash
+# EXP-101 を全論文で実行
+uv run idea-graph experiment run experiments/configs/EXP-101.yaml
+
+# 3論文だけテスト実行
+uv run idea-graph experiment run experiments/configs/EXP-103.yaml --limit 3
+
+# キャッシュなしで再実行
+uv run idea-graph experiment run experiments/configs/EXP-101.yaml --no-cache
+```
+
+#### `experiment aggregate` / `experiment compare`
+
+```bash
+# 集計
+uv run idea-graph experiment aggregate experiments/runs/EXP-101_20260208_100818
+
+# 複数実行を比較
+uv run idea-graph experiment compare experiments/runs/EXP-103_* experiments/runs/EXP-104_*
+```
+
+#### `experiment paper-figures` - 論文用図表の生成
+
+複数実験の結果をクロス集計し、論文品質の図（PNG/SVG）と LaTeX テーブル（.tex）を生成する。
+
+```bash
+uv run idea-graph experiment paper-figures [オプション]
+```
+
+| オプション | 説明 |
+|-----------|------|
+| `--output DIR` | 出力ディレクトリ（デフォルト: experiments/paper_figures）|
+| `--runs-base DIR` | 実験結果ディレクトリ（デフォルト: experiments/runs）|
+| `--formats FMT...` | 出力形式（デフォルト: png svg）|
+
+**例:**
+
+```bash
+uv run idea-graph experiment paper-figures
+uv run idea-graph experiment paper-figures --output /tmp/figures --formats png pdf
+```
+
+#### 実験設計（100系）
+
+100系実験はシステム有効性の検証を目的とする。Pairwise と Single 評価が **別実験** に分離されている。
+
+| 実験ID | 名前 | モード | 説明 |
+|--------|------|--------|------|
+| EXP-101 | 3手法比較 | Pairwise | IdeaGraph / Direct LLM / CoI-Agent の3手法直接比較 |
+| EXP-102 | vs 元論文 | Pairwise | IdeaGraph 生成アイデア vs ターゲット論文（品質校正） |
+| EXP-103 | IdeaGraph 単体 | Single | IdeaGraph の絶対スコア計測 |
+| EXP-104 | Direct LLM 単体 | Single | Direct LLM の絶対スコア計測 |
+| EXP-105 | CoI-Agent 単体 | Single | CoI-Agent の絶対スコア計測 |
+| EXP-106 | 元論文 単体 | Single | ターゲット論文の絶対スコア計測（ベースライン） |
+
+#### 可視化の構成
+
+**個別実験（`experiment run` 時に自動生成）:**
+
+| 実験ID | 図の内容 |
+|--------|---------|
+| EXP-101 | Fig1: 勝率 StackedBar, Fig2: 平均ELO BarChart, Fig3: ELO Heatmap（metrics × methods） |
+| EXP-102 | Fig1: 元論文の順位分布 StackedBar, Fig2: 平均ELO BarChart |
+| EXP-103〜106 | 専用 visualizer なし（fallback で Radar のみ生成） |
+
+**論文用クロス実験図（`paper-figures` で生成）:**
+
+| 図 | 内容 | データソース |
+|----|------|-------------|
+| fig1_main_results | 4手法 GroupedBar（5 metrics + overall）| EXP-103〜106 single |
+| fig2_forest_plot | Cohen's d フォレストプロット | EXP-103 vs 104/105/106 |
+| fig3_radar_profile | 4手法レーダーチャート | EXP-103〜106 single |
+| fig8_winrate_summary | Pairwise 勝率サマリー | EXP-101（3-way） + EXP-102（vs Target Paper） |
+
+**論文用 LaTeX テーブル（`paper-figures` で生成）:**
+
+| テーブル | 内容 | データソース |
+|---------|------|-------------|
+| table1_main_results | 手法別スコア + Win% | EXP-103〜106 single + EXP-101 pairwise |
+| table4_full_scores | 全条件×全指標の詳細スコア | EXP-103〜106 |
+
+#### 実験ワークフロー
+
+```bash
+# 1. 100系実験を順に実行
+uv run idea-graph experiment run experiments/configs/EXP-101.yaml
+uv run idea-graph experiment run experiments/configs/EXP-102.yaml
+uv run idea-graph experiment run experiments/configs/EXP-103.yaml
+uv run idea-graph experiment run experiments/configs/EXP-104.yaml
+uv run idea-graph experiment run experiments/configs/EXP-105.yaml
+uv run idea-graph experiment run experiments/configs/EXP-106.yaml
+
+# 2. 論文用図表を一括生成
+uv run idea-graph experiment paper-figures
+
+# 3. 出力を確認
+ls experiments/paper_figures/
+# fig1_main_results.png  fig1_main_results.svg  table1_main_results.tex ...
 ```
 
 ## Web UI
@@ -1131,6 +1267,31 @@ cache/
 
 saves/                   # CoI-Agent の出力
 └── result.json
+
+experiments/
+├── configs/             # 実験設定ファイル
+│   ├── EXP-101.yaml     # 3手法 pairwise 比較
+│   ├── EXP-102.yaml     # vs 元論文 pairwise
+│   ├── EXP-103.yaml     # IdeaGraph single 評価
+│   ├── EXP-104.yaml     # Direct LLM single 評価
+│   ├── EXP-105.yaml     # CoI-Agent single 評価
+│   └── EXP-106.yaml     # 元論文 single 評価
+├── runs/                # 実験実行結果
+│   ├── EXP-101_YYYYMMDD_HHMMSS/
+│   │   ├── evaluations/
+│   │   │   └── pairwise/*.json
+│   │   ├── summary.json
+│   │   └── metadata.json
+│   ├── EXP-103_YYYYMMDD_HHMMSS/
+│   │   ├── evaluations/
+│   │   │   └── single/{condition}/*.json
+│   │   └── ...
+│   └── ...
+└── paper_figures/       # 論文用図表（paper-figures で生成）
+    ├── fig1_main_results.png
+    ├── fig1_main_results.svg
+    ├── table1_main_results.tex
+    └── ...
 ```
 
 ### progress.json の構造

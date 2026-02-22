@@ -14,6 +14,12 @@ try:
     import matplotlib.pyplot as plt
     import numpy as np
 
+    # サンセリフフォントで CoI の I と l を区別しやすくする
+    plt.rcParams.update({
+        "font.family": "sans-serif",
+        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica", "sans-serif"],
+    })
+
     HAS_MPL = True
 except ImportError:
     HAS_MPL = False

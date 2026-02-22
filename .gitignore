@@ -9,3 +9,7 @@ wheels/
 **/.venv/
 cache/
 tests/
+experiments/runs/
+experiments/logs/
+experiments/cache/
+paper_figures/

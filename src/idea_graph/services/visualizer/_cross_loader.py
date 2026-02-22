@@ -18,6 +18,8 @@ from ._loaders import (
     load_repeat_scores,
     load_pairwise_swap_data,
     load_multi_model_scores,
+    load_pairwise_elo_by_source,
+    load_pairwise_wins_by_source,
 )
 from ._stats import StatsHelper
 
@@ -55,7 +57,7 @@ class CrossExperimentLoader:
     """experiments/runs/ 以下を横断スキャンして CrossExperimentData を構築する。"""
 
     ALL_EXP_IDS = [
-        "EXP-101", "EXP-102", "EXP-103",
+        "EXP-101", "EXP-102", "EXP-103", "EXP-104", "EXP-105", "EXP-106",
         "EXP-201", "EXP-202", "EXP-203", "EXP-204",
         "EXP-205", "EXP-206", "EXP-207", "EXP-208", "EXP-209",
         "EXP-301", "EXP-302", "EXP-303", "EXP-304", "EXP-305", "EXP-306",

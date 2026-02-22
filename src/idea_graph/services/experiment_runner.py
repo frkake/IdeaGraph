@@ -41,6 +41,7 @@ class PaperRunRecord(BaseModel):
     method: MethodType
     proposals_file: str
     single_evaluation_file: str | None = None
+    degree: int | None = None
 
 
 class PairwiseRunRecord(BaseModel):
@@ -144,6 +145,7 @@ class ExperimentRunner:
         target_count = max(1, target_count)
 
         if config.targets.paper_ids:
+            self._paper_degrees = {}
             return config.targets.paper_ids[:target_count]
 
         strategy = config.targets.selection_strategy
@@ -157,8 +159,10 @@ class ExperimentRunner:
                 {},
             )
             random.shuffle(all_ids)
+            self._paper_degrees = {}
             return all_ids[:target_count]
         if strategy == PaperSelectionStrategy.TOP_CITED:
+            self._paper_degrees = {}
             return self._query_papers(
                 """
                 MATCH (p:Paper)
@@ -171,18 +175,25 @@ class ExperimentRunner:
                 {"limit": target_count},
             )
         if strategy == PaperSelectionStrategy.CONNECTIVITY:
-            return self._query_papers(
-                """
-                MATCH (p:Paper)
-                OPTIONAL MATCH (p)-[r]->()
-                WITH p, count(r) AS degree
-                WHERE degree > 0
-                RETURN p.id AS id
-                ORDER BY degree DESC
-                LIMIT $limit
-                """,
-                {"limit": target_count},
-            )
+            with Neo4jConnection.session() as session:
+                rows = list(
+                    session.run(
+                        """
+                        MATCH (p:Paper)
+                        OPTIONAL MATCH (p)-[r]->()
+                        WITH p, count(r) AS degree
+                        WHERE degree > 0
+                        RETURN p.id AS id, degree
+                        ORDER BY degree DESC
+                        LIMIT $limit
+                        """,
+                        limit=target_count,
+                    )
+                )
+            self._paper_degrees = {
+                str(row["id"]): int(row["degree"]) for row in rows if row.get("id")
+            }
+            return [str(row["id"]) for row in rows if row.get("id")]
 
         # connectivity_stratified
         with Neo4jConnection.session() as session:
@@ -200,11 +211,17 @@ class ExperimentRunner:
             )
 
         if not rows:
+            self._paper_degrees = {}
             return []
 
         data = [(str(row["id"]), int(row["degree"])) for row in rows if row.get("id")]
         if not data:
+            self._paper_degrees = {}
             return []
+
+        # degree マッピングを保存
+        degree_map = {pid: deg for pid, deg in data}
+
         n = len(data)
         p33_idx = max(0, int((n - 1) * 0.33))
         p66_idx = max(0, int((n - 1) * 0.66))
@@ -220,15 +237,21 @@ class ExperimentRunner:
         if tier == "low":
             base = low
             random.shuffle(base)
-            return base[:target_count]
+            selected = base[:target_count]
+            self._paper_degrees = {pid: degree_map[pid] for pid in selected}
+            return selected
         if tier == "medium":
             base = mid
             random.shuffle(base)
-            return base[:target_count]
+            selected = base[:target_count]
+            self._paper_degrees = {pid: degree_map[pid] for pid in selected}
+            return selected
         if tier == "high":
             base = high
             random.shuffle(base)
-            return base[:target_count]
+            selected = base[:target_count]
+            self._paper_degrees = {pid: degree_map[pid] for pid in selected}
+            return selected
 
         per_bucket = max(1, target_count // 3)
         random.shuffle(low)
@@ -240,7 +263,9 @@ class ExperimentRunner:
         random.shuffle(pool)
         while len(selected) < target_count and pool:
             selected.append(pool.pop())
-        return selected[:target_count]
+        selected = selected[:target_count]
+        self._paper_degrees = {pid: degree_map[pid] for pid in selected}
+        return selected
 
     # ──────────────────────────── 条件別設定解決 ────────────────────────────
 
@@ -722,6 +747,7 @@ class ExperimentRunner:
         run_dir = self._resolve_run_dir(config)
         run_dir.mkdir(parents=True, exist_ok=True)
 
+        self._paper_degrees: dict[str, int] = {}
         target_papers = self._select_target_papers(config, limit)
         if not target_papers:
             raise ValueError("No target papers selected")
@@ -812,6 +838,7 @@ class ExperimentRunner:
                             method=condition.method,
                             proposals_file=str(proposals_file),
                             single_evaluation_file=str(single_eval_file) if single_eval_file else None,
+                            degree=self._paper_degrees.get(paper_id),
                         )
                     )
 
