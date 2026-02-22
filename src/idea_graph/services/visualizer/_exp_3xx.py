@@ -39,6 +39,9 @@ from ._style import (
     save_figure,
     logger,
     PALETTE,
+    overlay_strip,
+    annotate_n,
+    annotate_n_header,
 )
 from ._loaders import (
     load_single_scores,
@@ -135,6 +138,8 @@ def vis_exp_301(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         ),
     )
 
+    annotate_n_header(ax, len(single_vals))
+
     ax.set_xlabel("Single Overall Score", fontsize=9)
     ax.set_ylabel("Pairwise ELO Rating", fontsize=9)
     ax.tick_params(labelsize=8)
@@ -142,7 +147,35 @@ def vis_exp_301(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     all_paths.extend(save_figure(fig, figures_dir, f"fig_{exp_id}_1_scatter"))
     plt.close(fig)
 
+    # ── Report ──
+    _generate_exp301_report(rho, len(single_vals), figures_dir, exp_id)
+
     return all_paths
+
+
+def _generate_exp301_report(
+    rho: float, n: int, figures_dir: Path, exp_id: str,
+) -> None:
+    """EXP-301 の散布図に対する解説レポートを生成。"""
+    interpretation = "一貫性あり" if rho > 0.7 else "一貫性が不十分"
+    lines = [
+        f"## {exp_id}: 評価モード整合性 解説\n",
+        "### 図の説明",
+        "散布図は各提案のSingle評価のOverallスコア（X軸）と",
+        "Pairwise評価のELOレーティング（Y軸）の関係を示す。",
+        "理想的にはSingleで高スコアの提案がPairwiseでも高ELOを獲得し、",
+        "正の相関を示す。\n",
+        "### Spearman順位相関係数（ρ）",
+        f"- **ρ = {rho:.3f}**（n = {n}）",
+        f"- 仮説: ρ > 0.7 → **{interpretation}**\n",
+        "### 解釈",
+        "ρ > 0.7 は両評価方式の順位が概ね一致することを意味し、",
+        "Single評価の効率性（O(n)）とPairwise評価の精度（O(n²)）が",
+        "同等の順位判定を提供することを示唆する。",
+    ]
+    (figures_dir / f"report_{exp_id}.md").write_text(
+        "\n".join(lines), encoding="utf-8",
+    )
 
 
 # =====================================================================
@@ -197,7 +230,7 @@ def vis_exp_302(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                 if r_scores:
                     r_means.append(safe_mean(r_scores))
             box_data.append(flattened)
-            box_labels.append(METRIC_SHORT.get(metric, metric))
+            box_labels.append(METRIC_DISPLAY.get(metric, metric))
             repeat_means_per_metric[metric] = r_means
 
         if box_data:
@@ -246,7 +279,11 @@ def vis_exp_302(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                     )
 
             ax.set_xticks(positions)
-            ax.set_xticklabels(box_labels, fontsize=8)
+            ax.set_xticklabels(box_labels, fontsize=8, rotation=30, ha="right")
+
+            # Total number of evaluations across all repeats/metrics
+            total_n = sum(len(f) for f in box_data)
+            annotate_n_header(ax, total_n)
     else:
         # Fallback: simple bar chart from single scores
         means = [safe_mean(single_scores[cond_name].get(m, [])) for m in display_metrics]
@@ -259,7 +296,8 @@ def vis_exp_302(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         )
         ax.set_xticks(x_pos)
         ax.set_xticklabels(
-            [METRIC_SHORT.get(m, m) for m in display_metrics], fontsize=8,
+            [METRIC_DISPLAY.get(m, m) for m in display_metrics],
+            fontsize=8, rotation=30, ha="right",
         )
 
     ax.set_ylabel("Score (1-10)", fontsize=9)
@@ -281,16 +319,19 @@ def vis_exp_302(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                 m = safe_mean(r_means)
                 s = safe_std(r_means)
                 cv = s / m if m > 0 else 0.0
-                cv_labels.append(METRIC_SHORT.get(metric, metric))
+                cv_labels.append(METRIC_DISPLAY.get(metric, metric))
                 cv_values.append(cv)
 
         if cv_labels:
             fig2, ax2 = plt.subplots(figsize=FIG_SINGLE)
             bar_colors = [TOL_GREEN if v < 0.05 else TOL_RED for v in cv_values]
+            x_cv = np.arange(len(cv_labels))
             bars = ax2.bar(
-                cv_labels, cv_values, color=bar_colors,
+                x_cv, cv_values, color=bar_colors,
                 alpha=0.85, edgecolor="white", linewidth=0.5,
             )
+            ax2.set_xticks(x_cv)
+            ax2.set_xticklabels(cv_labels, fontsize=8, rotation=30, ha="right")
             ax2.axhline(
                 0.05, color="#555555", linestyle="--", linewidth=0.8,
                 alpha=0.7, label="CV = 0.05",
@@ -303,6 +344,14 @@ def vis_exp_302(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                     bar.get_height() + 0.002,
                     f"{val:.3f}", ha="center", va="bottom", fontsize=8,
                 )
+
+            # Number of repeats used to compute CV
+            n_repeats = max(
+                len([safe_mean(r) for r in metrics_by_repeat.get(metric, []) if r])
+                for metric in display_metrics
+                if metrics_by_repeat.get(metric)
+            ) if metrics_by_repeat else 0
+            annotate_n_header(ax2, n_repeats)
 
             ax2.set_ylabel("Coefficient of Variation", fontsize=9)
             ax2.legend(fontsize=8)
@@ -404,7 +453,7 @@ def _generate_exp302_tables(
 
 @register("EXP-303")
 def vis_exp_303(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
-    """Confusion matrix of AB/BA order + per-metric flip rate bar."""
+    """Per-metric flip rate bar + overall agreement summary."""
     if not HAS_MPL:
         return []
 
@@ -415,135 +464,117 @@ def vis_exp_303(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         logger.info("%s: No swap_test data found", exp_id)
         return all_paths
 
-    # Collect unique sources
-    sources: set[str] = set()
-    for _paper_id, info in swap_data.items():
-        sources.add(info.get("ab_winner", ""))
-        sources.add(info.get("ba_winner", ""))
-    sources.discard("")
-    source_list = sorted(sources)
-
-    if len(source_list) < 2:
-        return all_paths
-
-    # ── Fig 1: Confusion matrix ──
-    n = len(source_list)
-    matrix = [[0] * n for _ in range(n)]
-    total = 0
-    consistent = 0
-
-    for _paper_id, info in swap_data.items():
-        ab = info.get("ab_winner", "")
-        ba = info.get("ba_winner", "")
-        if ab in source_list and ba in source_list:
-            i = source_list.index(ab)
-            j = source_list.index(ba)
-            matrix[i][j] += 1
-            total += 1
-            if ab == ba:
-                consistent += 1
-
-    agree_rate = consistent / total * 100 if total > 0 else 0.0
-
-    fig, ax = plt.subplots(figsize=FIG_SINGLE)
-    arr = np.array(matrix, dtype=float)
-    im = ax.imshow(arr, cmap="Blues", aspect="auto")
-
-    ax.set_xticks(range(n))
-    ax.set_xticklabels([display_name(s) for s in source_list], fontsize=8)
-    ax.set_yticks(range(n))
-    ax.set_yticklabels([display_name(s) for s in source_list], fontsize=8)
-
-    # Cell annotations
-    for i in range(n):
-        for j in range(n):
-            val = int(matrix[i][j])
-            text_color = "white" if val > arr.max() * 0.6 else "black"
-            ax.text(
-                j, i, str(val), ha="center", va="center",
-                fontsize=8, fontweight="bold", color=text_color,
-            )
-
-    fig.colorbar(im, ax=ax, shrink=0.8)
-    ax.set_xlabel("BA-order winner", fontsize=9)
-    ax.set_ylabel("AB-order winner", fontsize=9)
-
-    # Agreement rate annotation below the plot
-    ax.text(
-        0.5, -0.18,
-        f"Agreement: {agree_rate:.1f}% ({consistent}/{total})",
-        transform=ax.transAxes, fontsize=8, ha="center",
-        bbox=dict(
-            boxstyle="round,pad=0.4", facecolor="white",
-            edgecolor="#CCCCCC", alpha=0.9,
-        ),
-    )
-
-    ax.tick_params(labelsize=8)
-    fig.tight_layout()
-    all_paths.extend(save_figure(fig, figures_dir, f"fig_{exp_id}_1_confusion"))
-    plt.close(fig)
-
-    # ── Fig 2: Per-metric flip rate ──
-    pw_details = load_pairwise_details(run_dir)
+    # Aggregate per-metric flip counts from swap_test_raw entries
     metric_flips: dict[str, int] = {m: 0 for m in METRICS}
     metric_totals: dict[str, int] = {m: 0 for m in METRICS}
 
-    for pw in pw_details:
-        swap = pw.get("swap_test", {})
-        metrics_swap = swap.get("metrics", {})
-        for metric in METRICS:
-            if metric in metrics_swap:
-                metric_totals[metric] += 1
-                if not metrics_swap[metric].get("consistent", True):
-                    metric_flips[metric] += 1
+    for _paper_id, entries in swap_data.items():
+        for entry in entries:
+            ab = entry.get("ab_scores", {})
+            ba = entry.get("ba_scores", {})
+            for m in METRICS:
+                if m in ab and m in ba:
+                    metric_totals[m] += 1
+                    if ab[m] != ba[m]:
+                        metric_flips[m] += 1
 
+    total_comparisons = sum(metric_totals.values())
+    total_flips = sum(metric_flips.values())
+
+    if total_comparisons == 0:
+        logger.info("%s: No swap test comparisons found", exp_id)
+        return all_paths
+
+    overall_flip_rate = total_flips / total_comparisons * 100
+    overall_agree_rate = 100 - overall_flip_rate
+
+    # ── Fig 1: Per-metric flip rate bar chart ──
     flip_labels: list[str] = []
     flip_values: list[float] = []
+    valid_metrics: list[str] = []
+
     for m in METRICS:
         if metric_totals.get(m, 0) > 0:
-            flip_labels.append(METRIC_SHORT.get(m, m))
+            flip_labels.append(METRIC_DISPLAY.get(m, m))
             flip_values.append(metric_flips[m] / metric_totals[m] * 100)
+            valid_metrics.append(m)
 
     if flip_labels:
-        fig2, ax2 = plt.subplots(figsize=FIG_SINGLE)
-        bar_colors = [METRIC_COLORS.get(m, TOL_BLUE) for m in METRICS if metric_totals.get(m, 0) > 0]
-        bars = ax2.bar(
-            flip_labels, flip_values, color=bar_colors,
+        fig, ax = plt.subplots(figsize=FIG_SINGLE)
+        bar_colors = [METRIC_COLORS.get(m, TOL_BLUE) for m in valid_metrics]
+        x_pos = np.arange(len(flip_labels))
+        bars = ax.bar(
+            x_pos, flip_values, color=bar_colors,
             alpha=0.85, edgecolor="white", linewidth=0.5,
         )
 
-        # Value labels
-        for bar, val in zip(bars, flip_values):
-            ax2.text(
+        # Value labels with sample size
+        for bar, val, m in zip(bars, flip_values, valid_metrics):
+            ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + 0.5,
-                f"{val:.1f}%", ha="center", va="bottom", fontsize=8,
+                f"{val:.1f}%\n(n={metric_totals[m]})",
+                ha="center", va="bottom", fontsize=7,
             )
 
-        ax2.set_ylabel("Flip Rate (%)", fontsize=9)
-        ax2.tick_params(labelsize=8)
-        ax2.set_ylim(0, max(flip_values) * 1.3 if flip_values else 50)
-        fig2.tight_layout()
-        all_paths.extend(save_figure(fig2, figures_dir, f"fig_{exp_id}_2_flip_rate"))
-        plt.close(fig2)
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(
+            flip_labels, fontsize=8, rotation=30, ha="right",
+        )
+        ax.set_ylabel("Flip Rate (%)", fontsize=9)
+        ax.tick_params(labelsize=8)
+        ax.set_ylim(0, max(flip_values) * 1.4 if flip_values else 50)
+        ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+        fig.tight_layout()
+        all_paths.extend(save_figure(fig, figures_dir, f"fig_{exp_id}_1_flip_rate"))
+        plt.close(fig)
+
+    # ── Fig 2: Overall agreement summary ──
+    fig2, ax2 = plt.subplots(figsize=FIG_SINGLE)
+    ax2.bar(
+        ["Consistent", "Flipped"],
+        [overall_agree_rate, overall_flip_rate],
+        color=[TOL_GREEN, TOL_RED], alpha=0.85,
+        edgecolor="white", linewidth=0.5,
+    )
+    ax2.text(
+        0, overall_agree_rate + 1,
+        f"{overall_agree_rate:.1f}%",
+        ha="center", va="bottom", fontsize=9, fontweight="bold",
+    )
+    ax2.text(
+        1, overall_flip_rate + 1,
+        f"{overall_flip_rate:.1f}%",
+        ha="center", va="bottom", fontsize=9, fontweight="bold",
+    )
+    ax2.set_ylabel("Rate (%)", fontsize=9)
+    ax2.tick_params(labelsize=8)
+    ax2.set_ylim(0, 110)
+    annotate_n_header(ax2, total_comparisons)
+    fig2.tight_layout()
+    all_paths.extend(save_figure(fig2, figures_dir, f"fig_{exp_id}_2_agreement"))
+    plt.close(fig2)
 
     # ── Tables ──
     _generate_exp303_tables(
-        source_list, matrix, agree_rate, total,
-        metric_flips, metric_totals, figures_dir, exp_id,
+        metric_flips, metric_totals, overall_agree_rate,
+        total_comparisons, figures_dir, exp_id,
+    )
+
+    # ── Report ──
+    _generate_exp303_report(
+        metric_flips, metric_totals, overall_flip_rate,
+        total_comparisons, figures_dir, exp_id,
     )
 
     return all_paths
 
 
 def _generate_exp303_tables(
-    source_list: list[str],
-    matrix: list[list[int]],
-    agree_rate: float,
-    total: int,
     metric_flips: dict[str, int],
     metric_totals: dict[str, int],
+    agree_rate: float,
+    total: int,
     output_dir: Path,
     exp_id: str,
 ) -> None:
@@ -571,7 +602,6 @@ def _generate_exp303_tables(
     )
 
     # ── LaTeX (booktabs) ──
-    # Find best (lowest) flip rate for bold
     rates = {
         m: metric_flips[m] / metric_totals[m] * 100
         for m in METRICS if metric_totals.get(m, 0) > 0
@@ -605,6 +635,46 @@ def _generate_exp303_tables(
         "\\end{table}\n"
     )
     (output_dir / f"table_{exp_id}.tex").write_text(tex, encoding="utf-8")
+
+
+def _generate_exp303_report(
+    metric_flips: dict[str, int],
+    metric_totals: dict[str, int],
+    overall_flip_rate: float,
+    total: int,
+    figures_dir: Path,
+    exp_id: str,
+) -> None:
+    """EXP-303 の位置バイアス分析に対する解説レポートを生成。"""
+    lines = [
+        f"## {exp_id}: 位置バイアス分析 解説\n",
+        "### 図の説明",
+        "Flip Rateバーチャートは各評価指標でAB順とBA順の",
+        "評価結果が異なる割合（位置バイアスの程度）を示す。",
+        "低いFlip Rateほど評価の順序非依存性が高い。\n",
+        "### 全体結果",
+        f"- **全体Flip Rate: {overall_flip_rate:.1f}%**（n = {total}比較）",
+        f"- **全体一致率: {100 - overall_flip_rate:.1f}%**\n",
+        "### メトリクス別結果",
+    ]
+    for m in METRICS:
+        if metric_totals.get(m, 0) > 0:
+            rate = metric_flips[m] / metric_totals[m] * 100
+            lines.append(
+                f"- {METRIC_DISPLAY.get(m, m)}: {rate:.1f}% "
+                f"({metric_flips[m]}/{metric_totals[m]})"
+            )
+    lines.extend([
+        "",
+        "### 解釈",
+        "Flip Rate < 20% は評価の位置バイアスが小さく、",
+        "ペアワイズ評価の信頼性が高いことを示唆する。",
+        "特定のメトリクスでFlip Rateが高い場合、",
+        "そのメトリクスの評価基準が曖昧である可能性がある。",
+    ])
+    (figures_dir / f"report_{exp_id}.md").write_text(
+        "\n".join(lines), encoding="utf-8",
+    )
 
 
 # =====================================================================
@@ -675,6 +745,14 @@ def vis_exp_304(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
             )
 
     fig.colorbar(im, ax=ax, shrink=0.8, label="Spearman $\\rho$")
+    # Show evaluations per model as a note
+    n_per_model = min(len(model_overalls[m]) for m in models)
+    ax.text(
+        0.5, -0.15,
+        f"n = {n_per_model} evaluations per model",
+        transform=ax.transAxes, fontsize=7, ha="center",
+        color="#666666", style="italic",
+    )
     ax.tick_params(labelsize=8)
     fig.tight_layout()
     all_paths.extend(save_figure(fig, figures_dir, f"fig_{exp_id}_1_corr_heatmap"))
@@ -706,8 +784,21 @@ def vis_exp_304(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                 parts[key].set_color("#333333")
                 parts[key].set_linewidth(0.8)
 
-        ax2.set_xticks(range(1, len(valid_labels) + 1))
-        ax2.set_xticklabels(valid_labels, fontsize=8, rotation=15, ha="right")
+        # Overlay individual data points as strip dots on each violin
+        for idx, vi in enumerate(valid_indices):
+            overlay_strip(
+                ax2, idx + 1, model_overalls[models[vi]],
+                PALETTE[idx % len(PALETTE)],
+                width=0.2, size=8, alpha=0.4,
+            )
+
+        # Include n= in x-tick labels
+        valid_labels_n = [
+            f"{label}\n(n={len(violin_data[vi])})"
+            for label, vi in zip(valid_labels, valid_indices)
+        ]
+        ax2.set_xticks(range(1, len(valid_labels_n) + 1))
+        ax2.set_xticklabels(valid_labels_n, fontsize=8, rotation=15, ha="right")
 
     ax2.set_ylabel("Overall Score", fontsize=9)
     ax2.tick_params(labelsize=8)
@@ -843,6 +934,8 @@ def vis_exp_305(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         ),
     )
 
+    annotate_n_header(ax, len(human_scores))
+
     ax.set_xlabel("Human Score", fontsize=9)
     ax.set_ylabel("LLM Score", fontsize=9)
     ax.tick_params(labelsize=8)
@@ -897,6 +990,25 @@ def vis_exp_306(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
             error_kw={"linewidth": 0.8},
         )
 
+    # Overlay individual scores as strip dots on each bar
+    for c_idx, cond in enumerate(conditions):
+        offset = (c_idx - (n_conds - 1) / 2) * bar_width
+        c = color_for(cond)
+        for m_idx, m in enumerate(METRICS):
+            raw = scores[cond].get(m, [])
+            if raw:
+                overlay_strip(
+                    ax, x_base[m_idx] + offset, raw, c,
+                    width=bar_width * 0.3, size=10, alpha=0.4,
+                )
+
+    # Sample size header
+    n_total = sum(
+        len(scores[cond].get(m, []))
+        for cond in conditions for m in METRICS
+    )
+    annotate_n_header(ax, n_total)
+
     # Significance annotations
     y_max = ax.get_ylim()[1]
     for sr in sig_results:
@@ -928,7 +1040,8 @@ def vis_exp_306(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
 
     ax.set_xticks(x_base)
     ax.set_xticklabels(
-        [METRIC_SHORT.get(m, m) for m in METRICS], fontsize=8,
+        [METRIC_DISPLAY.get(m, m) for m in METRICS],
+        fontsize=8, rotation=30, ha="right",
     )
     ax.set_ylabel("Score (1-10)", fontsize=9)
     ax.legend(fontsize=8)
@@ -999,6 +1112,14 @@ def vis_exp_306(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
             ax2.set_ylabel("Grounding Rate (%)", fontsize=9)
             ax2.legend(fontsize=8)
             ax2.tick_params(labelsize=8)
+            # Total sample count for grounding analysis
+            grounding_total = sum(
+                grounding[c].get("full", 0)
+                + grounding[c].get("partial", 0)
+                + grounding[c].get("none", 0)
+                for c in categories
+            )
+            annotate_n_header(ax2, grounding_total)
             fig2.tight_layout()
             all_paths.extend(
                 save_figure(fig2, figures_dir, f"fig_{exp_id}_2_stacked"),

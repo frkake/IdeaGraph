@@ -191,22 +191,22 @@ def load_pairwise_wins_by_source(run_dir: Path) -> dict[str, dict[str, int]]:
     return result
 
 
-def load_pairwise_swap_data(run_dir: Path) -> dict[str, dict[str, str]]:
-    """Load AB/BA swap test data: {paper_id: {ab_winner, ba_winner, consistent}}."""
-    result: dict[str, dict[str, str]] = {}
+def load_pairwise_swap_data(run_dir: Path) -> dict[str, list[dict]]:
+    """Load swap test data: {paper_id: [comparison_swap_entries]}."""
+    result: dict[str, list[dict]] = {}
     root = run_dir / "evaluations" / "pairwise"
     if not root.exists():
         return result
     for f in sorted(root.glob("*.json")):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
-            swap = data.get("swap_test", {})
-            if swap:
-                result[f.stem] = {
-                    "ab_winner": str(swap.get("ab_winner", "")),
-                    "ba_winner": str(swap.get("ba_winner", "")),
-                    "consistent": swap.get("consistent", True),
-                }
+            entries = []
+            for pr in data.get("pairwise_results", []):
+                swap = pr.get("swap_test_raw")
+                if swap:
+                    entries.append(swap)
+            if entries:
+                result[f.stem] = entries
         except Exception:
             continue
     return result

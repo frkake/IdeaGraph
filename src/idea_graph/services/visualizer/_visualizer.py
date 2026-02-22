@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from ._style import (
-    HAS_MPL, METRICS, METRIC_SHORT, METRIC_COLORS,
+    HAS_MPL, METRICS, METRIC_SHORT, METRIC_DISPLAY, METRIC_COLORS,
     safe_mean, safe_std, save_figure, clean_condition, logger,
     FIG_DOUBLE, FIG_DOUBLE_WIDE,
 )
@@ -102,7 +102,10 @@ class ExperimentVisualizer:
                     alpha=0.85, label=clean_condition(cond), error_kw={"linewidth": 0.8},
                 )
             ax.set_xticks(x_base)
-            ax.set_xticklabels([METRIC_SHORT.get(m, m) for m in METRICS])
+            ax.set_xticklabels(
+                [METRIC_DISPLAY.get(m, m) for m in METRICS],
+                fontsize=8, rotation=30, ha="right",
+            )
             ax.set_ylabel("Score (1\u201310)")
             ax.legend(fontsize=8)
             ax.grid(axis="y", alpha=0.3, linewidth=0.5)
@@ -113,6 +116,8 @@ class ExperimentVisualizer:
         # Radar chart
         if conditions:
             fig, ax = plt.subplots(figsize=(3.5, 3.5), subplot_kw={"polar": True})
+            ax.set_theta_offset(np.pi / 2)   # 0° を上（12時）に
+            ax.set_theta_direction(-1)        # 時計回り
             angles = [n / len(METRICS) * 2 * np.pi for n in range(len(METRICS))]
             angles += angles[:1]
             from ._style import color_for
@@ -122,7 +127,10 @@ class ExperimentVisualizer:
                 ax.plot(angles, values, "o-", linewidth=1.5, label=clean_condition(cond), color=color_for(cond), markersize=4)
                 ax.fill(angles, values, alpha=0.1, color=color_for(cond))
             ax.set_xticks(angles[:-1])
-            ax.set_xticklabels([METRIC_SHORT.get(m, m) for m in METRICS], fontsize=8)
+            ax.set_xticklabels(
+                [METRIC_DISPLAY.get(m, m) for m in METRICS],
+                fontsize=8, rotation=30, ha="right",
+            )
             ax.set_ylim(0, 10)
             ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=7)
             fig.tight_layout()

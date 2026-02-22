@@ -166,14 +166,20 @@ class PaperTableGenerator:
         sources = sorted(elo.keys())
         disp_metrics = METRICS + ["overall"]
 
+        # Determine sample size (N) per source
+        source_n: dict[str, int] = {}
+        for src in sources:
+            n_vals = [len(elo[src].get(m, [])) for m in disp_metrics]
+            source_n[src] = max(n_vals) if n_vals else 0
+
         # Pre-compute means for bold detection
         means_grid: dict[str, list[float]] = {}  # metric -> [mean per source]
         for m in disp_metrics:
             means_grid[m] = [safe_mean(elo[s].get(m, [])) for s in sources]
 
         # -- LaTeX --
-        col_spec = "l" + "r" * len(disp_metrics)
-        header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics]
+        col_spec = "l" + "r" * len(disp_metrics) + "r"
+        header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics] + ["$N$"]
         header = " & ".join(header_cells) + r" \\"
 
         tex_rows: list[str] = []
@@ -204,8 +210,8 @@ class PaperTableGenerator:
                     row[1][col_idx] = r"\textbf{" + row[1][col_idx] + "}"
 
         latex_body = "\n".join(
-            f"    {row[0]} & " + " & ".join(row[1]) + r" \\"
-            for row in tex_rows
+            f"    {row[0]} & " + " & ".join(row[1]) + f" & {source_n.get(sources[r_idx], 0)}" + r" \\"
+            for r_idx, row in enumerate(tex_rows)
         )
 
         latex = (
@@ -224,13 +230,13 @@ class PaperTableGenerator:
         )
 
         # -- Markdown --
-        md_header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics]
+        md_header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics] + ["N"]
         md_header = "| " + " | ".join(md_header_cells) + " |"
         md_sep = "|" + "|".join(
             " :---: " if i == 0 else " ---: " for i in range(len(md_header_cells))
         ) + "|"
 
-        md_rows: list[str] = []
+        md_rows: list[tuple[str, list[str], list[float], int]] = []
         for s_idx, src in enumerate(sources):
             name = display_name(src)
             cells: list[str] = []
@@ -244,7 +250,7 @@ class PaperTableGenerator:
                     cells.append(f"{mn:.0f} +/- {se:.0f}")
                 else:
                     cells.append(f"{mn:.0f}")
-            md_rows.append((name, cells, raw_for_bold))
+            md_rows.append((name, cells, raw_for_bold, source_n.get(src, 0)))
 
         for col_idx, m in enumerate(disp_metrics):
             col_raw = [row[2][col_idx] for row in md_rows]
@@ -256,7 +262,7 @@ class PaperTableGenerator:
                     row[1][col_idx] = f"**{row[1][col_idx]}**"
 
         md_body = "\n".join(
-            "| " + row[0] + " | " + " | ".join(row[1]) + " |"
+            "| " + row[0] + " | " + " | ".join(row[1]) + f" | {row[3]} |"
             for row in md_rows
         )
         markdown = f"{md_header}\n{md_sep}\n{md_body}\n"
@@ -299,9 +305,15 @@ class PaperTableGenerator:
 
         disp_metrics = METRICS + ["overall"]
 
+        # Determine sample size per method
+        method_n: dict[str, int] = {}
+        for method in method_order:
+            n_vals = [len(all_scores[method].get(m, [])) for m in disp_metrics]
+            method_n[method] = max(n_vals) if n_vals else 0
+
         # -- LaTeX --
-        col_spec = "l" + "r" * len(disp_metrics)
-        header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics]
+        col_spec = "l" + "r" * len(disp_metrics) + "r"
+        header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics] + ["$N$"]
         header = " & ".join(header_cells) + r" \\"
 
         tex_rows: list[tuple[str, list[str], list[float]]] = []
@@ -330,8 +342,8 @@ class PaperTableGenerator:
                     row[1][col_idx] = r"\textbf{" + row[1][col_idx] + "}"
 
         latex_body = "\n".join(
-            f"    {row[0]} & " + " & ".join(row[1]) + r" \\"
-            for row in tex_rows
+            f"    {row[0]} & " + " & ".join(row[1]) + f" & {method_n.get(method_order[r_idx], 0)}" + r" \\"
+            for r_idx, row in enumerate(tex_rows)
         )
 
         latex = (
@@ -351,9 +363,9 @@ class PaperTableGenerator:
 
         # -- Markdown --
         md_header = "| " + " | ".join(header_cells) + " |"
-        md_sep = "| :--- |" + " ---: |" * len(disp_metrics)
+        md_sep = "| :--- |" + " ---: |" * (len(disp_metrics) + 1)
 
-        md_rows: list[tuple[str, list[str], list[float]]] = []
+        md_rows_t2: list[tuple[str, list[str], list[float], int]] = []
         for method in method_order:
             cells = []
             raw = []
@@ -366,20 +378,20 @@ class PaperTableGenerator:
                     cells.append(f"{mn:.2f} +/- {sd:.2f}")
                 else:
                     cells.append(f"{mn:.2f}")
-            md_rows.append((method, cells, raw))
+            md_rows_t2.append((method, cells, raw, method_n.get(method, 0)))
 
         for col_idx in range(len(disp_metrics)):
-            col_raw = [row[2][col_idx] for row in md_rows]
+            col_raw = [row[2][col_idx] for row in md_rows_t2]
             if not col_raw:
                 continue
             best = max(col_raw)
-            for row in md_rows:
+            for row in md_rows_t2:
                 if row[2][col_idx] == best:
                     row[1][col_idx] = f"**{row[1][col_idx]}**"
 
         md_body = "\n".join(
-            "| " + row[0] + " | " + " | ".join(row[1]) + " |"
-            for row in md_rows
+            "| " + row[0] + " | " + " | ".join(row[1]) + f" | {row[3]} |"
+            for row in md_rows_t2
         )
         markdown = f"{md_header}\n{md_sep}\n{md_body}\n"
 
@@ -441,11 +453,18 @@ class PaperTableGenerator:
             best_label = clean_condition(best_cond)
             default_label = clean_condition(default_cond)
 
+            # Sample size: max N across conditions
+            n_samples = max(
+                (len(scores[c].get("overall", [])) for c in conds),
+                default=0,
+            )
+
             rows.append({
                 "param": param_name,
                 "best": best_label,
                 "default": default_label,
                 "delta": f"{delta:+.2f}",
+                "n": str(n_samples),
             })
             raw_deltas.append(delta)
 
@@ -453,7 +472,7 @@ class PaperTableGenerator:
             return None
 
         # -- LaTeX --
-        header = r"Parameter & Best Value & Default Value & $\Delta$ Overall \\"
+        header = r"Parameter & Best Value & Default Value & $\Delta$ Overall & $N$ \\"
         tex_rows: list[str] = []
         for row in rows:
             d_str = row["delta"]
@@ -463,7 +482,7 @@ class PaperTableGenerator:
             else:
                 d_str_tex = d_str
             tex_rows.append(
-                f"    {row['param']} & {row['best']} & {row['default']} & {d_str_tex}" + r" \\"
+                f"    {row['param']} & {row['best']} & {row['default']} & {d_str_tex} & {row['n']}" + r" \\"
             )
 
         latex = (
@@ -471,7 +490,7 @@ class PaperTableGenerator:
             r"  \centering" + "\n"
             r"  \caption{Ablation summary: best vs.\ default parameter settings.}" + "\n"
             r"  \label{tab:ablation-summary}" + "\n"
-            r"  \begin{tabular}{llll}" + "\n"
+            r"  \begin{tabular}{lllrr}" + "\n"
             r"    \toprule" + "\n"
             f"    {header}\n"
             r"    \midrule" + "\n"
@@ -482,15 +501,15 @@ class PaperTableGenerator:
         )
 
         # -- Markdown --
-        md_header = "| Parameter | Best Value | Default Value | Delta Overall |"
-        md_sep = "| :--- | :--- | :--- | ---: |"
+        md_header = "| Parameter | Best Value | Default Value | Delta Overall | N |"
+        md_sep = "| :--- | :--- | :--- | ---: | ---: |"
         md_rows_str: list[str] = []
         for row in rows:
             d = row["delta"]
             if d.startswith("+") and float(d) > 0:
                 d = f"**{d}**"
             md_rows_str.append(
-                f"| {row['param']} | {row['best']} | {row['default']} | {d} |"
+                f"| {row['param']} | {row['best']} | {row['default']} | {d} | {row['n']} |"
             )
         markdown = f"{md_header}\n{md_sep}\n" + "\n".join(md_rows_str) + "\n"
 
@@ -509,7 +528,7 @@ class PaperTableGenerator:
         # --- Mode Consistency: Spearman rho (EXP-301) ---
         exp301 = data.get("EXP-301")
         if exp301 is not None:
-            rho = self._compute_mode_consistency(exp301)
+            rho, n_mode = self._compute_mode_consistency(exp301)
             if rho is not None:
                 threshold = 0.7
                 status = "Y" if abs(rho) >= threshold else "N"
@@ -519,12 +538,13 @@ class PaperTableGenerator:
                     "value": f"{rho:.3f}",
                     "threshold": f"{threshold:.1f}",
                     "status": status,
+                    "n": str(n_mode),
                 })
 
         # --- Reproducibility: CV of repeat scores (EXP-302) ---
         exp302 = data.get("EXP-302")
         if exp302 is not None:
-            cv = self._compute_reproducibility_cv(exp302)
+            cv, n_repro = self._compute_reproducibility_cv(exp302)
             if cv is not None:
                 threshold = 0.10  # CV < 10% is good
                 status = "Y" if cv <= threshold else "N"
@@ -535,12 +555,13 @@ class PaperTableGenerator:
                     "threshold": f"$\\leq$ {threshold:.2f}",
                     "threshold_md": f"<= {threshold:.2f}",
                     "status": status,
+                    "n": str(n_repro),
                 })
 
         # --- Position Bias: Agreement rate (EXP-303) ---
         exp303 = data.get("EXP-303")
         if exp303 is not None:
-            agree = self._compute_position_bias(exp303)
+            agree, n_bias = self._compute_position_bias(exp303)
             if agree is not None:
                 threshold = 80.0  # >= 80% agreement
                 status = "Y" if agree >= threshold else "N"
@@ -552,6 +573,7 @@ class PaperTableGenerator:
                     "threshold": f"$\\geq$ {threshold:.0f}\\%",
                     "threshold_md": f">= {threshold:.0f}%",
                     "status": status,
+                    "n": str(n_bias),
                 })
 
         if not validity_rows:
@@ -559,14 +581,15 @@ class PaperTableGenerator:
 
         # -- LaTeX --
         status_sym = {"Y": r"\checkmark", "N": r"$\times$"}
-        header = r"Metric & Value & Threshold & Status \\"
+        header = r"Metric & Value & Threshold & Status & $N$ \\"
         tex_rows: list[str] = []
         for row in validity_rows:
             s = status_sym.get(row["status"], row["status"])
             val = row.get("value", "")
             thr = row.get("threshold", "")
+            n_val = row.get("n", "")
             tex_rows.append(
-                f"    {row['metric']} & {val} & {thr} & {s}" + r" \\"
+                f"    {row['metric']} & {val} & {thr} & {s} & {n_val}" + r" \\"
             )
 
         latex = (
@@ -574,7 +597,7 @@ class PaperTableGenerator:
             r"  \centering" + "\n"
             r"  \caption{Evaluation validity metrics.}" + "\n"
             r"  \label{tab:eval-validity}" + "\n"
-            r"  \begin{tabular}{llll}" + "\n"
+            r"  \begin{tabular}{llllr}" + "\n"
             r"    \toprule" + "\n"
             f"    {header}\n"
             r"    \midrule" + "\n"
@@ -585,8 +608,8 @@ class PaperTableGenerator:
         )
 
         # -- Markdown --
-        md_header = "| Metric | Value | Threshold | Status |"
-        md_sep = "| :--- | ---: | :--- | :---: |"
+        md_header = "| Metric | Value | Threshold | Status | N |"
+        md_sep = "| :--- | ---: | :--- | :---: | ---: |"
         md_body_lines: list[str] = []
         for row in validity_rows:
             val = row.get("value_md", row.get("value", "").replace("\\%", "%"))
@@ -595,8 +618,9 @@ class PaperTableGenerator:
             val = val.replace("$", "").replace("\\rho", "rho")
             thr = thr.replace("$", "").replace("\\rho", "rho")
             status_emoji = "Pass" if row["status"] == "Y" else "Fail"
+            n_val = row.get("n", "")
             md_body_lines.append(
-                f"| {row['metric_md']} | {val} | {thr} | {status_emoji} |"
+                f"| {row['metric_md']} | {val} | {thr} | {status_emoji} | {n_val} |"
             )
         markdown = f"{md_header}\n{md_sep}\n" + "\n".join(md_body_lines) + "\n"
 
@@ -605,11 +629,12 @@ class PaperTableGenerator:
     # -- Table 4 sub-computations ------------------------------------------
 
     @staticmethod
-    def _compute_mode_consistency(exp) -> float | None:
+    def _compute_mode_consistency(exp) -> tuple[float | None, int]:
         """Compute Spearman rho between single and pairwise scores for EXP-301.
 
-        For each paper × condition, match the single-mode overall score
+        For each paper x condition, match the single-mode overall score
         with the per-paper pairwise ELO for the same source.
+        Returns (rho, n_pairs).
         """
         per_paper = load_single_scores_per_paper(exp.run_dir)
         pw_per_paper = load_pairwise_elo_per_paper(exp.run_dir)
@@ -629,21 +654,25 @@ class PaperTableGenerator:
                         pairwise_vals.append(pw_val)
                         break
 
-        if len(single_vals) < 3:
-            return None
+        n = len(single_vals)
+        if n < 3:
+            return None, n
 
         try:
             from idea_graph.services.aggregator import spearman
-            return spearman(single_vals, pairwise_vals)
+            return spearman(single_vals, pairwise_vals), n
         except ImportError:
-            return None
+            return None, n
 
     @staticmethod
-    def _compute_reproducibility_cv(exp) -> float | None:
-        """Compute coefficient of variation across repeat evaluations."""
+    def _compute_reproducibility_cv(exp) -> tuple[float | None, int]:
+        """Compute coefficient of variation across repeat evaluations.
+
+        Returns (cv, n_repeats).
+        """
         repeat = load_repeat_scores(exp.run_dir)
         if not repeat:
-            return None
+            return None, 0
 
         all_means: list[float] = []
         for _cond, metrics_by_repeat in repeat.items():
@@ -652,21 +681,25 @@ class PaperTableGenerator:
                 if scores_list:
                     all_means.append(safe_mean(scores_list))
 
-        if len(all_means) < 2:
-            return None
+        n = len(all_means)
+        if n < 2:
+            return None, n
 
         mn = safe_mean(all_means)
         sd = safe_std(all_means)
         if mn == 0:
-            return None
-        return sd / mn
+            return None, n
+        return sd / mn, n
 
     @staticmethod
-    def _compute_position_bias(exp) -> float | None:
-        """Compute AB/BA agreement rate from swap test data."""
+    def _compute_position_bias(exp) -> tuple[float | None, int]:
+        """Compute AB/BA agreement rate from swap test data.
+
+        Returns (agreement_pct, n_pairs).
+        """
         swap = load_pairwise_swap_data(exp.run_dir)
         if not swap:
-            return None
+            return None, 0
 
         total = 0
         consistent = 0
@@ -679,5 +712,5 @@ class PaperTableGenerator:
                     consistent += 1
 
         if total == 0:
-            return None
-        return consistent / total * 100.0
+            return None, 0
+        return consistent / total * 100.0, total

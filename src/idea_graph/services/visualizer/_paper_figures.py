@@ -33,6 +33,9 @@ from ._style import (
     safe_std,
     safe_sem,
     save_figure,
+    overlay_strip,
+    annotate_n,
+    annotate_n_header,
     logger,
 )
 from ._cross_loader import CrossExperimentLoader, CrossExperimentData
@@ -170,6 +173,23 @@ class PaperFigureGenerator:
                 label=display_name(src),
                 error_kw={"linewidth": 0.8},
             )
+            # Overlay individual ELO values as strip dots
+            for m_idx, m in enumerate(display_metrics):
+                raw_vals = elo[src].get(m, [])
+                bar_x = x[m_idx] + offset
+                overlay_strip(
+                    ax, bar_x, raw_vals, color_for(src),
+                    width=bar_w * 0.3, size=10, alpha=0.4,
+                    seed=42 + s_idx * 10 + m_idx,
+                )
+
+        # Sample size annotation
+        sample_n = max(
+            (len(elo[s].get(m, [])) for s in sources for m in display_metrics),
+            default=0,
+        )
+        if sample_n > 0:
+            annotate_n_header(ax, sample_n)
 
         # ELO=1000 baseline
         ax.axhline(1000, color="#888888", linestyle="--", linewidth=0.7, zorder=0)
@@ -220,6 +240,8 @@ class PaperFigureGenerator:
         angles += angles[:1]  # close polygon
 
         fig, ax = plt.subplots(figsize=FIG_SINGLE_TALL, subplot_kw={"polar": True})
+        ax.set_theta_offset(np.pi / 2)   # 0° を上（12時）に
+        ax.set_theta_direction(-1)        # 時計回り
 
         for src in sources:
             vals = [safe_mean(elo[src].get(m, [])) for m in METRICS]
@@ -231,6 +253,25 @@ class PaperFigureGenerator:
                 label=display_name(src),
             )
             ax.fill(angles, vals, alpha=0.12, color=c)
+
+        # Overlay individual paper values along each radar axis
+        for m_idx, m in enumerate(METRICS):
+            angle = angles[m_idx]
+            for src in sources:
+                raw = elo[src].get(m, [])
+                for val in raw:
+                    ax.scatter(
+                        [angle], [val], s=6, alpha=0.2,
+                        color=color_for(src), edgecolors="none", zorder=2,
+                    )
+
+        # Sample size annotation
+        sample_n = max(
+            (len(elo[s].get(m, [])) for s in sources for m in METRICS),
+            default=0,
+        )
+        if sample_n > 0:
+            annotate_n_header(ax, sample_n)
 
         ax.set_xticks(angles[:-1])
         ax.set_xticklabels([METRIC_DISPLAY.get(m, m) for m in METRICS])
@@ -282,10 +323,24 @@ class PaperFigureGenerator:
                 s_arr = np.array(sems)
                 ax1.plot(x_arr, m_arr, "o-", color=METRIC_COLORS["overall"], linewidth=1.5, markersize=4)
                 ax1.fill_between(x_arr, m_arr - s_arr, m_arr + s_arr, alpha=0.15, color=METRIC_COLORS["overall"])
+                # Overlay individual paper scores
+                for idx, c in enumerate(sorted_conds):
+                    raw = scores201[c].get("overall", [])
+                    if raw:
+                        jitter = np.random.default_rng(42 + idx).uniform(-0.15, 0.15, len(raw))
+                        ax1.scatter(
+                            [x_vals[idx] + j for j in jitter], raw,
+                            s=6, alpha=0.3, color=METRIC_COLORS["overall"],
+                            edgecolors="none", zorder=2,
+                        )
                 # Mark optimal
                 if len(m_arr) > 0:
                     best = int(np.argmax(m_arr))
                     ax1.plot(x_arr[best], m_arr[best], "*", color=METRIC_COLORS["overall"], markersize=10, zorder=5)
+                # n annotation
+                n1 = max((len(scores201[c].get("overall", [])) for c in sorted_conds), default=0)
+                if n1 > 0:
+                    annotate_n_header(ax1, n1)
                 ax1.set_xlabel("Max Hops")
             else:
                 ax1.text(0.5, 0.5, "N/A", transform=ax1.transAxes, ha="center", va="center")
@@ -310,6 +365,14 @@ class PaperFigureGenerator:
                     best_idx = int(np.argmax(means))
                     bars[best_idx].set_edgecolor("#222222")
                     bars[best_idx].set_linewidth(1.5)
+                # Overlay individual paper scores
+                for idx, c in enumerate(conds):
+                    raw = scores202[c].get("overall", [])
+                    overlay_strip(ax2, idx, raw, colors[idx], width=0.2, size=8, alpha=0.4, seed=42 + idx)
+                # n annotation
+                n2 = max((len(scores202[c].get("overall", [])) for c in conds), default=0)
+                if n2 > 0:
+                    annotate_n_header(ax2, n2)
             else:
                 ax2.text(0.5, 0.5, "N/A", transform=ax2.transAxes, ha="center", va="center")
         else:
@@ -332,6 +395,14 @@ class PaperFigureGenerator:
                     best_idx = int(np.argmax(means))
                     bars[best_idx].set_edgecolor("#222222")
                     bars[best_idx].set_linewidth(1.5)
+                # Overlay individual paper scores
+                for idx, c in enumerate(conds):
+                    raw = scores203[c].get("overall", [])
+                    overlay_strip(ax3, idx, raw, colors[idx], width=0.2, size=8, alpha=0.4, seed=42 + idx)
+                # n annotation
+                n3 = max((len(scores203[c].get("overall", [])) for c in conds), default=0)
+                if n3 > 0:
+                    annotate_n_header(ax3, n3)
             else:
                 ax3.text(0.5, 0.5, "N/A", transform=ax3.transAxes, ha="center", va="center")
         else:
@@ -415,6 +486,17 @@ class PaperFigureGenerator:
                     for patch in bp["boxes"]:
                         patch.set_facecolor(METRIC_COLORS.get("overall", "#AAAAAA"))
                         patch.set_alpha(0.5)
+                    # Overlay individual points inside boxes
+                    for idx, scores_list in enumerate(box_data):
+                        overlay_strip(
+                            ax1, idx + 1, scores_list,
+                            METRIC_COLORS.get("overall", "#AAAAAA"),
+                            width=0.15, size=6, alpha=0.4, seed=42 + idx,
+                        )
+                    # n annotation
+                    n_box = max((len(sl) for sl in box_data), default=0)
+                    if n_box > 0:
+                        annotate_n_header(ax1, n_box)
                     ax1.set_ylabel("Overall Score")
                 else:
                     ax1.text(0.5, 0.5, "N/A", transform=ax1.transAxes, ha="center", va="center")

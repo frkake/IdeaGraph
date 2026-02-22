@@ -227,6 +227,72 @@ def safe_sem(vals: list[float]) -> float:
 # ── Save helper ──
 
 
+def overlay_strip(
+    ax,
+    x_center: float,
+    values: list[float],
+    color: str,
+    width: float = 0.15,
+    size: int = 12,
+    alpha: float = 0.45,
+    seed: int = 42,
+    zorder: int = 4,
+) -> None:
+    """Overlay individual data points as a jittered strip on a bar chart.
+
+    Adds semi-transparent scatter dots around *x_center* so that each
+    individual sample is visible alongside aggregate bars.
+    """
+    if not values or not HAS_MPL:
+        return
+    rng = np.random.default_rng(seed)
+    jitter = rng.uniform(-width / 2, width / 2, size=len(values))
+    ax.scatter(
+        [x_center + j for j in jitter],
+        values,
+        s=size,
+        color=color,
+        alpha=alpha,
+        edgecolors="white",
+        linewidth=0.3,
+        zorder=zorder,
+    )
+
+
+def annotate_n(
+    ax,
+    x: float,
+    y: float,
+    n: int,
+    fontsize: int = 7,
+    va: str = "top",
+    color: str = "#666666",
+) -> None:
+    """Add a sample-size annotation (e.g. 'n=10') at (*x*, *y*)."""
+    ax.text(
+        x, y, f"n={n}",
+        ha="center", va=va, fontsize=fontsize,
+        color=color, style="italic",
+    )
+
+
+def annotate_n_header(
+    ax,
+    n: int,
+    fontsize: int = 8,
+) -> None:
+    """Add 'N = X papers' text in the upper-right corner of *ax*."""
+    ax.text(
+        0.97, 0.97, f"N = {n}",
+        transform=ax.transAxes, fontsize=fontsize,
+        ha="right", va="top", color="#555555",
+        bbox=dict(
+            boxstyle="round,pad=0.3", facecolor="#F8F8F8",
+            edgecolor="#D1D5DB", alpha=0.85,
+        ),
+    )
+
+
 def save_figure(fig, output_dir: Path, name: str) -> list[Path]:
     """Save figure as PNG (300 DPI) + SVG. Returns list of saved paths."""
     output_dir.mkdir(parents=True, exist_ok=True)

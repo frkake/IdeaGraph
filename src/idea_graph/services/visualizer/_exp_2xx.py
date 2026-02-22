@@ -45,6 +45,9 @@ from ._style import (
     safe_std,
     safe_sem,
     save_figure,
+    overlay_strip,
+    annotate_n,
+    annotate_n_header,
     logger,
     PALETTE,
 )
@@ -135,6 +138,20 @@ def _sweep_figures(
                 alpha=0.12, color=color,
             )
 
+        # Individual data points for "overall" metric (behind lines)
+        if metric == "overall":
+            for idx, c in enumerate(sorted_conds):
+                raw_vals = scores[c].get("overall", [])
+                if raw_vals:
+                    jitter = np.random.default_rng(42 + idx).uniform(
+                        -0.1, 0.1, len(raw_vals),
+                    )
+                    ax1.scatter(
+                        [x_values[idx] + j for j in jitter], raw_vals,
+                        s=8, alpha=0.3, color=color, edgecolors="none",
+                        zorder=2,
+                    )
+
         # Star on optimal point (overall only)
         if metric == "overall" and len(m_arr) > 0:
             best_idx = int(np.argmax(m_arr))
@@ -142,6 +159,12 @@ def _sweep_figures(
                 x_arr[best_idx], m_arr[best_idx], "*",
                 color=color, markersize=14, zorder=5,
             )
+
+    # Sample size annotation
+    sample_counts = [len(scores[c].get("overall", [])) for c in sorted_conds]
+    n_typical = max(sample_counts) if sample_counts else 0
+    if n_typical > 0:
+        annotate_n_header(ax1, n_typical)
 
     ax1.set_xlabel(xlabel, fontsize=9)
     ax1.set_ylabel("Score (1\u201310)", fontsize=9)
@@ -164,7 +187,7 @@ def _sweep_figures(
         str(int(x)) if x == int(x) else f"{x:.1f}" for x in x_values
     ]
 
-    im = ax2.imshow(arr, cmap="YlOrRd", aspect="auto")
+    im = ax2.imshow(arr, cmap="YlGnBu", aspect="auto")
     ax2.set_xticks(range(len(col_labels)))
     ax2.set_xticklabels(col_labels, fontsize=8)
     ax2.set_yticks(range(len(row_labels)))
@@ -190,6 +213,21 @@ def _sweep_figures(
     ax2.set_xlabel("Metric", fontsize=9)
     ax2.set_ylabel(xlabel, fontsize=9)
     ax2.tick_params(axis="both", labelsize=8)
+
+    # Note about sample sizes per cell
+    n_per_cell = [
+        len(scores[c].get(METRICS[0], [])) for c in sorted_conds
+    ]
+    n_unique = sorted(set(n_per_cell))
+    if len(n_unique) == 1:
+        n_note = f"Each cell: mean score (n={n_unique[0]} per cell)"
+    else:
+        n_note = f"Each cell: mean score (n={min(n_unique)}\u2013{max(n_unique)} per cell)"
+    ax2.text(
+        0.5, -0.08, n_note, transform=ax2.transAxes,
+        ha="center", va="top", fontsize=7, color="#666666", style="italic",
+    )
+
     fig2.tight_layout()
     all_paths.extend(save_figure(fig2, figures_dir, f"fig_{exp_id}_2_heatmap"))
     plt.close(fig2)
@@ -240,9 +278,28 @@ def _grouped_bar_figure(
             label=clean_condition(cond), error_kw={"linewidth": 1},
         )
 
+        # Overlay individual data points as strip dots
+        for m_idx, m in enumerate(METRICS):
+            raw = scores[cond].get(m, [])
+            if raw:
+                overlay_strip(
+                    ax, x_base[m_idx] + offset, raw, color,
+                    width=bar_width * 0.3, size=8, alpha=0.35,
+                    seed=42 + c_idx * 10 + m_idx,
+                )
+
+    # Sample size annotation
+    sample_counts = [
+        len(scores[c].get(METRICS[0], [])) for c in conditions
+    ]
+    n_typical = max(sample_counts) if sample_counts else 0
+    if n_typical > 0:
+        annotate_n_header(ax, n_typical)
+
     ax.set_xticks(x_base)
     ax.set_xticklabels(
-        [METRIC_DISPLAY.get(m, m) for m in METRICS], fontsize=8,
+        [METRIC_DISPLAY.get(m, m) for m in METRICS],
+        fontsize=8, rotation=30, ha="right",
     )
     ax.set_ylabel("Score (1\u201310)", fontsize=9)
     ax.tick_params(axis="both", labelsize=8)
@@ -277,11 +334,15 @@ def _generate_sweep_tables(
     output_dir.mkdir(parents=True, exist_ok=True)
     display_metrics = METRICS + ["overall"]
 
-    # Compute mean scores per condition/metric
+    # Compute mean scores and sample counts per condition/metric
     mean_grid: list[list[float]] = []
+    n_per_cond: list[int] = []
     for cond in sorted_conds:
         row = [safe_mean(scores[cond].get(m, [])) for m in display_metrics]
         mean_grid.append(row)
+        # N = sample count (use first available metric)
+        sample_counts = [len(scores[cond].get(m, [])) for m in display_metrics]
+        n_per_cond.append(max(sample_counts) if sample_counts else 0)
 
     # Identify column-best indices
     best_per_col: list[int] = []
@@ -294,11 +355,11 @@ def _generate_sweep_tables(
 
     # -- Markdown --
     header = (
-        f"| {xlabel} | "
+        f"| {xlabel} | N | "
         + " | ".join(METRIC_SHORT.get(m, m) for m in display_metrics)
         + " |"
     )
-    sep = "|-------:|" + "|".join("--------:" for _ in display_metrics) + "|"
+    sep = "|-------:|---:|" + "|".join("--------:" for _ in display_metrics) + "|"
     rows: list[str] = []
     for i, (x, cond) in enumerate(zip(x_values, sorted_conds)):
         x_label = str(int(x)) if x == int(x) else f"{x:.1f}"
@@ -309,7 +370,7 @@ def _generate_sweep_tables(
             if i == best_per_col[j]:
                 cell = f"**{cell}**"
             cells.append(cell)
-        rows.append(f"| {x_label} | " + " | ".join(cells) + " |")
+        rows.append(f"| {x_label} | {n_per_cond[i]} | " + " | ".join(cells) + " |")
 
     md = (
         f"## {exp_id}: {xlabel} Ablation\n\n"
@@ -318,10 +379,10 @@ def _generate_sweep_tables(
     (output_dir / f"table_{exp_id}.md").write_text(md, encoding="utf-8")
 
     # -- LaTeX (booktabs, bold best) --
-    col_spec = "r" + "r" * len(display_metrics)
+    col_spec = "rr" + "r" * len(display_metrics)
     header_tex = (
         " & ".join(
-            [xlabel] + [METRIC_SHORT.get(m, m) for m in display_metrics]
+            [xlabel, "$N$"] + [METRIC_SHORT.get(m, m) for m in display_metrics]
         )
         + r" \\"
     )
@@ -335,7 +396,9 @@ def _generate_sweep_tables(
             if i == best_per_col[j]:
                 cell = rf"\textbf{{{cell}}}"
             cells.append(cell)
-        tex_rows.append(f"  {x_label} & " + " & ".join(cells) + r" \\")
+        tex_rows.append(
+            f"  {x_label} & {n_per_cond[i]} & " + " & ".join(cells) + r" \\"
+        )
 
     tex = (
         r"\begin{table}[htbp]" + "\n"
@@ -480,6 +543,26 @@ def vis_exp_205(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     """Graph size ablation: sweep + heatmap + tables."""
     if not HAS_MPL:
         return []
+
+    scores = load_single_scores(run_dir)
+    if not scores or all(
+        not any(v for v in m.values()) for m in scores.values()
+    ):
+        logger.warning(
+            "%s: 評価データが存在しません（プレースホルダー論文のみの可能性）。"
+            "実データを配置後に再実行してください。",
+            exp_id,
+        )
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        (figures_dir / f"report_{exp_id}.md").write_text(
+            f"## {exp_id}: Graph Size Effect\n\n"
+            "評価データが存在しないため、可視化をスキップしました。\n"
+            "プレースホルダー論文のみが含まれている可能性があります。\n"
+            "実データを配置後に `visualize` コマンドを再実行してください。\n",
+            encoding="utf-8",
+        )
+        return []
+
     return _sweep_figures(
         run_dir, figures_dir, exp_id, xlabel="Graph Size Limit",
     )
@@ -536,10 +619,23 @@ def vis_exp_206(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
 
     fig, ax = plt.subplots(figsize=FIG_DOUBLE)
 
+    # Individual data points behind lines
+    for idx, c in enumerate(sorted_conds):
+        raw = scores[c].get("overall", [])
+        if raw:
+            jitter = np.random.default_rng(42 + idx).uniform(
+                -0.15, 0.15, len(raw),
+            )
+            ax.scatter(
+                [x_values[idx] + j for j in jitter], raw,
+                s=8, alpha=0.25, color=TOL_BLUE, edgecolors="none",
+                zorder=2,
+            )
+
     # Line 1: Mean Overall (blue, solid circles)
     ax.plot(
         x_arr, mean_arr, "o-", color=TOL_BLUE, linewidth=2.5,
-        label="Mean Overall", markersize=6,
+        label="Mean Overall", markersize=6, zorder=3,
     )
     ax.fill_between(
         x_arr, mean_arr - mean_sem_arr, mean_arr + mean_sem_arr,
@@ -549,7 +645,7 @@ def vis_exp_206(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     # Line 2: Best-of-N (red, dashed squares)
     ax.plot(
         x_arr, best_arr, "s--", color=TOL_RED, linewidth=2.5,
-        label="Best-of-N", markersize=6,
+        label="Best-of-N", markersize=6, zorder=3,
     )
     ax.fill_between(
         x_arr, best_arr - best_sem_arr, best_arr + best_sem_arr,
@@ -560,6 +656,12 @@ def vis_exp_206(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     ax.fill_between(
         x_arr, mean_arr, best_arr, alpha=0.08, color=TOL_PURPLE,
     )
+
+    # Sample size annotation
+    sample_counts = [len(scores[c].get("overall", [])) for c in sorted_conds]
+    n_typical = max(sample_counts) if sample_counts else 0
+    if n_typical > 0:
+        annotate_n_header(ax, n_typical)
 
     ax.set_xlabel("Num Proposals", fontsize=9)
     ax.set_ylabel("Overall Score (1\u201310)", fontsize=9)
@@ -630,8 +732,9 @@ def vis_exp_207(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         edgecolors="white", linewidth=0.8,
     )
     for i, label in enumerate(labels):
+        n_cond = len(scores[conditions[i]].get("overall", []))
         ax.annotate(
-            label, (costs[i], overall_scores[i]),
+            f"{label} (n={n_cond})", (costs[i], overall_scores[i]),
             fontsize=7, xytext=(6, 6), textcoords="offset points",
         )
 
@@ -655,6 +758,12 @@ def vis_exp_207(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     ax.tick_params(axis="both", labelsize=8)
     ax.legend(fontsize=8)
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+
+    # Sample size annotation
+    total_n = sum(len(scores[c].get("overall", [])) for c in conditions)
+    if total_n > 0:
+        annotate_n_header(ax, total_n)
+
     fig.tight_layout()
     all_paths.extend(
         save_figure(fig, figures_dir, f"fig_{exp_id}_1_pareto"),
@@ -817,11 +926,11 @@ def vis_exp_208(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                 xl, np.polyval(c, xl), "--", color=TOL_RED, linewidth=1.5,
             )
 
-        # rho annotation
+        # rho + n annotation
         if len(dx) >= 3:
             rho_m = spearman(dx, dy)
             ax.text(
-                0.05, 0.95, f"\u03c1 = {rho_m:.3f}",
+                0.05, 0.95, f"\u03c1 = {rho_m:.3f}\nn = {len(dx)}",
                 transform=ax.transAxes, fontsize=7, va="top",
                 bbox=dict(
                     boxstyle="round", facecolor="white",
@@ -851,15 +960,16 @@ def vis_exp_208(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
             dx, dy = all_metric_pairs[m]
             if len(dx) >= 3:
                 rho_m = spearman(dx, dy)
-                metric_labels.append(METRIC_SHORT.get(m, m.capitalize()))
+                metric_labels.append(METRIC_DISPLAY.get(m, m.capitalize()))
                 rho_values.append(rho_m)
 
         if metric_labels:
             colors = [
                 TOL_GREEN if abs(v) < 0.3 else TOL_RED for v in rho_values
             ]
+            x_pos = np.arange(len(metric_labels))
             bars = ax3.bar(
-                metric_labels, [abs(v) for v in rho_values],
+                x_pos, [abs(v) for v in rho_values],
                 color=colors, alpha=0.85, edgecolor="white",
             )
             ax3.axhline(
@@ -867,10 +977,15 @@ def vis_exp_208(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                 alpha=0.7, label="|\u03c1| = 0.3",
             )
 
+            ax3.set_xticks(x_pos)
+            ax3.set_xticklabels(
+                metric_labels, fontsize=8, rotation=30, ha="right",
+            )
             ax3.set_ylabel("|Spearman \u03c1|", fontsize=9)
             ax3.tick_params(axis="both", labelsize=8)
             ax3.legend(fontsize=8)
             ax3.grid(axis="y", alpha=0.3, linewidth=0.5)
+            annotate_n_header(ax3, n)
             ax3.set_ylim(
                 0,
                 max(abs(v) for v in rho_values) * 1.3

@@ -17,6 +17,7 @@ from ._registry import register
 from ._loaders import (
     load_pairwise_elo_by_source,
     load_single_scores,
+    load_single_scores_per_paper,
     load_pairwise_details,
     load_pairwise_wins,
 )
@@ -47,6 +48,9 @@ from ._style import (
     safe_mean,
     safe_std,
     safe_sem,
+    overlay_strip,
+    annotate_n,
+    annotate_n_header,
     save_figure,
     logger,
 )
@@ -121,6 +125,20 @@ def _single_score_bar(
         error_kw={"linewidth": 0.8, "capthick": 0.8},
     )
 
+    # Overlay individual data points as strip dots
+    for i, m in enumerate(display_metrics):
+        raw_vals = cond_scores.get(m, [])
+        if raw_vals:
+            overlay_strip(
+                ax, x[i], raw_vals, colors[i],
+                width=0.25, size=12, alpha=0.45, seed=42 + i,
+            )
+
+    # Annotate sample size in upper-right corner
+    first_metric_vals = cond_scores.get(display_metrics[0], [])
+    if first_metric_vals:
+        annotate_n_header(ax, len(first_metric_vals))
+
     # Value labels on bars
     for bar, val in zip(bars, means):
         ax.text(
@@ -131,7 +149,7 @@ def _single_score_bar(
         )
 
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_xticklabels(labels, fontsize=8, rotation=30, ha="right")
     ax.set_ylabel("Score (1\u201310)", fontsize=9)
     ax.set_ylim(0, 10.5)
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
@@ -226,6 +244,9 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         logger.warning("EXP-101: No pairwise ELO data found")
         return all_paths
 
+    # Load raw ELO data for strip overlay
+    elo_by_source = load_pairwise_elo_by_source(run_dir)
+
     sources = sorted(elo_summary.keys())
     display_metrics = METRICS + ["overall"]
 
@@ -253,6 +274,30 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
             label=display_name(source),
             error_kw={"linewidth": 0.8, "capthick": 0.8},
         )
+
+        # Overlay individual ELO values as strip dots
+        src_color = color_for(source)
+        for m_idx, m in enumerate(display_metrics):
+            raw_elos = elo_by_source.get(source, {}).get(m, [])
+            if raw_elos:
+                overlay_strip(
+                    ax1, x_base[m_idx] + offset, raw_elos, src_color,
+                    width=bar_width * 0.3, size=12, alpha=0.45,
+                    seed=42 + s_idx * 100 + m_idx,
+                )
+
+    # Annotate sample size
+    _n_papers = 0
+    for source in sources:
+        for m in display_metrics:
+            vals = elo_by_source.get(source, {}).get(m, [])
+            if vals:
+                _n_papers = len(vals)
+                break
+        if _n_papers:
+            break
+    if _n_papers:
+        annotate_n_header(ax1, _n_papers)
 
     # Zoom Y axis to data range
     all_means = [
@@ -337,6 +382,7 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
             ax2.set_xlim(0, max(win_pcts) * 1.2)
             ax2.invert_yaxis()
             ax2.grid(axis="x", alpha=0.3, linewidth=0.5)
+            annotate_n_header(ax2, total_papers)
             fig2.tight_layout()
             all_paths.extend(save_figure(fig2, figures_dir, f"fig_{exp_id}_2_win_rate"))
             plt.close(fig2)
@@ -383,6 +429,8 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         ))
 
     fig3.colorbar(im, ax=ax3, label="ELO Rating", shrink=0.8)
+    if _n_papers:
+        annotate_n_header(ax3, _n_papers)
     fig3.tight_layout()
     all_paths.extend(save_figure(fig3, figures_dir, f"fig_{exp_id}_3_elo_heatmap"))
     plt.close(fig3)
@@ -397,6 +445,8 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     fig4, ax4 = plt.subplots(
         figsize=FIG_SINGLE_TALL, subplot_kw={"polar": True},
     )
+    ax4.set_theta_offset(np.pi / 2)   # 0° を上（12時）に
+    ax4.set_theta_direction(-1)        # 時計回り
 
     for source in sources:
         values = [elo_summary[source].get(m, (1000, 0))[0] for m in METRICS]
@@ -423,6 +473,8 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         ax4.set_ylim(min(radar_vals) - 30, max(radar_vals) + 30)
 
     ax4.tick_params(axis="y", labelsize=7)
+    if _n_papers:
+        annotate_n_header(ax4, _n_papers)
     ax4.legend(
         fontsize=8, loc="upper right",
         bbox_to_anchor=(1.30, 1.08), framealpha=0.9,
@@ -456,6 +508,20 @@ def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         logger.warning("EXP-102: No pairwise ELO data found")
         return all_paths
 
+    # Load raw ELO data for strip overlay and sample count
+    elo_by_source = load_pairwise_elo_by_source(run_dir)
+
+    # Determine paper count from raw data
+    _n_papers_102 = 0
+    for source in sorted(elo_summary.keys()):
+        for m in METRICS + ["overall"]:
+            vals = elo_by_source.get(source, {}).get(m, [])
+            if vals:
+                _n_papers_102 = len(vals)
+                break
+        if _n_papers_102:
+            break
+
     sources = sorted(elo_summary.keys())
 
     # ------------------------------------------------------------------
@@ -464,6 +530,8 @@ def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     fig1, ax1 = plt.subplots(
         figsize=FIG_SINGLE_TALL, subplot_kw={"polar": True},
     )
+    ax1.set_theta_offset(np.pi / 2)   # 0° を上（12時）に
+    ax1.set_theta_direction(-1)        # 時計回り
 
     n_metrics = len(METRICS)
     angles = [i / n_metrics * 2 * np.pi for i in range(n_metrics)]
@@ -497,6 +565,8 @@ def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         ax1.set_ylim(r_min, r_max)
 
     ax1.tick_params(axis="y", labelsize=7)
+    if _n_papers_102:
+        annotate_n_header(ax1, _n_papers_102)
     ax1.legend(
         fontsize=8, loc="upper right",
         bbox_to_anchor=(1.25, 1.05),
@@ -535,6 +605,20 @@ def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         error_kw={"linewidth": 0.8, "capthick": 0.8},
     )
 
+    # Overlay individual overall ELO values as horizontal strip dots
+    for bar_idx, (source, _) in enumerate(overall_elos):
+        raw_overall = elo_by_source.get(source, {}).get("overall", [])
+        if raw_overall:
+            rng = np.random.default_rng(42 + bar_idx)
+            jitter = rng.uniform(-0.12, 0.12, size=len(raw_overall))
+            ax2.scatter(
+                raw_overall,
+                [bar_idx + j for j in jitter],
+                s=12, alpha=0.45,
+                color=bar_colors[bar_idx],
+                edgecolors="white", linewidth=0.3, zorder=4,
+            )
+
     ax2.set_yticks(range(len(bar_labels)))
     ax2.set_yticklabels(bar_labels, fontsize=8)
     ax2.set_xlabel("Overall ELO Rating", fontsize=9)
@@ -559,6 +643,8 @@ def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
 
     ax2.invert_yaxis()
     ax2.grid(axis="x", alpha=0.3, linewidth=0.5)
+    if _n_papers_102:
+        annotate_n_header(ax2, _n_papers_102)
     fig2.tight_layout()
     all_paths.extend(save_figure(fig2, figures_dir, f"fig_{exp_id}_2_elo_ranking"))
     plt.close(fig2)
