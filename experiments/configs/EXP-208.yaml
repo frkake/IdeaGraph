@@ -1,8 +1,8 @@
 experiment:
   id: "EXP-208"
-  name: "ドメイン一般化"
+  name: "接続性安定性"
   category: "comparison"
-  description: "接続性の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。connectivity_stratifiedにより高/中/低接続の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定していれば一般化性能ありと判断する。EXP-209（交互作用分析）とは分析観点が異なる：EXP-208は各層の絶対性能、EXP-209は手法×層の差分効果を見る"
+  description: "接続性の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。connectivity_stratifiedにより高/中/低接続の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定していれば一般化性能ありと判断する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -29,14 +29,8 @@ conditions:
       num_proposals: 3
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
-  - name: "direct_llm_baseline"
-    method: "direct_llm"
-    generation:
-      num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
 evaluation:
-  mode: "both"
+  mode: "single"
   model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true

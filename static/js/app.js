@@ -422,6 +422,8 @@ function getPromptOptionsFromUI() {
         max_edges: maxEdges,
         neighbor_k: neighborK,
         include_inline_edges: true,
+        include_target_paper: document.getElementById('promptIncludeTargetPaper')?.checked ?? false,
+        exclude_future_papers: document.getElementById('promptExcludeFuturePapers')?.checked ?? true,
     };
 
     const invalid = [];
@@ -1049,6 +1051,17 @@ function renderAnalysisResults() {
                 </div>
                 <div class="prompt-options-help">
                     空欄時の自動値: パス ${promptDefaults.max_paths} / ノード ${promptDefaults.max_nodes} / エッジ ${promptDefaults.max_edges} / k-hop ${promptDefaults.neighbor_k} ${defaultsSourceNote}
+                </div>
+                <div class="prompt-options-group" style="margin-top: 0.5rem;">
+                    <div class="prompt-options-label">フィルタリング</div>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0; font-size: 0.75rem;">
+                        <input type="checkbox" id="promptIncludeTargetPaper">
+                        <span>ターゲット論文を含める</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0; font-size: 0.75rem;">
+                        <input type="checkbox" id="promptExcludeFuturePapers" checked>
+                        <span>未来の論文を除外する</span>
+                    </label>
                 </div>
                 <div class="prompt-preview-actions" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
                     <button class="btn-secondary" onclick="previewPrompt()" style="width: 100%; padding: 0.5rem;">

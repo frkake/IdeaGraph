@@ -216,7 +216,13 @@ class ProposalService:
    - What is the lineage of related techniques (e.g., A → B → C)?
    - Where is the research heading based on citation patterns and entity relationships?
 4. **Motivation**: What problem remains unsolved? Why is it important? Connect to the target paper and analysis results. ({_C.MOTIVATION_WORDS})
-5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation). ({_C.METHOD_WORDS})
+   - What specific limitation or failure mode of current methods does this address?
+   - Why is solving this problem important beyond the immediate task? What broader research areas or applications would benefit?
+   - Who would use or build upon this work, and how would it advance the field?
+5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation), AND why this change is expected to be effective. ({_C.METHOD_WORDS})
+   - What is the core technical change and how does it work?
+   - WHY would this approach outperform existing methods? Provide theoretical intuition or empirical evidence from related work that supports the expected improvement.
+   - What specific weakness of current methods does this design choice overcome?
 6. **Experiment Plan**:
    - Datasets to use: List {_C.datasets_constraint()} describing the dataset
    - Baselines for comparison: List {_C.baselines_constraint()} describing the method
@@ -224,9 +230,11 @@ class ProposalService:
    - Ablation studies: List {_C.ablations_constraint()} describing what is tested
    - Expected results ({_C.EXPECTED_RESULTS_WORDS}) and failure interpretation ({_C.FAILURE_INTERPRETATION_WORDS})
 7. **Grounding**: Which papers and entities support this idea
-8. **Differences**: How this differs from existing work {_C.differences_constraint()}
+8. **Novelty & Differences**: What is fundamentally new about this approach that has not been explored before? {_C.differences_constraint()}
+   - For each item, clearly state: (a) what prior work does, (b) what this proposal does differently, and (c) WHY this difference matters (what new capability or insight it enables).
 
 Generate diverse ideas that don't overlap. Focus on practical, implementable research directions.
+Ensure logical coherence: the motivation should naturally lead to the proposed method, and the method should directly address the identified gap. The reader should clearly see WHY this specific method is the right solution for the stated problem.
 """
         return prompt
 
@@ -417,7 +425,13 @@ Key Entities:
 2. **Rationale**: Explain WHY you are proposing this specific idea ({_C.RATIONALE_WORDS})
 3. **Research Trends**: Describe the research trends you observe ({_C.RESEARCH_TRENDS_WORDS})
 4. **Motivation**: What problem remains unsolved? Why is it important? ({_C.MOTIVATION_WORDS})
-5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation). ({_C.METHOD_WORDS})
+   - What specific limitation or failure mode of current methods does this address?
+   - Why is solving this problem important beyond the immediate task? What broader research areas or applications would benefit?
+   - Who would use or build upon this work, and how would it advance the field?
+5. **Method**: Specifically what to change (model/algorithm/training/inference/data/evaluation), AND why this change is expected to be effective. ({_C.METHOD_WORDS})
+   - What is the core technical change and how does it work?
+   - WHY would this approach outperform existing methods? Provide theoretical intuition or empirical evidence from related work that supports the expected improvement.
+   - What specific weakness of current methods does this design choice overcome?
 6. **Experiment Plan**:
    - Datasets: {_C.datasets_constraint()}
    - Baselines: {_C.baselines_constraint()}
@@ -425,9 +439,11 @@ Key Entities:
    - Ablation studies: {_C.ablations_constraint()}
    - Expected results ({_C.EXPECTED_RESULTS_WORDS}) and failure interpretation ({_C.FAILURE_INTERPRETATION_WORDS})
 7. **Grounding**: Set papers, entities, and path_mermaid to empty lists/string since no graph context is available.
-8. **Differences**: How this differs from existing work {_C.differences_constraint()}
+8. **Novelty & Differences**: What is fundamentally new about this approach that has not been explored before? {_C.differences_constraint()}
+   - For each item, clearly state: (a) what prior work does, (b) what this proposal does differently, and (c) WHY this difference matters (what new capability or insight it enables).
 
 Generate diverse ideas that don't overlap. Focus on practical, implementable research directions.
+Ensure logical coherence: the motivation should naturally lead to the proposed method, and the method should directly address the identified gap. The reader should clearly see WHY this specific method is the right solution for the stated problem.
 """
 
         class ProposalsOutput(BaseModel):

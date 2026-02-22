@@ -1,8 +1,8 @@
 experiment:
   id: "EXP-101"
-  name: "IdeaGraph vs Direct LLM"
+  name: "IdeaGraph vs Direct LLM vs CoI-Agent"
   category: "system_effectiveness"
-  description: "グラフコンテキストの有無で提案品質が変わるかを検証する。IdeaGraphはNoveltyとSignificanceで優位になるという仮説を、15論文×各3提案のPairwise+Single評価で検定する"
+  description: "3手法の直接比較。IdeaGraphがNoveltyとSignificanceで優位になるという仮説を、15論文×各3提案のPairwise評価で検定する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -22,21 +22,28 @@ prompt:
   max_edges: 100
   neighbor_k: 2
   include_inline_edges: true
+  include_target_paper: true
 conditions:
-  - name: "ideagraph_default"
+  - name: "ideagraph"
     method: "ideagraph"
     generation:
       num_proposals: 3
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
-  - name: "direct_llm_baseline"
+  - name: "direct_llm"
     method: "direct_llm"
     generation:
       num_proposals: 3
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
+  - name: "coi"
+    method: "coi"
+    generation:
+      num_proposals: 3
+      model: "gpt-5.2-2025-12-11"
+      temperature: 0.0
 evaluation:
-  mode: "both"
+  mode: "pairwise"
   model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true

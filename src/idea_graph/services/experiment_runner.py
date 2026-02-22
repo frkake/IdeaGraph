@@ -263,6 +263,8 @@ class ExperimentRunner:
             "max_edges": prompt_cfg.max_edges,
             "neighbor_k": prompt_cfg.neighbor_k,
             "include_inline_edges": prompt_cfg.include_inline_edges,
+            "include_target_paper": prompt_cfg.include_target_paper,
+            "exclude_future_papers": prompt_cfg.exclude_future_papers,
         }
 
     # ──────────────────────────── 条件実行 ────────────────────────────
@@ -378,6 +380,38 @@ class ExperimentRunner:
         )
         self._cache.put("proposals/coi", proposal_result.model_dump(mode="json"), *cache_key_parts)
         return proposal_result
+
+    def _run_target_paper(
+        self,
+        paper_id: str,
+        condition: ConditionConfig,
+    ) -> ProposalResult:
+        """ターゲット論文からアイデアを抽出して Proposal 形式で返す。"""
+        cache_key_parts = (paper_id, condition.generation.model)
+        proposal_data = None
+        if not self._no_cache:
+            proposal_data = self._cache.get("proposals/target_paper", *cache_key_parts)
+        if proposal_data is not None:
+            return ProposalResult.model_validate(proposal_data)
+
+        paper_text = self._get_paper_full_text(paper_id)
+        if not paper_text:
+            raise ValueError(f"Paper full text not found for {paper_id}")
+
+        from idea_graph.services.evaluation import IdeaExtractor, convert_extraction_to_proposal
+
+        extractor = IdeaExtractor(model_name=condition.generation.model)
+        extraction = extractor.extract_from_text(paper_text)
+        paper_title = self._fetch_paper_title(paper_id)
+        proposal = convert_extraction_to_proposal(extraction, paper_title=paper_title)
+
+        result = ProposalResult(
+            target_paper_id=paper_id,
+            proposals=[proposal],
+            prompt="[extracted from target paper]",
+        )
+        self._cache.put("proposals/target_paper", result.model_dump(mode="json"), *cache_key_parts)
+        return result
 
     # ──────────────────────────── 評価 ────────────────────────────
 
@@ -733,6 +767,8 @@ class ExperimentRunner:
                         proposal_result = self._run_direct_llm(paper_id, condition)
                     elif condition.method == MethodType.COI:
                         proposal_result = self._run_coi(paper_id, condition)
+                    elif condition.method == MethodType.TARGET_PAPER:
+                        proposal_result = self._run_target_paper(paper_id, condition)
                     else:
                         raise ValueError(f"Unsupported method: {condition.method}")
 

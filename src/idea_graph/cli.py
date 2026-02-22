@@ -63,6 +63,8 @@ def _build_prompt_options(args: argparse.Namespace) -> dict:
         "graph_format": args.prompt_graph_format,
         "scope": args.prompt_scope,
         "include_inline_edges": args.prompt_inline_edges,
+        "include_target_paper": args.prompt_include_target_paper,
+        "exclude_future_papers": args.prompt_exclude_future_papers,
     }
     if args.prompt_max_paths is not None:
         options["max_paths"] = args.prompt_max_paths
@@ -1733,6 +1735,32 @@ def main() -> int:
         dest="prompt_inline_edges",
         action="store_false",
         help="エッジのインライン展開を無効化する",
+    )
+    propose_parser.add_argument(
+        "--prompt-include-target-paper",
+        dest="prompt_include_target_paper",
+        action="store_true",
+        default=False,
+        help="ターゲット論文をプロンプトコンテキストに含める",
+    )
+    propose_parser.add_argument(
+        "--prompt-no-include-target-paper",
+        dest="prompt_include_target_paper",
+        action="store_false",
+        help="ターゲット論文をプロンプトコンテキストから除外する（デフォルト）",
+    )
+    propose_parser.add_argument(
+        "--prompt-exclude-future-papers",
+        dest="prompt_exclude_future_papers",
+        action="store_true",
+        default=True,
+        help="未来の論文をプロンプトコンテキストから除外する（デフォルト）",
+    )
+    propose_parser.add_argument(
+        "--prompt-no-exclude-future-papers",
+        dest="prompt_exclude_future_papers",
+        action="store_false",
+        help="未来の論文もプロンプトコンテキストに含める",
     )
 
     # experiment コマンド

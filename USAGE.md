@@ -698,7 +698,9 @@ Content-Type: application/json
     "max_nodes": 50,
     "max_edges": 100,
     "neighbor_k": 2,
-    "include_inline_edges": true
+    "include_inline_edges": true,
+    "include_target_paper": false,
+    "exclude_future_papers": true
   },
   "model_name": "gpt-5-2025-08-07"
 }
@@ -711,7 +713,7 @@ Content-Type: application/json
 | `analysis_result` | object | 分析結果（analysis_id 未指定時に必須）|
 | `num_proposals` | int | 生成する提案数（デフォルト: 3）|
 | `constraints` | object | 制約条件（オプション）|
-| `prompt_options` | object | プロンプト拡張設定（オプション）|
+| `prompt_options` | object | プロンプト拡張設定（オプション）。`include_target_paper` (bool, デフォルト: false): ターゲット論文をプロンプトコンテキストに含める。`exclude_future_papers` (bool, デフォルト: true): ターゲット論文より後に発表された論文を除外する。|
 | `model_name` | string | 使用するモデル（オプション）|
 
 **レスポンス:**

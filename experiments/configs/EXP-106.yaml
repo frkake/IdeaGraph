@@ -1,8 +1,8 @@
 experiment:
-  id: "EXP-103"
-  name: "IdeaGraph 単体評価"
+  id: "EXP-106"
+  name: "元論文 単体評価"
   category: "system_effectiveness"
-  description: "IdeaGraphの絶対スコアを計測する。15論文×各3提案のSingle評価でターゲット位置予測タスクの提案品質を定量化する"
+  description: "ターゲット論文のアイデアを抽出しSingle評価する。生成アイデアの品質校正用ベースラインとして、15論文×各1抽出のSingle評価で定量化する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -24,10 +24,10 @@ prompt:
   include_inline_edges: true
   include_target_paper: false
 conditions:
-  - name: "ideagraph"
-    method: "ideagraph"
+  - name: "target_paper"
+    method: "target_paper"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
 evaluation:

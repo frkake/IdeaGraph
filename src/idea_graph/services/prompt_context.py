@@ -75,6 +75,8 @@ class PromptExpansionOptions(BaseModel):
     max_edges: int = Field(default=100)
     neighbor_k: int = Field(default=2)
     include_inline_edges: bool = Field(default=True)
+    include_target_paper: bool = Field(default=False)
+    exclude_future_papers: bool = Field(default=True)
 
     @field_validator("scope")
     @classmethod
@@ -315,22 +317,25 @@ class PromptContextBuilder:
         if not paths:
             return []
 
-        paper_ids = self._collect_paper_ids(paths)
-        paper_ids.add(target_paper_id)
-        published_dates = self._fetch_paper_published_dates(list(paper_ids))
-        target_published_date = published_dates.get(target_paper_id)
         future_paper_ids: set[str] = set()
 
-        if target_published_date:
-            for paper_id, published_date in published_dates.items():
-                if published_date and published_date > target_published_date:
-                    future_paper_ids.add(paper_id)
-        else:
-            logger.warning("Target paper published_date not found; skipping future paper filter.")
+        if options.exclude_future_papers:
+            paper_ids = self._collect_paper_ids(paths)
+            paper_ids.add(target_paper_id)
+            published_dates = self._fetch_paper_published_dates(list(paper_ids))
+            target_published_date = published_dates.get(target_paper_id)
+
+            if target_published_date:
+                for paper_id, published_date in published_dates.items():
+                    if published_date and published_date > target_published_date:
+                        future_paper_ids.add(paper_id)
+            else:
+                logger.warning("Target paper published_date not found; skipping future paper filter.")
 
         excluded_node_ids = set(future_paper_ids)
-        # Exclude the target paper from prompt context to avoid leaking it via graph paths.
-        excluded_node_ids.add(target_paper_id)
+        if not options.include_target_paper:
+            # Exclude the target paper from prompt context to avoid leaking it via graph paths.
+            excluded_node_ids.add(target_paper_id)
 
         filtered: list[RankedPath] = []
         for path in paths:
@@ -795,9 +800,11 @@ class PromptContextBuilder:
         if value is None:
             return None
         if isinstance(value, datetime):
-            return value
+            # Strip timezone info to ensure all datetimes are naive (comparable)
+            return value.replace(tzinfo=None)
         try:
-            return datetime.fromisoformat(str(value))
+            dt = datetime.fromisoformat(str(value))
+            return dt.replace(tzinfo=None)
         except ValueError:
             logger.warning("Invalid published_date format: %s", value)
             return None

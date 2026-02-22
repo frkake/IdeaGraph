@@ -1,8 +1,8 @@
 experiment:
-  id: "EXP-103"
-  name: "IdeaGraph 単体評価"
+  id: "EXP-105"
+  name: "CoI-Agent 単体評価"
   category: "system_effectiveness"
-  description: "IdeaGraphの絶対スコアを計測する。15論文×各3提案のSingle評価でターゲット位置予測タスクの提案品質を定量化する"
+  description: "CoI-Agentの絶対スコアを計測する。15論文×各3提案のSingle評価で提案品質を定量化する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -24,8 +24,8 @@ prompt:
   include_inline_edges: true
   include_target_paper: false
 conditions:
-  - name: "ideagraph"
-    method: "ideagraph"
+  - name: "coi"
+    method: "coi"
     generation:
       num_proposals: 3
       model: "gpt-5.2-2025-12-11"

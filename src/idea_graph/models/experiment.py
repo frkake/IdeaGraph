@@ -28,6 +28,7 @@ class MethodType(str, Enum):
     IDEAGRAPH = "ideagraph"
     DIRECT_LLM = "direct_llm"
     COI = "coi"
+    TARGET_PAPER = "target_paper"
 
 
 class EvaluationMode(str, Enum):
@@ -78,6 +79,8 @@ class PromptConfig(BaseModel):
     max_edges: int = Field(default=100, ge=1)
     neighbor_k: int = Field(default=2, ge=1)
     include_inline_edges: bool = True
+    include_target_paper: bool = False
+    exclude_future_papers: bool = True
 
     @field_validator("graph_format")
     @classmethod

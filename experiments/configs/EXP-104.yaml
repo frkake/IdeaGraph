@@ -1,8 +1,8 @@
 experiment:
-  id: "EXP-209"
-  name: "接続性効果"
-  category: "comparison"
-  description: "グラフの接続性が提案品質に与える影響を測り、低接続時の限界を明らかにする。connectivity_stratifiedにより高/中/低接続の3層から均等にサンプルし、集計時に層ごとのスコア差を分析する。高接続論文ほどIdeaGraphの恩恵が大きく、低接続ではDirect LLMとの差が縮小するという仮説を検証する"
+  id: "EXP-104"
+  name: "Direct LLM 単体評価"
+  category: "system_effectiveness"
+  description: "Direct LLM（グラフコンテキストなし）の絶対スコアを計測する。15論文×各3提案のSingle評価で提案品質を定量化する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -22,21 +22,16 @@ prompt:
   max_edges: 100
   neighbor_k: 2
   include_inline_edges: true
+  include_target_paper: false
 conditions:
-  - name: "ideagraph_default"
-    method: "ideagraph"
-    generation:
-      num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
-  - name: "direct_llm_baseline"
+  - name: "direct_llm"
     method: "direct_llm"
     generation:
       num_proposals: 3
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
 evaluation:
-  mode: "both"
+  mode: "single"
   model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true
