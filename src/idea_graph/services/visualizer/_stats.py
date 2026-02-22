@@ -1,10 +1,13 @@
-"""統計アノテーションブリッジ — aggregator.py の関数をチャート向けに包む"""
+"""Statistical helpers for visualization annotations.
+
+Wraps aggregator.py functions for easy use in chart code.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from ._style import METRICS, _p_label, _safe_mean
+from ._style import METRICS, p_stars, safe_mean
 from ._loaders import load_single_scores, load_aggregate
 
 from idea_graph.services.aggregator import (
@@ -18,7 +21,7 @@ from idea_graph.services.aggregator import (
 
 
 class StatsHelper:
-    """実験ディレクトリのスコアを対象に統計量を計算する。"""
+    """Compute statistical annotations from experiment run data."""
 
     def __init__(self, run_dir: Path) -> None:
         self.run_dir = run_dir
@@ -28,7 +31,10 @@ class StatsHelper:
     def per_metric_significance(
         self, cond_a: str, cond_b: str,
     ) -> list[dict]:
-        """指標ごとの p 値、Cohen's d、有意差ラベルを返す。"""
+        """Return per-metric significance test results.
+
+        Returns list of {metric, cond_a, cond_b, p, d, stars, significant}.
+        """
         results = []
         a_scores = self._scores.get(cond_a, {})
         b_scores = self._scores.get(cond_b, {})
@@ -42,10 +48,9 @@ class StatsHelper:
             n = min(len(a), len(b))
             if n == 0:
                 continue
-            a_trunc = a[:n]
-            b_trunc = b[:n]
-            p = paired_permutation_pvalue(a_trunc, b_trunc)
-            d = cohen_d(a_trunc, b_trunc)
+            a_t, b_t = a[:n], b[:n]
+            p = paired_permutation_pvalue(a_t, b_t)
+            d = cohen_d(a_t, b_t)
             pvalues[metric] = p
             raw[metric] = {"p": p, "d": d, "n": n}
 
@@ -58,15 +63,13 @@ class StatsHelper:
                 "cond_b": cond_b,
                 "p": info["p"],
                 "d": info["d"],
-                "label": _p_label(info["p"]),
+                "stars": p_stars(info["p"]),
                 "significant": corrected.get(metric, False),
             })
-
         return results
 
-    def correlation(
-        self, x: list[float], y: list[float],
-    ) -> dict[str, float]:
+    def correlation(self, x: list[float], y: list[float]) -> dict[str, float]:
+        """Compute Pearson r and Spearman rho."""
         return {
             "pearson_r": pearson(x, y),
             "spearman_rho": spearman(x, y),
@@ -74,15 +77,15 @@ class StatsHelper:
         }
 
     def irr_alphas(self) -> dict[str, dict[str, float]]:
-        """aggregate.json から Krippendorff's alpha を取得する。"""
+        """Get Krippendorff's alpha from aggregate.json."""
         irr = self._aggregate.get("inter_rater_reliability", {})
         result: dict[str, dict[str, float]] = {}
-        for condition, data in irr.items():
+        for cond, data in irr.items():
             alphas = data.get("krippendorffs_alpha", {})
-            result[condition] = alphas
+            result[cond] = alphas
         return result
 
     def condition_means(self, cond: str) -> dict[str, float]:
-        """条件の指標別平均を返す。"""
+        """Return per-metric means for a condition."""
         s = self._scores.get(cond, {})
-        return {m: _safe_mean(s.get(m, [])) for m in METRICS + ["overall"]}
+        return {m: safe_mean(s.get(m, [])) for m in METRICS + ["overall"]}

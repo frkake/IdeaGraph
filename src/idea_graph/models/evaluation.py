@@ -13,6 +13,7 @@ class IdeaSource(str, Enum):
     """アイデアのソース（生成元）"""
 
     IDEAGRAPH = "ideagraph"
+    DIRECT_LLM = "direct_llm"
     COI = "coi"
     TARGET_PAPER = "target_paper"
 

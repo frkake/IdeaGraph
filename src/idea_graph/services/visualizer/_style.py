@@ -1,9 +1,16 @@
-"""共通スタイル・ヘルパー関数"""
+"""Publication-quality style configuration for IEEE/ACM double-column papers.
+
+Design decisions:
+- Figure sizes: single-column 3.5in, double-column 7.16in (IEEE standard)
+- Tol's bright palette (colorblind-safe, 7 distinct hues)
+- Sans-serif fonts at readable sizes (8-10pt at final column width)
+- Clean spines (top/right removed), light gridlines
+- DPI 300 for PNG, vector SVG
+"""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -14,90 +21,223 @@ try:
     import matplotlib.pyplot as plt
     import numpy as np
 
-    # サンセリフフォントで CoI の I と l を区別しやすくする
-    plt.rcParams.update({
-        "font.family": "sans-serif",
-        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica", "sans-serif"],
-    })
-
     HAS_MPL = True
 except ImportError:
     HAS_MPL = False
 
 try:
     import seaborn as sns
-
     HAS_SNS = True
 except ImportError:
     HAS_SNS = False
 
 
-@dataclass(frozen=True)
-class ChartStyle:
-    COLORS: dict[str, str] = field(default_factory=lambda: {
-        "ideagraph": "#2563EB",
-        "ideagraph_default": "#2563EB",
-        "direct_llm": "#DC2626",
-        "direct_llm_baseline": "#DC2626",
-        "coi": "#16A34A",
-        "coi_agent": "#16A34A",
-        "target_paper": "#F59E0B",
+# ── Publication-quality rcParams ──
+
+def apply_rcparams() -> None:
+    """Apply publication-quality matplotlib rcParams once at import time."""
+    if not HAS_MPL:
+        return
+    plt.rcParams.update({
+        # Fonts
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
+        "font.size": 9,
+        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "legend.fontsize": 8,
+        "figure.titlesize": 11,
+        # Spines & ticks
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.linewidth": 0.8,
+        "xtick.major.width": 0.6,
+        "ytick.major.width": 0.6,
+        "xtick.direction": "out",
+        "ytick.direction": "out",
+        # Grid
+        "axes.grid": False,
+        "grid.alpha": 0.3,
+        "grid.linewidth": 0.5,
+        # Figure
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.05,
+        # Legend
+        "legend.frameon": True,
+        "legend.framealpha": 0.9,
+        "legend.edgecolor": "#CCCCCC",
+        "legend.fancybox": False,
+        # Lines
+        "lines.linewidth": 1.5,
+        "lines.markersize": 5,
     })
-    DPI: int = 300
-    SINGLE_SIZE: tuple[float, float] = (8.0, 5.0)
-    DOUBLE_SIZE: tuple[float, float] = (12.0, 5.0)
-    MATRIX_SIZE: tuple[float, float] = (10.0, 8.0)
-
-    def color_for(self, name: str) -> str:
-        lower = name.lower()
-        for key, color in self.COLORS.items():
-            if key in lower:
-                return color
-        palette = ["#2563EB", "#DC2626", "#16A34A", "#F59E0B", "#8B5CF6",
-                   "#EC4899", "#14B8A6", "#F97316"]
-        return palette[hash(name) % len(palette)]
 
 
-STYLE = ChartStyle()
-METRICS = ["novelty", "significance", "feasibility", "clarity", "effectiveness"]
-METRIC_SHORT = {
-    "novelty": "Nov", "significance": "Sig", "feasibility": "Fea",
-    "clarity": "Cla", "effectiveness": "Eff",
+apply_rcparams()
+
+# ── Figure dimensions (inches) — IEEE double-column ──
+
+SINGLE_COL = 3.5        # single column width
+DOUBLE_COL = 7.16       # double column width
+DPI = 300
+
+# Standard figure sizes (width, height)
+FIG_SINGLE = (SINGLE_COL, 2.6)         # compact single-column
+FIG_SINGLE_TALL = (SINGLE_COL, 3.5)    # tall single-column (radar, violin)
+FIG_DOUBLE = (DOUBLE_COL, 3.0)         # double-column wide
+FIG_DOUBLE_TALL = (DOUBLE_COL, 4.5)    # tall double (multi-panel)
+FIG_DOUBLE_WIDE = (DOUBLE_COL, 2.5)    # extra-wide, short (heatmaps)
+
+# ── Tol's bright palette (colorblind-safe) ──
+
+TOL_BLUE = "#4477AA"
+TOL_RED = "#EE6677"
+TOL_GREEN = "#228833"
+TOL_YELLOW = "#CCBB44"
+TOL_CYAN = "#66CCEE"
+TOL_PURPLE = "#AA3377"
+TOL_GREY = "#BBBBBB"
+
+# Method → color mapping
+METHOD_COLORS: dict[str, str] = {
+    "ideagraph": TOL_BLUE,
+    "ideagraph_default": TOL_BLUE,
+    "direct_llm": TOL_RED,
+    "direct_llm_baseline": TOL_RED,
+    "coi": TOL_GREEN,
+    "coi_agent": TOL_GREEN,
+    "target_paper": TOL_YELLOW,
 }
 
-_P_ANNOTATIONS = {0.001: "***", 0.01: "**", 0.05: "*"}
+# Metric → color for per-metric line plots
+METRIC_COLORS: dict[str, str] = {
+    "novelty": TOL_BLUE,
+    "significance": TOL_RED,
+    "feasibility": TOL_GREEN,
+    "clarity": TOL_YELLOW,
+    "effectiveness": TOL_PURPLE,
+    "overall": "#222222",
+}
+
+# Cycle palette for unnamed conditions
+PALETTE = [TOL_BLUE, TOL_RED, TOL_GREEN, TOL_YELLOW, TOL_CYAN, TOL_PURPLE, TOL_GREY]
 
 
-def _p_label(p: float) -> str:
-    for threshold, label in _P_ANNOTATIONS.items():
+def color_for(name: str) -> str:
+    """Resolve method/condition name to a color."""
+    lower = name.lower()
+    for key, c in METHOD_COLORS.items():
+        if key in lower:
+            return c
+    return PALETTE[hash(name) % len(PALETTE)]
+
+
+# ── Labels & names ──
+
+METRICS = ["novelty", "significance", "feasibility", "clarity", "effectiveness"]
+
+METRIC_SHORT: dict[str, str] = {
+    "novelty": "Nov", "significance": "Sig", "feasibility": "Fea",
+    "clarity": "Cla", "effectiveness": "Eff", "overall": "Overall",
+}
+
+METRIC_DISPLAY: dict[str, str] = {
+    "novelty": "Novelty", "significance": "Significance",
+    "feasibility": "Feasibility", "clarity": "Clarity",
+    "effectiveness": "Effectiveness", "overall": "Overall",
+}
+
+METHOD_DISPLAY: dict[str, str] = {
+    "ideagraph": "IdeaGraph",
+    "ideagraph_default": "IdeaGraph",
+    "direct_llm": "Direct LLM",
+    "direct_llm_baseline": "Direct LLM",
+    "coi": "CoI-Agent",
+    "coi_agent": "CoI-Agent",
+    "target_paper": "Target Paper",
+}
+
+
+def display_name(name: str) -> str:
+    """Map internal names to paper-ready display names."""
+    return METHOD_DISPLAY.get(name.lower(), name)
+
+
+# ── Condition name cleaner (for ablation conditions) ──
+
+_CONDITION_DISPLAY: dict[str, str] = {
+    # EXP-202: format
+    "format_mermaid": "Mermaid",
+    "format_paths": "Paths",
+    # EXP-203: scope
+    "scope_path": "Path",
+    "scope_k_hop": "k-hop",
+    "scope_path_plus_k_hop": "Path+k-hop",
+}
+
+
+def clean_condition(name: str) -> str:
+    """Map raw condition names to concise display labels."""
+    if name in _CONDITION_DISPLAY:
+        return _CONDITION_DISPLAY[name]
+    # Fallback: strip common prefixes and clean up
+    for prefix in ("hops_", "paths_", "proposals_", "format_", "scope_", "size_"):
+        if name.startswith(prefix):
+            return name[len(prefix):].replace("_", " ").title()
+    return name.replace("_", " ").title()
+
+
+# ── Significance annotations ──
+
+_P_THRESHOLDS = [(0.001, "***"), (0.01, "**"), (0.05, "*")]
+
+
+def p_stars(p: float) -> str:
+    """Convert p-value to significance stars."""
+    for threshold, label in _P_THRESHOLDS:
         if p < threshold:
             return label
-    return "ns"
+    return "n.s."
 
 
-def _safe_mean(vals: list[float]) -> float:
+# ── Safe statistics ──
+
+
+def safe_mean(vals: list[float]) -> float:
     return sum(vals) / len(vals) if vals else 0.0
 
 
-def _safe_std(vals: list[float]) -> float:
+def safe_std(vals: list[float]) -> float:
     if len(vals) <= 1:
         return 0.0
-    m = _safe_mean(vals)
+    m = safe_mean(vals)
     return (sum((v - m) ** 2 for v in vals) / (len(vals) - 1)) ** 0.5
 
 
-def _safe_sem(vals: list[float]) -> float:
+def safe_sem(vals: list[float]) -> float:
     if len(vals) <= 1:
         return 0.0
-    return _safe_std(vals) / (len(vals) ** 0.5)
+    return safe_std(vals) / (len(vals) ** 0.5)
 
 
-def _save_figure(fig, output_dir: Path, name: str) -> list[Path]:
-    """PNG + SVG で保存する。"""
+# ── Save helper ──
+
+
+def save_figure(fig, output_dir: Path, name: str) -> list[Path]:
+    """Save figure as PNG (300 DPI) + SVG. Returns list of saved paths."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    paths = []
-    for ext in ["png", "svg"]:
+    paths: list[Path] = []
+    for ext in ("png", "svg"):
         path = output_dir / f"{name}.{ext}"
-        fig.savefig(str(path), dpi=STYLE.DPI if ext == "png" else None, bbox_inches="tight")
+        fig.savefig(
+            str(path),
+            dpi=DPI if ext == "png" else None,
+            bbox_inches="tight",
+            pad_inches=0.05,
+        )
         paths.append(path)
     return paths

@@ -1122,11 +1122,9 @@ class EvaluationService:
                 idx = idea_id_to_index[entry.idea_id]
                 if idx < len(proposal_sources):
                     source_str = proposal_sources[idx]
-                    if source_str == 'coi':
-                        entry.source = IdeaSource.COI
-                    elif source_str == 'target_paper':
-                        entry.source = IdeaSource.TARGET_PAPER
-                    else:
+                    try:
+                        entry.source = IdeaSource(source_str)
+                    except ValueError:
                         entry.source = IdeaSource.IDEAGRAPH
 
         # 評価結果を作成
@@ -1281,11 +1279,9 @@ class EvaluationService:
                 idx = idea_id_to_index[entry.idea_id]
                 if idx < len(proposal_sources):
                     source_str = proposal_sources[idx]
-                    if source_str == 'coi':
-                        entry.source = IdeaSource.COI
-                    elif source_str == 'target_paper':
-                        entry.source = IdeaSource.TARGET_PAPER
-                    else:
+                    try:
+                        entry.source = IdeaSource(source_str)
+                    except ValueError:
                         entry.source = IdeaSource.IDEAGRAPH
 
         eval_result = EvaluationResult(
@@ -1544,10 +1540,10 @@ class EvaluationService:
         """proposal_sourcesからIdeaSourceを解決"""
         if proposal_sources and index < len(proposal_sources):
             source_str = proposal_sources[index]
-            if source_str == "coi":
-                return IdeaSource.COI
-            elif source_str == "target_paper":
-                return IdeaSource.TARGET_PAPER
+            try:
+                return IdeaSource(source_str)
+            except ValueError:
+                pass
         return IdeaSource.IDEAGRAPH
 
     def evaluate_single(

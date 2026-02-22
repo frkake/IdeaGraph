@@ -1,7 +1,11 @@
-"""100系: システム有効性実験の可視化 (EXP-101, EXP-102)
+"""100-series: System effectiveness experiments (EXP-101 through EXP-106).
 
-EXP-101: 3手法 pairwise（ideagraph, direct_llm, coi）→ ELO比較 + 勝率
-EXP-102: IdeaGraph vs 元論文 pairwise → レーダーチャート + ランキング
+EXP-101: 3-method pairwise comparison (IdeaGraph vs Direct LLM vs CoI-Agent) -- ELO
+EXP-102: Generated ideas vs original paper -- Pairwise ELO
+EXP-103: IdeaGraph single evaluation (absolute 1-10 scores)
+EXP-104: Direct LLM single evaluation
+EXP-105: CoI-Agent single evaluation
+EXP-106: Target Paper single evaluation
 """
 
 from __future__ import annotations
@@ -10,38 +14,209 @@ import json
 from pathlib import Path
 
 from ._registry import register
-from ._style import METRICS, METRIC_SHORT, STYLE, _safe_mean, _safe_std, _save_figure, HAS_MPL, logger
-from ._loaders import load_pairwise_elo_by_source
+from ._loaders import (
+    load_pairwise_elo_by_source,
+    load_single_scores,
+    load_pairwise_details,
+    load_pairwise_wins,
+)
+from ._stats import StatsHelper
+from ._style import (
+    HAS_MPL,
+    METRICS,
+    METRIC_SHORT,
+    METRIC_DISPLAY,
+    METRIC_COLORS,
+    METHOD_COLORS,
+    PALETTE,
+    TOL_BLUE,
+    TOL_RED,
+    TOL_GREEN,
+    TOL_YELLOW,
+    TOL_CYAN,
+    TOL_PURPLE,
+    TOL_GREY,
+    FIG_SINGLE,
+    FIG_SINGLE_TALL,
+    FIG_DOUBLE,
+    FIG_DOUBLE_TALL,
+    FIG_DOUBLE_WIDE,
+    color_for,
+    display_name,
+    p_stars,
+    safe_mean,
+    safe_std,
+    safe_sem,
+    save_figure,
+    logger,
+)
 
 if HAS_MPL:
     import matplotlib.pyplot as plt
     import numpy as np
 
 
-# ── ELO データの統合ロード ──
+# ======================================================================
+# Shared helpers
+# ======================================================================
 
 
 def _load_source_elo_summary(
     run_dir: Path,
 ) -> dict[str, dict[str, tuple[float, float]]]:
-    """ソース別 → 指標別 (mean, std) の ELO サマリを返す。"""
+    """Return {source: {metric: (mean_elo, sem_elo)}} from pairwise data."""
     elo_by_source = load_pairwise_elo_by_source(run_dir)
     summary: dict[str, dict[str, tuple[float, float]]] = {}
     for source, metrics in elo_by_source.items():
         summary[source] = {}
         for m, vals in metrics.items():
-            summary[source][m] = (_safe_mean(vals), _safe_std(vals))
+            summary[source][m] = (safe_mean(vals), safe_sem(vals))
     return summary
 
 
-# ═══════════════════════════════════════════════════════════
-# EXP-101: 3手法 pairwise 比較
-# ═══════════════════════════════════════════════════════════
+def _single_score_bar(
+    run_dir: Path,
+    figures_dir: Path,
+    exp_id: str,
+    condition_name: str,
+) -> list[Path]:
+    """Grouped bar chart of single-evaluation scores for one condition.
+
+    Shows 5 metrics + overall with SEM error bars.  Used by EXP-103..106.
+    """
+    if not HAS_MPL:
+        return []
+
+    all_scores = load_single_scores(run_dir)
+    cond_scores = all_scores.get(condition_name)
+
+    # If exact name not found, try partial match
+    if cond_scores is None:
+        for key in all_scores:
+            if condition_name.lower() in key.lower():
+                cond_scores = all_scores[key]
+                condition_name = key
+                break
+
+    if not cond_scores:
+        logger.warning(
+            "%s: No single scores found for condition '%s'", exp_id, condition_name,
+        )
+        return []
+
+    display_metrics = METRICS + ["overall"]
+    means = [safe_mean(cond_scores.get(m, [])) for m in display_metrics]
+    sems = [safe_sem(cond_scores.get(m, [])) for m in display_metrics]
+    labels = [METRIC_DISPLAY.get(m, m.capitalize()) for m in display_metrics]
+
+    fig, ax = plt.subplots(figsize=FIG_SINGLE)
+    x = np.arange(len(display_metrics))
+    colors = [METRIC_COLORS.get(m, TOL_GREY) for m in display_metrics]
+
+    bars = ax.bar(
+        x, means, width=0.6,
+        yerr=sems, capsize=3,
+        color=colors, alpha=0.85,
+        edgecolor="white", linewidth=0.5,
+        error_kw={"linewidth": 0.8, "capthick": 0.8},
+    )
+
+    # Value labels on bars
+    for bar, val in zip(bars, means):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.15,
+            f"{val:.1f}",
+            ha="center", va="bottom", fontsize=7, fontweight="bold",
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_ylabel("Score (1\u201310)", fontsize=9)
+    ax.set_ylim(0, 10.5)
+    ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    fig.tight_layout()
+
+    all_paths = save_figure(fig, figures_dir, f"fig_{exp_id}_1_scores")
+    plt.close(fig)
+
+    # --- Tables ---
+    _generate_single_tables(cond_scores, display_metrics, condition_name, figures_dir, exp_id)
+
+    return all_paths
+
+
+def _generate_single_tables(
+    scores: dict[str, list[float]],
+    display_metrics: list[str],
+    condition_name: str,
+    output_dir: Path,
+    exp_id: str,
+) -> None:
+    """Generate Markdown + LaTeX tables for a single condition's scores."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Collect data
+    rows_data: list[tuple[str, float, float, int]] = []
+    for m in display_metrics:
+        vals = scores.get(m, [])
+        rows_data.append((
+            METRIC_DISPLAY.get(m, m.capitalize()),
+            safe_mean(vals),
+            safe_sem(vals),
+            len(vals),
+        ))
+
+    # Find best values per column (mean)
+    best_mean = max(r[1] for r in rows_data) if rows_data else 0.0
+
+    # --- Markdown ---
+    md_lines = [
+        f"## {exp_id}: {display_name(condition_name)} Single Evaluation Scores",
+        "",
+        "| Metric | Mean | SEM | N |",
+        "|--------|-----:|----:|--:|",
+    ]
+    for label, mean, sem, n in rows_data:
+        bold = "**" if mean == best_mean else ""
+        md_lines.append(f"| {label} | {bold}{mean:.2f}{bold} | {sem:.2f} | {n} |")
+
+    (output_dir / f"table_{exp_id}.md").write_text(
+        "\n".join(md_lines) + "\n", encoding="utf-8",
+    )
+
+    # --- LaTeX ---
+    tex_rows = []
+    for label, mean, sem, n in rows_data:
+        val_str = f"{mean:.2f} $\\pm$ {sem:.2f}"
+        if mean == best_mean:
+            val_str = f"\\textbf{{{mean:.2f}}} $\\pm$ {sem:.2f}"
+        tex_rows.append(f"  {label} & {val_str} & {n}" + r" \\")
+
+    tex = (
+        r"\begin{table}[htbp]" + "\n"
+        r"  \centering" + "\n"
+        f"  \\caption{{{exp_id}: {display_name(condition_name)} Single Evaluation Scores}}\n"
+        r"  \begin{tabular}{lrr}" + "\n"
+        r"    \toprule" + "\n"
+        r"    Metric & Score (Mean $\pm$ SEM) & $N$ \\" + "\n"
+        r"    \midrule" + "\n"
+        + "\n".join(f"    {r}" for r in tex_rows) + "\n"
+        r"    \bottomrule" + "\n"
+        r"  \end{tabular}" + "\n"
+        r"\end{table}" + "\n"
+    )
+    (output_dir / f"table_{exp_id}.tex").write_text(tex, encoding="utf-8")
+
+
+# ======================================================================
+# EXP-101: 3-Method Comparison (Pairwise ELO)
+# ======================================================================
 
 
 @register("EXP-101")
 def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
-    """EXP-101: IdeaGraph vs Direct LLM vs CoI-Agent (Pairwise ELO)"""
+    """EXP-101: IdeaGraph vs Direct LLM vs CoI-Agent -- Pairwise ELO."""
     if not HAS_MPL:
         return []
 
@@ -52,10 +227,12 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         return all_paths
 
     sources = sorted(elo_summary.keys())
-
-    # ── Fig 1: 手法別 ELO スコア (Grouped Bar — 指標×手法) ──
-    fig1, ax1 = plt.subplots(figsize=(10, 6))
     display_metrics = METRICS + ["overall"]
+
+    # ------------------------------------------------------------------
+    # Fig 1: Grouped bar chart -- ELO by metric, one bar per method
+    # ------------------------------------------------------------------
+    fig1, ax1 = plt.subplots(figsize=FIG_DOUBLE)
     n_metrics = len(display_metrics)
     n_sources = len(sources)
     bar_width = 0.8 / max(n_sources, 1)
@@ -65,39 +242,50 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         means = []
         errs = []
         for m in display_metrics:
-            m_mean, m_std = elo_summary[source].get(m, (1000.0, 0.0))
+            m_mean, m_sem = elo_summary[source].get(m, (1000.0, 0.0))
             means.append(m_mean)
-            errs.append(m_std)
+            errs.append(m_sem)
         offset = (s_idx - (n_sources - 1) / 2) * bar_width
-        color = STYLE.color_for(source)
-        label = _source_display_name(source)
         ax1.bar(
             x_base + offset, means, bar_width * 0.88,
-            yerr=errs, capsize=3, color=color, alpha=0.85,
-            label=label, error_kw={"linewidth": 1},
+            yerr=errs, capsize=2,
+            color=color_for(source), alpha=0.85,
+            label=display_name(source),
+            error_kw={"linewidth": 0.8, "capthick": 0.8},
         )
 
-    # Y軸をELO値の範囲にズーム（0始まりだと差が見えない）
-    all_means = [elo_summary[s].get(m, (1000, 0))[0] for s in sources for m in display_metrics]
-    all_stds = [elo_summary[s].get(m, (1000, 0))[1] for s in sources for m in display_metrics]
-    y_min = min(m - s for m, s in zip(all_means, all_stds)) - 30
-    y_max = max(m + s for m, s in zip(all_means, all_stds)) + 30
+    # Zoom Y axis to data range
+    all_means = [
+        elo_summary[s].get(m, (1000, 0))[0]
+        for s in sources for m in display_metrics
+    ]
+    all_sems = [
+        elo_summary[s].get(m, (1000, 0))[1]
+        for s in sources for m in display_metrics
+    ]
+    y_min = min(m - e for m, e in zip(all_means, all_sems)) - 30
+    y_max = max(m + e for m, e in zip(all_means, all_sems)) + 30
     ax1.set_ylim(y_min, y_max)
 
-    # 基準線 (ELO = 1000)
-    ax1.axhline(1000, color="gray", linestyle=":", linewidth=0.8, alpha=0.5)
+    # Baseline at ELO=1000
+    ax1.axhline(1000, color="gray", linestyle="--", linewidth=0.7, alpha=0.5)
+
     ax1.set_xticks(x_base)
-    ax1.set_xticklabels([METRIC_SHORT.get(m, m.capitalize()) for m in display_metrics], fontsize=10)
-    ax1.set_ylabel("ELO Rating", fontsize=11)
-    ax1.set_title(f"{exp_id}: Method Comparison — ELO Scores by Metric", fontsize=12, fontweight="bold")
-    ax1.legend(fontsize=9, loc="upper right")
-    ax1.grid(axis="y", alpha=0.3)
+    ax1.set_xticklabels(
+        [METRIC_DISPLAY.get(m, m.capitalize()) for m in display_metrics],
+        fontsize=8,
+    )
+    ax1.set_ylabel("ELO Rating", fontsize=9)
+    ax1.tick_params(axis="y", labelsize=8)
+    ax1.legend(fontsize=8, loc="upper right")
+    ax1.grid(axis="y", alpha=0.3, linewidth=0.5)
     fig1.tight_layout()
-    all_paths.extend(_save_figure(fig1, figures_dir, f"fig_{exp_id}_1_elo_comparison"))
+    all_paths.extend(save_figure(fig1, figures_dir, f"fig_{exp_id}_1_elo_comparison"))
     plt.close(fig1)
 
-    # ── Fig 2: 勝率サマリ (Win Rate Bar) ──
-    # pairwise ranking の rank=1 ソースをカウント
+    # ------------------------------------------------------------------
+    # Fig 2: Win rate horizontal bar chart
+    # ------------------------------------------------------------------
     pairwise_dir = run_dir / "evaluations" / "pairwise"
     if pairwise_dir.exists():
         source_wins: dict[str, int] = {}
@@ -114,80 +302,151 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
                 continue
 
         if source_wins and total_papers > 0:
-            fig2, ax2 = plt.subplots(figsize=(8, 5))
-            win_sources = sorted(source_wins.keys())
-            win_pcts = [source_wins.get(s, 0) / total_papers * 100 for s in win_sources]
-            colors = [STYLE.color_for(s) for s in win_sources]
-            labels = [_source_display_name(s) for s in win_sources]
-            bars = ax2.bar(labels, win_pcts, color=colors, alpha=0.85, edgecolor="white", linewidth=0.5)
+            fig2, ax2 = plt.subplots(figsize=FIG_SINGLE)
 
-            # 値ラベル
+            # Sort by win rate descending
+            sorted_sources = sorted(
+                source_wins.keys(),
+                key=lambda s: source_wins.get(s, 0),
+                reverse=True,
+            )
+            win_pcts = [source_wins.get(s, 0) / total_papers * 100 for s in sorted_sources]
+            bar_colors = [color_for(s) for s in sorted_sources]
+            bar_labels = [display_name(s) for s in sorted_sources]
+
+            bars = ax2.barh(
+                range(len(bar_labels)), win_pcts,
+                color=bar_colors, alpha=0.85,
+                edgecolor="white", linewidth=0.5,
+                height=0.6,
+            )
+
+            # Value labels on bars
             for bar, pct in zip(bars, win_pcts):
                 ax2.text(
-                    bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
-                    f"{pct:.0f}%", ha="center", va="bottom", fontsize=11, fontweight="bold",
+                    bar.get_width() + 1.0,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{pct:.0f}%",
+                    ha="left", va="center", fontsize=8, fontweight="bold",
                 )
 
-            ax2.set_ylabel("Win Rate (%)", fontsize=11)
-            ax2.set_title(f"{exp_id}: Top-1 Rank Win Rate", fontsize=12, fontweight="bold")
-            ax2.set_ylim(0, max(win_pcts) * 1.2)
-            ax2.grid(axis="y", alpha=0.3)
+            ax2.set_yticks(range(len(bar_labels)))
+            ax2.set_yticklabels(bar_labels, fontsize=8)
+            ax2.set_xlabel("Win Rate (%)", fontsize=9)
+            ax2.tick_params(axis="x", labelsize=8)
+            ax2.set_xlim(0, max(win_pcts) * 1.2)
+            ax2.invert_yaxis()
+            ax2.grid(axis="x", alpha=0.3, linewidth=0.5)
             fig2.tight_layout()
-            all_paths.extend(_save_figure(fig2, figures_dir, f"fig_{exp_id}_2_win_rate"))
+            all_paths.extend(save_figure(fig2, figures_dir, f"fig_{exp_id}_2_win_rate"))
             plt.close(fig2)
 
-    # ── Fig 3: ELO ヒートマップ (Method × Metric) ──
-    fig3, ax3 = plt.subplots(figsize=(9, 4))
-    display_labels = [METRIC_SHORT.get(m, m.capitalize()) for m in display_metrics]
-    source_labels = [_source_display_name(s) for s in sources]
+    # ------------------------------------------------------------------
+    # Fig 3: ELO heatmap (rows=methods, cols=metrics)
+    # ------------------------------------------------------------------
+    fig3, ax3 = plt.subplots(figsize=FIG_DOUBLE_WIDE)
+
+    col_labels = [METRIC_DISPLAY.get(m, m.capitalize()) for m in display_metrics]
+    row_labels = [display_name(s) for s in sources]
 
     matrix = []
     for source in sources:
         row = [elo_summary[source].get(m, (1000, 0))[0] for m in display_metrics]
         matrix.append(row)
-
     arr = np.array(matrix)
-    im = ax3.imshow(arr, cmap="RdYlGn", aspect="auto", vmin=arr.min() - 10, vmax=arr.max() + 10)
 
-    ax3.set_xticks(range(len(display_labels)))
-    ax3.set_xticklabels(display_labels, fontsize=10)
-    ax3.set_yticks(range(len(source_labels)))
-    ax3.set_yticklabels(source_labels, fontsize=10)
+    im = ax3.imshow(
+        arr, cmap="RdYlGn", aspect="auto",
+        vmin=arr.min() - 10, vmax=arr.max() + 10,
+    )
 
-    # セル値表示
+    ax3.set_xticks(range(len(col_labels)))
+    ax3.set_xticklabels(col_labels, fontsize=8)
+    ax3.set_yticks(range(len(row_labels)))
+    ax3.set_yticklabels(row_labels, fontsize=8)
+
+    # Cell values as integers
     for i in range(len(sources)):
         for j in range(len(display_metrics)):
             val = arr[i, j]
-            ax3.text(j, i, f"{val:.0f}", ha="center", va="center", fontsize=9, fontweight="bold")
+            ax3.text(
+                j, i, f"{val:.0f}",
+                ha="center", va="center", fontsize=8, fontweight="bold",
+            )
 
-    # 列ごと最高値をハイライト
-    for j in range(len(display_metrics)):
+    # Green border around best value per column
+    for j in range(arr.shape[1]):
         best_i = int(np.argmax(arr[:, j]))
         ax3.add_patch(plt.Rectangle(
             (j - 0.5, best_i - 0.5), 1, 1,
-            fill=False, edgecolor="#16A34A", linewidth=2.5,
+            fill=False, edgecolor=TOL_GREEN, linewidth=2.5,
         ))
 
     fig3.colorbar(im, ax=ax3, label="ELO Rating", shrink=0.8)
-    ax3.set_title(f"{exp_id}: ELO Heatmap — Method × Metric", fontsize=12, fontweight="bold")
     fig3.tight_layout()
-    all_paths.extend(_save_figure(fig3, figures_dir, f"fig_{exp_id}_3_elo_heatmap"))
+    all_paths.extend(save_figure(fig3, figures_dir, f"fig_{exp_id}_3_elo_heatmap"))
     plt.close(fig3)
 
-    # ── Table (Markdown + LaTeX) ──
+    # ------------------------------------------------------------------
+    # Fig 4: Radar / spider chart (5 metric axes, one line per method)
+    # ------------------------------------------------------------------
+    n_metrics = len(METRICS)
+    angles = [i / n_metrics * 2 * np.pi for i in range(n_metrics)]
+    angles += angles[:1]  # close polygon
+
+    fig4, ax4 = plt.subplots(
+        figsize=FIG_SINGLE_TALL, subplot_kw={"polar": True},
+    )
+
+    for source in sources:
+        values = [elo_summary[source].get(m, (1000, 0))[0] for m in METRICS]
+        values += values[:1]
+        c = color_for(source)
+        ax4.plot(
+            angles, values, "o-",
+            linewidth=1.8, label=display_name(source),
+            color=c, markersize=4,
+        )
+        ax4.fill(angles, values, alpha=0.12, color=c)
+
+    ax4.set_xticks(angles[:-1])
+    ax4.set_xticklabels(
+        [METRIC_DISPLAY.get(m, m) for m in METRICS], fontsize=8,
+    )
+
+    # Tighten radial limits to data range
+    radar_vals = [
+        elo_summary[s].get(m, (1000, 0))[0]
+        for s in sources for m in METRICS
+    ]
+    if radar_vals:
+        ax4.set_ylim(min(radar_vals) - 30, max(radar_vals) + 30)
+
+    ax4.tick_params(axis="y", labelsize=7)
+    ax4.legend(
+        fontsize=8, loc="upper right",
+        bbox_to_anchor=(1.30, 1.08), framealpha=0.9,
+    )
+    fig4.tight_layout()
+    all_paths.extend(save_figure(fig4, figures_dir, f"fig_{exp_id}_4_radar"))
+    plt.close(fig4)
+
+    # ------------------------------------------------------------------
+    # Tables: Markdown + LaTeX (ELO +/- SEM, bold best per column)
+    # ------------------------------------------------------------------
     _generate_exp101_tables(elo_summary, sources, figures_dir, exp_id)
 
     return all_paths
 
 
-# ═══════════════════════════════════════════════════════════
-# EXP-102: IdeaGraph vs 元論文
-# ═══════════════════════════════════════════════════════════
+# ======================================================================
+# EXP-102: Generated Ideas vs Original Paper (Pairwise ELO)
+# ======================================================================
 
 
 @register("EXP-102")
 def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
-    """EXP-102: IdeaGraph vs Target Paper — レーダーチャート + ランキング"""
+    """EXP-102: IdeaGraph ideas vs Target Paper -- radar + ELO ranking."""
     if not HAS_MPL:
         return []
 
@@ -199,196 +458,303 @@ def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
 
     sources = sorted(elo_summary.keys())
 
-    # ── Fig 1: レーダーチャート (5メトリクス比較) ──
-    fig1, ax1 = plt.subplots(figsize=(8, 8), subplot_kw={"polar": True})
+    # ------------------------------------------------------------------
+    # Fig 1: Radar / spider chart (5 metric axes)
+    # ------------------------------------------------------------------
+    fig1, ax1 = plt.subplots(
+        figsize=FIG_SINGLE_TALL, subplot_kw={"polar": True},
+    )
 
-    angles = [n / len(METRICS) * 2 * np.pi for n in range(len(METRICS))]
-    angles += angles[:1]  # 閉じる
+    n_metrics = len(METRICS)
+    angles = [i / n_metrics * 2 * np.pi for i in range(n_metrics)]
+    angles += angles[:1]  # close polygon
 
     for source in sources:
         values = [elo_summary[source].get(m, (1000, 0))[0] for m in METRICS]
         values += values[:1]
-        color = STYLE.color_for(source)
-        label = _source_display_name(source)
-        ax1.plot(angles, values, "o-", linewidth=2.5, label=label, color=color, markersize=6)
-        ax1.fill(angles, values, alpha=0.15, color=color)
+        c = color_for(source)
+        ax1.plot(
+            angles, values, "o-",
+            linewidth=1.5, label=display_name(source),
+            color=c, markersize=4,
+        )
+        ax1.fill(angles, values, alpha=0.12, color=c)
 
     ax1.set_xticks(angles[:-1])
     ax1.set_xticklabels(
-        [METRIC_SHORT.get(m, m.capitalize()) for m in METRICS],
-        fontsize=12, fontweight="bold",
+        [METRIC_DISPLAY.get(m, m.capitalize()) for m in METRICS],
+        fontsize=8, fontweight="bold",
     )
 
-    # Y軸の範囲を調整
-    all_vals = [elo_summary[s].get(m, (1000, 0))[0] for s in sources for m in METRICS]
+    # Adjust radial range to data
+    all_vals = [
+        elo_summary[s].get(m, (1000, 0))[0]
+        for s in sources for m in METRICS
+    ]
     if all_vals:
-        ymin = min(all_vals) - 30
-        ymax = max(all_vals) + 30
-        ax1.set_ylim(ymin, ymax)
+        r_min = min(all_vals) - 30
+        r_max = max(all_vals) + 30
+        ax1.set_ylim(r_min, r_max)
 
-    ax1.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=10)
-    ax1.set_title(
-        f"{exp_id}: Metric Profile — IdeaGraph vs Target Paper",
-        fontsize=13, fontweight="bold", pad=20,
+    ax1.tick_params(axis="y", labelsize=7)
+    ax1.legend(
+        fontsize=8, loc="upper right",
+        bbox_to_anchor=(1.25, 1.05),
     )
     fig1.tight_layout()
-    all_paths.extend(_save_figure(fig1, figures_dir, f"fig_{exp_id}_1_radar"))
+    all_paths.extend(save_figure(fig1, figures_dir, f"fig_{exp_id}_1_radar"))
     plt.close(fig1)
 
-    # ── Fig 2: ランキング ELO バー (Target Paper ハイライト) ──
-    fig2, ax2 = plt.subplots(figsize=(8, 5))
-    overall_elos = [(s, elo_summary[s].get("overall", (1000, 0))) for s in sources]
+    # ------------------------------------------------------------------
+    # Fig 2: Horizontal bar chart sorted by overall ELO
+    # ------------------------------------------------------------------
+    fig2, ax2 = plt.subplots(figsize=FIG_SINGLE)
+
+    overall_elos = [
+        (s, elo_summary[s].get("overall", (1000.0, 0.0)))
+        for s in sources
+    ]
     overall_elos.sort(key=lambda x: x[1][0], reverse=True)
 
-    bar_labels = [_source_display_name(s) for s, _ in overall_elos]
+    bar_labels = [display_name(s) for s, _ in overall_elos]
     bar_vals = [v[0] for _, v in overall_elos]
-    bar_errs = [v[1] for _, v in overall_elos]
+    bar_sems = [v[1] for _, v in overall_elos]
     bar_colors = []
     for s, _ in overall_elos:
-        if "target" in s.lower():
-            bar_colors.append(STYLE.COLORS.get("target_paper", "#F59E0B"))
+        if "target" in s.lower() or "paper" in s.lower():
+            bar_colors.append(TOL_YELLOW)
         else:
-            bar_colors.append(STYLE.color_for(s))
+            bar_colors.append(color_for(s))
 
     bars = ax2.barh(
-        range(len(bar_labels)), bar_vals, xerr=bar_errs,
-        color=bar_colors, alpha=0.85, edgecolor="white", linewidth=0.5, capsize=3,
+        range(len(bar_labels)), bar_vals,
+        xerr=bar_sems, capsize=3,
+        color=bar_colors, alpha=0.85,
+        edgecolor="white", linewidth=0.5,
+        height=0.55,
+        error_kw={"linewidth": 0.8, "capthick": 0.8},
     )
-    ax2.set_yticks(range(len(bar_labels)))
-    ax2.set_yticklabels(bar_labels, fontsize=10)
-    ax2.set_xlabel("Overall ELO Rating", fontsize=11)
-    ax2.axvline(1000, color="gray", linestyle=":", linewidth=0.8, alpha=0.5)
-    ax2.set_title(f"{exp_id}: Overall ELO Ranking", fontsize=12, fontweight="bold")
 
-    # X軸をELO値の範囲にズーム
-    x_min = min(v - e for v, e in zip(bar_vals, bar_errs)) - 30
-    x_max = max(v + e for v, e in zip(bar_vals, bar_errs)) + 30
+    ax2.set_yticks(range(len(bar_labels)))
+    ax2.set_yticklabels(bar_labels, fontsize=8)
+    ax2.set_xlabel("Overall ELO Rating", fontsize=9)
+    ax2.tick_params(axis="x", labelsize=8)
+
+    # Baseline line
+    ax2.axvline(1000, color="gray", linestyle="--", linewidth=0.7, alpha=0.5)
+
+    # Zoom x-axis to data range
+    x_min = min(v - e for v, e in zip(bar_vals, bar_sems)) - 30
+    x_max = max(v + e for v, e in zip(bar_vals, bar_sems)) + 30
     ax2.set_xlim(x_min, x_max)
 
-    # 値ラベル
+    # Value labels
     for bar, val in zip(bars, bar_vals):
         ax2.text(
-            val + (x_max - x_min) * 0.02, bar.get_y() + bar.get_height() / 2,
-            f"{val:.0f}", va="center", fontsize=9, fontweight="bold",
+            val + (x_max - x_min) * 0.02,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.0f}",
+            va="center", fontsize=8, fontweight="bold",
         )
 
     ax2.invert_yaxis()
-    ax2.grid(axis="x", alpha=0.3)
+    ax2.grid(axis="x", alpha=0.3, linewidth=0.5)
     fig2.tight_layout()
-    all_paths.extend(_save_figure(fig2, figures_dir, f"fig_{exp_id}_2_elo_ranking"))
+    all_paths.extend(save_figure(fig2, figures_dir, f"fig_{exp_id}_2_elo_ranking"))
     plt.close(fig2)
 
-    # ── Table (Markdown + LaTeX) ──
+    # ------------------------------------------------------------------
+    # Tables: Markdown + LaTeX
+    # ------------------------------------------------------------------
     _generate_exp102_tables(elo_summary, sources, figures_dir, exp_id)
 
     return all_paths
 
 
-# ═══════════════════════════════════════════════════════════
-# テーブル生成
-# ═══════════════════════════════════════════════════════════
+# ======================================================================
+# EXP-103..106: Single evaluation scores (one per method)
+# ======================================================================
+
+
+@register("EXP-103")
+def vis_exp_103(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
+    """EXP-103: IdeaGraph single evaluation scores."""
+    return _single_score_bar(run_dir, figures_dir, exp_id, "ideagraph")
+
+
+@register("EXP-104")
+def vis_exp_104(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
+    """EXP-104: Direct LLM single evaluation scores."""
+    return _single_score_bar(run_dir, figures_dir, exp_id, "direct_llm")
+
+
+@register("EXP-105")
+def vis_exp_105(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
+    """EXP-105: CoI-Agent single evaluation scores."""
+    return _single_score_bar(run_dir, figures_dir, exp_id, "coi")
+
+
+@register("EXP-106")
+def vis_exp_106(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
+    """EXP-106: Target Paper single evaluation scores."""
+    return _single_score_bar(run_dir, figures_dir, exp_id, "target_paper")
+
+
+# ======================================================================
+# Table generation -- EXP-101
+# ======================================================================
 
 
 def _generate_exp101_tables(
-    elo_summary: dict, sources: list[str], output_dir: Path, exp_id: str,
+    elo_summary: dict[str, dict[str, tuple[float, float]]],
+    sources: list[str],
+    output_dir: Path,
+    exp_id: str,
 ) -> None:
-    """EXP-101 の Markdown + LaTeX テーブルを生成する。"""
+    """Generate Markdown + LaTeX tables for EXP-101 (ELO +/- SEM, bold best)."""
     output_dir.mkdir(parents=True, exist_ok=True)
     display_metrics = METRICS + ["overall"]
 
-    # Markdown
-    header = "| Method | " + " | ".join(METRIC_SHORT.get(m, m) for m in display_metrics) + " |"
-    sep = "|--------|" + "|".join("--------:" for _ in display_metrics) + "|"
-    rows = []
-    for s in sources:
-        name = _source_display_name(s)
-        vals = [f"{elo_summary[s].get(m, (0, 0))[0]:.0f}" for m in display_metrics]
-        rows.append(f"| {name} | " + " | ".join(vals) + " |")
+    # Identify best (highest mean) per metric
+    best_per_metric: dict[str, float] = {}
+    for m in display_metrics:
+        vals = [elo_summary[s].get(m, (0, 0))[0] for s in sources]
+        best_per_metric[m] = max(vals) if vals else 0.0
 
-    md_content = f"## {exp_id}: ELO Scores by Method\n\n{header}\n{sep}\n" + "\n".join(rows) + "\n"
+    # --- Markdown ---
+    header_cols = [METRIC_DISPLAY.get(m, m) for m in display_metrics]
+    md_header = "| Method | " + " | ".join(header_cols) + " |"
+    md_sep = "|--------|" + "|".join("---------:" for _ in display_metrics) + "|"
+    md_rows: list[str] = []
+    for s in sources:
+        name = display_name(s)
+        cells: list[str] = []
+        for m in display_metrics:
+            mean, sem = elo_summary[s].get(m, (0, 0))
+            val_str = f"{mean:.0f} \u00b1 {sem:.0f}"
+            if mean == best_per_metric[m]:
+                val_str = f"**{val_str}**"
+            cells.append(val_str)
+        md_rows.append(f"| {name} | " + " | ".join(cells) + " |")
+
+    md_content = (
+        f"## {exp_id}: 3-Method ELO Comparison\n\n"
+        + md_header + "\n" + md_sep + "\n"
+        + "\n".join(md_rows) + "\n"
+    )
     (output_dir / f"table_{exp_id}.md").write_text(md_content, encoding="utf-8")
 
-    # LaTeX
+    # --- LaTeX ---
     col_spec = "l" + "r" * len(display_metrics)
-    header_tex = " & ".join(["Method"] + [METRIC_SHORT.get(m, m) for m in display_metrics]) + r" \\"
-    tex_rows = []
+    tex_header = (
+        " & ".join(["Method"] + [METRIC_DISPLAY.get(m, m) for m in display_metrics])
+        + r" \\"
+    )
+    tex_rows: list[str] = []
     for s in sources:
-        name = _source_display_name(s)
-        vals = [f"{elo_summary[s].get(m, (0, 0))[0]:.0f}" for m in display_metrics]
-        tex_rows.append(f"  {name} & " + " & ".join(vals) + r" \\")
+        name = display_name(s)
+        cells: list[str] = []
+        for m in display_metrics:
+            mean, sem = elo_summary[s].get(m, (0, 0))
+            if mean == best_per_metric[m]:
+                cells.append(
+                    f"\\textbf{{{mean:.0f}}} $\\pm$ {sem:.0f}"
+                )
+            else:
+                cells.append(f"{mean:.0f} $\\pm$ {sem:.0f}")
+        tex_rows.append(f"  {name} & " + " & ".join(cells) + r" \\")
 
-    tex_content = (
+    tex = (
         r"\begin{table}[htbp]" + "\n"
         r"  \centering" + "\n"
-        f"  \\caption{{{exp_id}: ELO Scores by Method}}\n"
+        f"  \\caption{{{exp_id}: 3-Method ELO Comparison (Mean $\\pm$ SEM)}}\n"
         f"  \\begin{{tabular}}{{{col_spec}}}\n"
         r"    \toprule" + "\n"
-        f"    {header_tex}\n"
+        f"    {tex_header}\n"
         r"    \midrule" + "\n"
         + "\n".join(f"    {r}" for r in tex_rows) + "\n"
         r"    \bottomrule" + "\n"
         r"  \end{tabular}" + "\n"
         r"\end{table}" + "\n"
     )
-    (output_dir / f"table_{exp_id}.tex").write_text(tex_content, encoding="utf-8")
+    (output_dir / f"table_{exp_id}.tex").write_text(tex, encoding="utf-8")
+
+
+# ======================================================================
+# Table generation -- EXP-102
+# ======================================================================
 
 
 def _generate_exp102_tables(
-    elo_summary: dict, sources: list[str], output_dir: Path, exp_id: str,
+    elo_summary: dict[str, dict[str, tuple[float, float]]],
+    sources: list[str],
+    output_dir: Path,
+    exp_id: str,
 ) -> None:
-    """EXP-102 の Markdown + LaTeX テーブルを生成する。"""
+    """Generate Markdown + LaTeX tables for EXP-102 (ELO +/- SEM, bold best)."""
     output_dir.mkdir(parents=True, exist_ok=True)
     display_metrics = METRICS + ["overall"]
 
-    # Markdown
-    header = "| Source | " + " | ".join(METRIC_SHORT.get(m, m) for m in display_metrics) + " |"
-    sep = "|--------|" + "|".join("--------:" for _ in display_metrics) + "|"
-    rows = []
-    for s in sources:
-        name = _source_display_name(s)
-        vals = [f"{elo_summary[s].get(m, (0, 0))[0]:.0f}" for m in display_metrics]
-        rows.append(f"| {name} | " + " | ".join(vals) + " |")
+    # Identify best per metric
+    best_per_metric: dict[str, float] = {}
+    for m in display_metrics:
+        vals = [elo_summary[s].get(m, (0, 0))[0] for s in sources]
+        best_per_metric[m] = max(vals) if vals else 0.0
 
-    md_content = f"## {exp_id}: IdeaGraph vs Target Paper\n\n{header}\n{sep}\n" + "\n".join(rows) + "\n"
+    # --- Markdown ---
+    header_cols = [METRIC_DISPLAY.get(m, m) for m in display_metrics]
+    md_header = "| Source | " + " | ".join(header_cols) + " |"
+    md_sep = "|--------|" + "|".join("---------:" for _ in display_metrics) + "|"
+    md_rows: list[str] = []
+    for s in sources:
+        name = display_name(s)
+        cells: list[str] = []
+        for m in display_metrics:
+            mean, sem = elo_summary[s].get(m, (0, 0))
+            val_str = f"{mean:.0f} \u00b1 {sem:.0f}"
+            if mean == best_per_metric[m]:
+                val_str = f"**{val_str}**"
+            cells.append(val_str)
+        md_rows.append(f"| {name} | " + " | ".join(cells) + " |")
+
+    md_content = (
+        f"## {exp_id}: IdeaGraph vs Target Paper\n\n"
+        + md_header + "\n" + md_sep + "\n"
+        + "\n".join(md_rows) + "\n"
+    )
     (output_dir / f"table_{exp_id}.md").write_text(md_content, encoding="utf-8")
 
-    # LaTeX
+    # --- LaTeX ---
     col_spec = "l" + "r" * len(display_metrics)
-    header_tex = " & ".join(["Source"] + [METRIC_SHORT.get(m, m) for m in display_metrics]) + r" \\"
-    tex_rows = []
+    tex_header = (
+        " & ".join(["Source"] + [METRIC_DISPLAY.get(m, m) for m in display_metrics])
+        + r" \\"
+    )
+    tex_rows: list[str] = []
     for s in sources:
-        name = _source_display_name(s)
-        vals = [f"{elo_summary[s].get(m, (0, 0))[0]:.0f}" for m in display_metrics]
-        tex_rows.append(f"  {name} & " + " & ".join(vals) + r" \\")
+        name = display_name(s)
+        cells: list[str] = []
+        for m in display_metrics:
+            mean, sem = elo_summary[s].get(m, (0, 0))
+            if mean == best_per_metric[m]:
+                cells.append(
+                    f"\\textbf{{{mean:.0f}}} $\\pm$ {sem:.0f}"
+                )
+            else:
+                cells.append(f"{mean:.0f} $\\pm$ {sem:.0f}")
+        tex_rows.append(f"  {name} & " + " & ".join(cells) + r" \\")
 
-    tex_content = (
+    tex = (
         r"\begin{table}[htbp]" + "\n"
         r"  \centering" + "\n"
-        f"  \\caption{{{exp_id}: IdeaGraph vs Target Paper ELO Scores}}\n"
+        f"  \\caption{{{exp_id}: IdeaGraph vs Target Paper (Mean $\\pm$ SEM)}}\n"
         f"  \\begin{{tabular}}{{{col_spec}}}\n"
         r"    \toprule" + "\n"
-        f"    {header_tex}\n"
+        f"    {tex_header}\n"
         r"    \midrule" + "\n"
         + "\n".join(f"    {r}" for r in tex_rows) + "\n"
         r"    \bottomrule" + "\n"
         r"  \end{tabular}" + "\n"
         r"\end{table}" + "\n"
     )
-    (output_dir / f"table_{exp_id}.tex").write_text(tex_content, encoding="utf-8")
-
-
-# ── ヘルパー ──
-
-
-def _source_display_name(source: str) -> str:
-    """ソース名を表示用に変換する。"""
-    name_map = {
-        "ideagraph": "IdeaGraph",
-        "ideagraph_default": "IdeaGraph",
-        "direct_llm": "Direct LLM",
-        "direct_llm_baseline": "Direct LLM",
-        "coi": "CoI-Agent",
-        "coi_agent": "CoI-Agent",
-        "target_paper": "Target Paper",
-    }
-    return name_map.get(source.lower(), source)
+    (output_dir / f"table_{exp_id}.tex").write_text(tex, encoding="utf-8")

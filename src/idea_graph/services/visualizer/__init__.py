@@ -1,4 +1,4 @@
-"""実験結果の可視化サービス — パッケージ再エクスポート"""
+"""Experiment visualization service — package re-exports."""
 
 from ._visualizer import ExperimentVisualizer
 from ._paper_figures import PaperFigureGenerator
