@@ -1,4 +1,4 @@
-"""200-series: Ablation experiment visualizations (EXP-201 to EXP-208).
+"""200-series: Ablation experiment visualizations (EXP-201 to EXP-209).
 
 EXP-201: Multi-hop depth ablation
 EXP-202: Graph format ablation (mermaid vs paths)
@@ -1006,6 +1006,246 @@ def vis_exp_208(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
             all_paths.extend(
                 save_figure(
                     fig3, figures_dir, f"fig_{exp_id}_3_correlation_bar",
+                ),
+            )
+            plt.close(fig3)
+
+    # -- Tables --
+    _generate_correlation_tables(
+        all_metric_pairs, plot_metrics, figures_dir, exp_id,
+        spearman, pearson,
+    )
+
+    return all_paths
+
+
+@register("EXP-209")
+def vis_exp_209(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
+    """In-degree (citation count) stability: indegree-score scatter, per-metric panels, correlation bar."""
+    if not HAS_MPL:
+        return []
+
+    all_paths: list[Path] = []
+
+    # Load data
+    scores = load_single_scores(run_dir)
+    if not scores:
+        return all_paths
+
+    degrees = load_paper_degrees(run_dir)
+    per_paper = load_single_scores_per_paper(run_dir)
+
+    # Build degree-score pairs across all conditions
+    degree_vals: list[float] = []
+    overall_vals: list[float] = []
+    metric_pairs: dict[str, tuple[list[float], list[float]]] = {
+        m: ([], []) for m in METRICS
+    }
+
+    for cond, papers in per_paper.items():
+        for paper_id, paper_scores in papers.items():
+            deg = degrees.get(paper_id)
+            if deg is None:
+                continue
+            overall = paper_scores.get("overall")
+            if overall is not None:
+                degree_vals.append(float(deg))
+                overall_vals.append(float(overall))
+            for m in METRICS:
+                val = paper_scores.get(m)
+                if val is not None:
+                    metric_pairs[m][0].append(float(deg))
+                    metric_pairs[m][1].append(float(val))
+
+    if not degree_vals:
+        logger.warning("EXP-209: No degree-score data available")
+        return all_paths
+
+    # Safe import of correlation functions
+    try:
+        from idea_graph.services.aggregator import spearman, pearson
+    except ImportError:
+        def spearman(x: list[float], y: list[float]) -> float:
+            return 0.0
+        def pearson(x: list[float], y: list[float]) -> float:
+            return 0.0
+
+    # -- Fig 1: In-degree x Overall scatter + regression + 95% CI --
+    fig1, ax1 = plt.subplots(figsize=FIG_DOUBLE)
+    x_arr = np.array(degree_vals)
+    y_arr = np.array(overall_vals)
+
+    ax1.scatter(
+        x_arr, y_arr, s=50, alpha=0.7, color=TOL_BLUE,
+        edgecolors="white", linewidth=0.6, zorder=3,
+    )
+
+    # Regression line + 95% CI band
+    if len(x_arr) >= 2 and len(set(x_arr)) >= 2:
+        coeffs = np.polyfit(x_arr, y_arr, 1)
+        x_line = np.linspace(x_arr.min() - 1, x_arr.max() + 1, 100)
+        y_line = np.polyval(coeffs, x_line)
+        ax1.plot(
+            x_line, y_line, "--", color=TOL_RED, linewidth=2,
+            label="Linear Fit",
+        )
+
+        y_pred = np.polyval(coeffs, x_arr)
+        se = np.std(y_arr - y_pred)
+        ax1.fill_between(
+            x_line, y_line - 1.96 * se, y_line + 1.96 * se,
+            alpha=0.12, color=TOL_RED, label="95% CI",
+        )
+
+    # Statistics annotation box
+    n = len(degree_vals)
+    rho = spearman(degree_vals, overall_vals) if n >= 3 else 0.0
+    r = pearson(degree_vals, overall_vals) if n >= 3 else 0.0
+    annotation = f"n = {n}"
+    if n >= 3:
+        annotation += f"\nSpearman ρ = {rho:.3f}\nPearson r = {r:.3f}"
+    ax1.text(
+        0.05, 0.95, annotation, transform=ax1.transAxes,
+        fontsize=8, va="top",
+        bbox=dict(
+            boxstyle="round,pad=0.4", facecolor="white",
+            edgecolor="#D1D5DB", alpha=0.9,
+        ),
+    )
+
+    ax1.set_xlabel("In-degree (citation count)", fontsize=9)
+    ax1.set_ylabel("Overall Score", fontsize=9)
+    ax1.tick_params(axis="both", labelsize=8)
+    handles, handle_labels = ax1.get_legend_handles_labels()
+    if handles:
+        ax1.legend(fontsize=8)
+    ax1.grid(axis="y", alpha=0.3, linewidth=0.5)
+    fig1.tight_layout()
+    all_paths.extend(
+        save_figure(fig1, figures_dir, f"fig_{exp_id}_1_indegree_scatter"),
+    )
+    plt.close(fig1)
+
+    # -- Fig 2: 2x3 per-metric scatter panels --
+    plot_metrics = METRICS + ["overall"]
+    all_metric_pairs = {
+        **metric_pairs,
+        "overall": (degree_vals, overall_vals),
+    }
+
+    fig2, axes = plt.subplots(2, 3, figsize=FIG_DOUBLE_TALL)
+
+    for idx, m in enumerate(plot_metrics):
+        row, col = idx // 3, idx % 3
+        ax = axes[row][col]
+        dx, dy = all_metric_pairs[m]
+        color = METRIC_COLORS.get(m, TOL_GREY)
+
+        if len(dx) < 1:
+            ax.text(
+                0.5, 0.5, "No data", transform=ax.transAxes,
+                ha="center", va="center", fontsize=8,
+            )
+            ax.set_title(
+                METRIC_DISPLAY.get(m, m.capitalize()), fontsize=9,
+            )
+            continue
+
+        ax.scatter(
+            dx, dy, alpha=0.6, color=color, s=30,
+            edgecolors="white", linewidth=0.4,
+        )
+
+        # Regression line
+        if len(dx) >= 2 and len(set(dx)) >= 2:
+            x_a = np.array(dx)
+            y_a = np.array(dy)
+            c = np.polyfit(x_a, y_a, 1)
+            xl = np.linspace(x_a.min(), x_a.max(), 50)
+            ax.plot(
+                xl, np.polyval(c, xl), "--", color=TOL_RED, linewidth=1.5,
+            )
+
+        # rho + n annotation
+        if len(dx) >= 3:
+            rho_m = spearman(dx, dy)
+            ax.text(
+                0.05, 0.95, f"ρ = {rho_m:.3f}\nn = {len(dx)}",
+                transform=ax.transAxes, fontsize=7, va="top",
+                bbox=dict(
+                    boxstyle="round", facecolor="white",
+                    edgecolor="#D1D5DB", alpha=0.9,
+                ),
+            )
+
+        ax.set_title(METRIC_DISPLAY.get(m, m.capitalize()), fontsize=9)
+        ax.set_xlabel("In-degree", fontsize=8)
+        ax.set_ylabel("Score", fontsize=8)
+        ax.tick_params(axis="both", labelsize=7)
+        ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+
+    fig2.tight_layout()
+    all_paths.extend(
+        save_figure(fig2, figures_dir, f"fig_{exp_id}_2_metric_panels"),
+    )
+    plt.close(fig2)
+
+    # -- Fig 3: |rho| bar chart --
+    if any(len(all_metric_pairs[m][0]) >= 3 for m in plot_metrics):
+        fig3, ax3 = plt.subplots(figsize=FIG_SINGLE)
+        metric_labels: list[str] = []
+        rho_values: list[float] = []
+
+        for m in plot_metrics:
+            dx, dy = all_metric_pairs[m]
+            if len(dx) >= 3:
+                rho_m = spearman(dx, dy)
+                metric_labels.append(METRIC_DISPLAY.get(m, m.capitalize()))
+                rho_values.append(rho_m)
+
+        if metric_labels:
+            colors = [
+                TOL_GREEN if abs(v) < 0.3 else TOL_RED for v in rho_values
+            ]
+            x_pos = np.arange(len(metric_labels))
+            bars = ax3.bar(
+                x_pos, [abs(v) for v in rho_values],
+                color=colors, alpha=0.85, edgecolor="white",
+            )
+            ax3.axhline(
+                0.3, color=TOL_GREY, linestyle="--", linewidth=1,
+                alpha=0.7, label="|ρ| = 0.3",
+            )
+
+            ax3.set_xticks(x_pos)
+            ax3.set_xticklabels(
+                metric_labels, fontsize=8, rotation=30, ha="right",
+            )
+            ax3.set_ylabel("|Spearman ρ|", fontsize=9)
+            ax3.tick_params(axis="both", labelsize=8)
+            ax3.legend(fontsize=8)
+            ax3.grid(axis="y", alpha=0.3, linewidth=0.5)
+            annotate_n_header(ax3, n)
+            ax3.set_ylim(
+                0,
+                max(abs(v) for v in rho_values) * 1.3
+                if rho_values else 1.0,
+            )
+
+            # Value labels on bars with +/- sign
+            for bar, val in zip(bars, rho_values):
+                sign = "+" if val >= 0 else "−"
+                ax3.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.02,
+                    f"{sign}{abs(val):.3f}",
+                    ha="center", va="bottom", fontsize=7, fontweight="bold",
+                )
+
+            fig3.tight_layout()
+            all_paths.extend(
+                save_figure(
+                    fig3, figures_dir, f"fig_{exp_id}_3_rho_bar",
                 ),
             )
             plt.close(fig3)

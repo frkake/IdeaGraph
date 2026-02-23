@@ -866,8 +866,8 @@ async function runAnalysis() {
             body: JSON.stringify({
                 target_paper_id: paperId,
                 multihop_k: hopK,
-                top_n: ANALYSIS_DISPLAY_LIMIT,
-                response_limit: ANALYSIS_DISPLAY_LIMIT,
+                top_n: null,  // null で制限なし（全パスを返す）
+                response_limit: ANALYSIS_DISPLAY_LIMIT,  // レスポンスサイズ制限は維持
                 save: true,
             }),
         });

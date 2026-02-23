@@ -455,6 +455,51 @@ uv run idea-graph experiment run <config.yaml> [オプション]
 | `--no-cache` | キャッシュ読み込みを無効化 |
 | `--clear-cache` | 実行前にキャッシュを削除 |
 
+**`targets.selection_strategy` の選択肢:**
+
+| 値 | 説明 |
+|---|------|
+| `manual` | `paper_ids` で明示指定 |
+| `random` | ランダム選択 |
+| `connectivity` | CITES 出次数（引用している論文数）上位 N 件 |
+| `connectivity_stratified` | CITES 出次数で層化サンプリング（high/medium/low） |
+| `in_degree` | CITES 入次数（被引用数）上位 N 件 |
+| `in_degree_stratified` | CITES 入次数で層化サンプリング（high/medium/low） |
+
+`connectivity_stratified` / `in_degree_stratified` では `connectivity_tier_filter` で特定の層のみ選択可能（`high`, `medium`, `low`）。未指定時は3層から均等にサンプリング。
+
+**YAML 設定例:**
+
+```yaml
+# 被引用数 top 15 を選択
+targets:
+  selection_strategy: "in_degree"
+  count: 15
+
+# 被引用数で層化サンプリング（高被引用のみ）
+targets:
+  selection_strategy: "in_degree_stratified"
+  connectivity_tier_filter: "high"
+  count: 15
+
+# CITES 出次数 top 15 を選択
+targets:
+  selection_strategy: "connectivity"
+  count: 15
+
+# CITES 出次数で層化サンプリング（全層均等）
+targets:
+  selection_strategy: "connectivity_stratified"
+  count: 15
+
+# 特定の論文を手動指定
+targets:
+  selection_strategy: "manual"
+  paper_ids:
+    - "2301.00001"
+    - "2301.00002"
+```
+
 **例:**
 
 ```bash
@@ -511,6 +556,22 @@ uv run idea-graph experiment paper-figures --output /tmp/figures --formats png p
 | EXP-104 | Direct LLM 単体 | Single | Direct LLM の絶対スコア計測 |
 | EXP-105 | CoI-Agent 単体 | Single | CoI-Agent の絶対スコア計測 |
 | EXP-106 | 元論文 単体 | Single | ターゲット論文の絶対スコア計測（ベースライン） |
+
+#### 実験設計（200系）
+
+200系実験はアブレーションスタディと安定性検証を目的とする。すべて Single 評価。
+
+| 実験ID | 名前 | カテゴリ | 説明 |
+|--------|------|----------|------|
+| EXP-201 | マルチホップ深度アブレーション | ablation | max_hops={1,2,3,4,5} の5条件で深度の最適値を検証 |
+| EXP-202 | グラフ表現形式アブレーション | ablation | graph_format={mermaid,paths} の2条件で表現形式を比較 |
+| EXP-203 | プロンプトスコープアブレーション | ablation | scope={path,k_hop,path_plus_k_hop} の3条件でスコープを比較 |
+| EXP-204 | パス数アブレーション | ablation | max_paths={3,5,10,20} の4条件でパス数の適正値を検証 |
+| EXP-205 | グラフサイズ効果 | ablation | グラフ規模 (--limit={20,50,100,full}) が品質に与える影響を測定 |
+| EXP-206 | 提案数アブレーション | ablation | num_proposals={1,3,5,7,10} の5条件で生成数と品質の関係を検証 |
+| EXP-207 | 品質-コスト効率 | ablation | max_paths/max_nodes の3条件で費用対効果を測定し Pareto frontier を作成 |
+| EXP-208 | 出次数安定性 | comparison | CITES 出次数（引用している論文数）で層化サンプリングし、各層での性能安定性を検証 |
+| EXP-209 | 被引用数安定性 | comparison | CITES 入次数（被引用数）で層化サンプリングし、各層での性能安定性を検証 |
 
 #### 可視化の構成
 
@@ -1275,7 +1336,10 @@ experiments/
 │   ├── EXP-103.yaml     # IdeaGraph single 評価
 │   ├── EXP-104.yaml     # Direct LLM single 評価
 │   ├── EXP-105.yaml     # CoI-Agent single 評価
-│   └── EXP-106.yaml     # 元論文 single 評価
+│   ├── EXP-106.yaml     # 元論文 single 評価
+│   ├── EXP-201〜207.yaml # アブレーションスタディ
+│   ├── EXP-208.yaml     # 出次数安定性
+│   └── EXP-209.yaml     # 被引用数安定性
 ├── runs/                # 実験実行結果
 │   ├── EXP-101_YYYYMMDD_HHMMSS/
 │   │   ├── evaluations/

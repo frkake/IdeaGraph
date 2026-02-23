@@ -310,14 +310,14 @@ class AnalysisService:
         self,
         target_paper_id: str,
         multihop_k: int = 3,
-        top_n: int = 10,
+        top_n: int | None = None,
     ) -> AnalysisResult:
         """マルチホップ分析を実行
 
         Args:
             target_paper_id: ターゲット論文ID
             multihop_k: 最大ホップ数
-            top_n: 返す候補数
+            top_n: 返す候補数（Noneの場合は制限なし）
 
         Returns:
             分析結果
@@ -370,13 +370,17 @@ class AnalysisService:
         total_paths = len(all_paths)
         total_nodes = len({node.id for path in all_paths for node in path.nodes})
         total_edges = sum(len(path.edges) for path in all_paths)
-        display_limit = max(top_n, 0)
+        # top_n が None の場合は制限なし
+        if top_n is None:
+            display_limit = None
+        else:
+            display_limit = max(top_n, 0)
 
         return AnalysisResult(
             target_paper_id=target_paper_id,
             candidates=all_paths,
-            paper_paths=paper_paths[:display_limit],
-            entity_paths=entity_paths[:display_limit],
+            paper_paths=paper_paths[:display_limit] if display_limit is not None else paper_paths,
+            entity_paths=entity_paths[:display_limit] if display_limit is not None else entity_paths,
             multihop_k=multihop_k,
             total_paths=total_paths,
             total_paper_paths=total_paper_paths,

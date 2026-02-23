@@ -1620,8 +1620,8 @@ def main() -> int:
     analyze_parser.add_argument(
         "--top-k",
         type=int,
-        default=10,
-        help="返すパス数 (デフォルト: 10)",
+        default=None,
+        help="返すパス数 (デフォルト: 制限なし)",
     )
     analyze_parser.add_argument(
         "--format",
@@ -1653,8 +1653,8 @@ def main() -> int:
     propose_parser.add_argument(
         "--top-k",
         type=int,
-        default=10,
-        help="分析時に使用するパス数 (デフォルト: 10)",
+        default=None,
+        help="分析時に使用するパス数 (デフォルト: 制限なし)",
     )
     propose_parser.add_argument(
         "--format",

@@ -19,9 +19,10 @@ class ExperimentCategory(str, Enum):
 class PaperSelectionStrategy(str, Enum):
     MANUAL = "manual"
     RANDOM = "random"
-    TOP_CITED = "top_cited"
     CONNECTIVITY = "connectivity"
     CONNECTIVITY_STRATIFIED = "connectivity_stratified"
+    IN_DEGREE = "in_degree"
+    IN_DEGREE_STRATIFIED = "in_degree_stratified"
 
 
 class MethodType(str, Enum):
@@ -29,6 +30,11 @@ class MethodType(str, Enum):
     DIRECT_LLM = "direct_llm"
     COI = "coi"
     TARGET_PAPER = "target_paper"
+
+
+class CandidateScope(str, Enum):
+    ALL = "all"
+    DATASET = "dataset"
 
 
 class EvaluationMode(str, Enum):
@@ -52,6 +58,7 @@ class SeedConfig(BaseModel):
 class TargetsConfig(BaseModel):
     paper_ids: list[str] = Field(default_factory=list)
     selection_strategy: PaperSelectionStrategy = PaperSelectionStrategy.MANUAL
+    candidate_scope: CandidateScope = CandidateScope.ALL
     connectivity_tier_filter: str | None = None
     count: int = 15
 
@@ -68,7 +75,14 @@ class TargetsConfig(BaseModel):
 
 class AnalysisConfig(BaseModel):
     max_hops: int = Field(default=3, ge=1, le=10)
-    top_k: int = Field(default=10, ge=1)
+    top_k: int | None = Field(default=10, description="Noneの場合は制限なし（全パスを返す）")
+
+    @field_validator("top_k")
+    @classmethod
+    def validate_top_k(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise ValueError("top_k must be >= 1 if specified")
+        return value
 
 
 class PromptConfig(BaseModel):

@@ -141,7 +141,7 @@ class AnalyzeRequest(BaseModel):
 
     target_paper_id: str
     multihop_k: int = 3
-    top_n: int = 10
+    top_n: int | None = None
     response_limit: int | None = None
     save: bool = False
 

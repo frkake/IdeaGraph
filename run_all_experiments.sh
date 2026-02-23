@@ -23,6 +23,7 @@ EXP_YAMLS=(
     "experiments/configs/EXP-206.yaml"
     "experiments/configs/EXP-207.yaml"
     "experiments/configs/EXP-208.yaml"
+    "experiments/configs/EXP-209.yaml"
     "experiments/configs/EXP-301.yaml"
     "experiments/configs/EXP-302.yaml"
     "experiments/configs/EXP-303.yaml"

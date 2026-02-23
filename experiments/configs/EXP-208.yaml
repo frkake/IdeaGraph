@@ -2,17 +2,18 @@ experiment:
   id: "EXP-208"
   name: "接続性安定性"
   category: "comparison"
-  description: "接続性の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。connectivity_stratifiedにより高/中/低接続の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定しているかを分析する"
+  description: "CITES出次数（引用している論文数）の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。connectivity_stratifiedにより高/中/低出次数の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定しているかを分析する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
 targets:
   paper_ids: []
   selection_strategy: "connectivity_stratified"
+  candidate_scope: "dataset"
   connectivity_tier_filter: null
   count: 15
 analysis:
-  max_hops: 3
+  max_hops: 4
   top_k: 10
 prompt:
   graph_format: "mermaid"

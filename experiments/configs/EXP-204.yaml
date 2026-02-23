@@ -9,10 +9,11 @@ seed:
 targets:
   paper_ids: []
   selection_strategy: "connectivity_stratified"
+  candidate_scope: "dataset"
   connectivity_tier_filter: null
   count: 10
 analysis:
-  max_hops: 3
+  max_hops: 4
   top_k: 20
 prompt:
   graph_format: "mermaid"

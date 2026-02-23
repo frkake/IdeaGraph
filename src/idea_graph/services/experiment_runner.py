@@ -18,6 +18,7 @@ from idea_graph.config import settings
 from idea_graph.db import Neo4jConnection
 from idea_graph.models.experiment import (
     AnalysisConfig,
+    CandidateScope,
     ConditionConfig,
     ExperimentConfig,
     MethodType,
@@ -140,54 +141,73 @@ class ExperimentRunner:
 
     # ──────────────────────────── ターゲット論文選定 ────────────────────────────
 
-    def _select_target_papers(self, config: ExperimentConfig, limit: int | None) -> list[str]:
+    def _load_dataset_paper_ids(self) -> list[str]:
+        """ProgressManager から source="dataset" の論文IDリストを取得する。"""
+        from idea_graph.ingestion.progress import ProgressManager
+
+        pm = ProgressManager()
+        return [
+            paper_id
+            for paper_id, paper in pm.progress.papers.items()
+            if paper.source == "dataset"
+        ]
+
+    def _select_target_papers(self, config: ExperimentConfig, limit: int | None, pool_size: int | None = None) -> list[str]:
         target_count = limit if limit is not None else config.targets.count
         target_count = max(1, target_count)
+        # pool_size が指定された場合、target_count より多くの候補を返す（リトライ用）
+        fetch_count = pool_size if pool_size is not None else target_count
 
         if config.targets.paper_ids:
             self._paper_degrees = {}
-            return config.targets.paper_ids[:target_count]
+            return config.targets.paper_ids[:fetch_count]
 
         strategy = config.targets.selection_strategy
         random.seed(config.seed.paper_selection)
 
+        # candidate_scope による候補制限
+        dataset_ids: list[str] | None = None
+        if config.targets.candidate_scope == CandidateScope.DATASET:
+            dataset_ids = self._load_dataset_paper_ids()
+            if not dataset_ids:
+                logger.warning("No dataset papers found in progress.json; falling back to candidate_scope='all'")
+                dataset_ids = None
+
+        # Cypher の WHERE 句と params を構築するヘルパー
+        scope_where = "WHERE p.id IN $dataset_ids" if dataset_ids is not None else ""
+        scope_params: dict[str, Any] = {"dataset_ids": dataset_ids} if dataset_ids is not None else {}
+
         if strategy == PaperSelectionStrategy.MANUAL:
             raise ValueError("targets.paper_ids is empty for manual selection strategy")
         if strategy == PaperSelectionStrategy.RANDOM:
-            all_ids = self._query_papers(
-                "MATCH (p:Paper) RETURN p.id AS id",
-                {},
-            )
+            if dataset_ids is not None:
+                all_ids = self._query_papers(
+                    "MATCH (p:Paper) WHERE p.id IN $dataset_ids RETURN p.id AS id",
+                    {"dataset_ids": dataset_ids},
+                )
+            else:
+                all_ids = self._query_papers(
+                    "MATCH (p:Paper) RETURN p.id AS id",
+                    {},
+                )
             random.shuffle(all_ids)
             self._paper_degrees = {}
-            return all_ids[:target_count]
-        if strategy == PaperSelectionStrategy.TOP_CITED:
-            self._paper_degrees = {}
-            return self._query_papers(
-                """
-                MATCH (p:Paper)
-                OPTIONAL MATCH ()-[r:CITES]->(p)
-                WITH p, count(r) AS c
-                RETURN p.id AS id
-                ORDER BY c DESC
-                LIMIT $limit
-                """,
-                {"limit": target_count},
-            )
+            return all_ids[:fetch_count]
         if strategy == PaperSelectionStrategy.CONNECTIVITY:
             with Neo4jConnection.session() as session:
                 rows = list(
                     session.run(
-                        """
-                        MATCH (p:Paper)
-                        OPTIONAL MATCH (p)-[r]->()
+                        f"""
+                        MATCH (p:Paper) {scope_where}
+                        OPTIONAL MATCH (p)-[r:CITES]->()
                         WITH p, count(r) AS degree
                         WHERE degree > 0
                         RETURN p.id AS id, degree
                         ORDER BY degree DESC
                         LIMIT $limit
                         """,
-                        limit=target_count,
+                        limit=fetch_count,
+                        **scope_params,
                     )
                 )
             self._paper_degrees = {
@@ -195,20 +215,49 @@ class ExperimentRunner:
             }
             return [str(row["id"]) for row in rows if row.get("id")]
 
-        # connectivity_stratified
-        with Neo4jConnection.session() as session:
-            rows = list(
-                session.run(
-                    """
-                    MATCH (p:Paper)
-                    OPTIONAL MATCH (p)-[r]->()
-                    WITH p, count(r) AS degree
-                    WHERE degree > 0
-                    RETURN p.id AS id, degree
-                    ORDER BY degree ASC
-                    """
+        if strategy == PaperSelectionStrategy.IN_DEGREE:
+            with Neo4jConnection.session() as session:
+                rows = list(
+                    session.run(
+                        f"""
+                        MATCH (p:Paper) {scope_where}
+                        OPTIONAL MATCH ()-[r:CITES]->(p)
+                        WITH p, count(r) AS degree
+                        WHERE degree > 0
+                        RETURN p.id AS id, degree
+                        ORDER BY degree DESC
+                        LIMIT $limit
+                        """,
+                        limit=fetch_count,
+                        **scope_params,
+                    )
                 )
-            )
+            self._paper_degrees = {
+                str(row["id"]): int(row["degree"]) for row in rows if row.get("id")
+            }
+            return [str(row["id"]) for row in rows if row.get("id")]
+
+        # connectivity_stratified / in_degree_stratified
+        if strategy == PaperSelectionStrategy.IN_DEGREE_STRATIFIED:
+            cypher = f"""
+                MATCH (p:Paper) {scope_where}
+                OPTIONAL MATCH ()-[r:CITES]->(p)
+                WITH p, count(r) AS degree
+                WHERE degree > 0
+                RETURN p.id AS id, degree
+                ORDER BY degree ASC
+            """
+        else:
+            cypher = f"""
+                MATCH (p:Paper) {scope_where}
+                OPTIONAL MATCH (p)-[r:CITES]->()
+                WITH p, count(r) AS degree
+                WHERE degree > 0
+                RETURN p.id AS id, degree
+                ORDER BY degree ASC
+            """
+        with Neo4jConnection.session() as session:
+            rows = list(session.run(cypher, **scope_params))
 
         if not rows:
             self._paper_degrees = {}
@@ -237,23 +286,23 @@ class ExperimentRunner:
         if tier == "low":
             base = low
             random.shuffle(base)
-            selected = base[:target_count]
+            selected = base[:fetch_count]
             self._paper_degrees = {pid: degree_map[pid] for pid in selected}
             return selected
         if tier == "medium":
             base = mid
             random.shuffle(base)
-            selected = base[:target_count]
+            selected = base[:fetch_count]
             self._paper_degrees = {pid: degree_map[pid] for pid in selected}
             return selected
         if tier == "high":
             base = high
             random.shuffle(base)
-            selected = base[:target_count]
+            selected = base[:fetch_count]
             self._paper_degrees = {pid: degree_map[pid] for pid in selected}
             return selected
 
-        per_bucket = max(1, target_count // 3)
+        per_bucket = max(1, fetch_count // 3)
         random.shuffle(low)
         random.shuffle(mid)
         random.shuffle(high)
@@ -261,9 +310,9 @@ class ExperimentRunner:
 
         pool = [pid for pid, _ in data if pid not in set(selected)]
         random.shuffle(pool)
-        while len(selected) < target_count and pool:
+        while len(selected) < fetch_count and pool:
             selected.append(pool.pop())
-        selected = selected[:target_count]
+        selected = selected[:fetch_count]
         self._paper_degrees = {pid: degree_map[pid] for pid in selected}
         return selected
 
@@ -748,8 +797,16 @@ class ExperimentRunner:
         run_dir.mkdir(parents=True, exist_ok=True)
 
         self._paper_degrees: dict[str, int] = {}
-        target_papers = self._select_target_papers(config, limit)
-        if not target_papers:
+        desired_count = limit if limit is not None else config.targets.count
+        desired_count = max(1, desired_count)
+
+        if limit is not None:
+            # limit指定時: 成功数がdesired_countに達するまで候補を処理するため、大きめのプールを取得
+            candidate_pool = self._select_target_papers(config, limit=None, pool_size=desired_count * 10)
+        else:
+            candidate_pool = self._select_target_papers(config, limit=None)
+
+        if not candidate_pool:
             raise ValueError("No target papers selected")
 
         summary = ExperimentRunSummary(
@@ -758,7 +815,7 @@ class ExperimentRunner:
             config_file=str(Path(config_path)),
             run_dir=str(run_dir),
             started_at=datetime.now(timezone.utc).isoformat(),
-            target_papers=target_papers,
+            target_papers=[],  # 処理後に設定
         )
 
         config_copy = self._load_yaml(Path(config_path))
@@ -781,9 +838,17 @@ class ExperimentRunner:
         eval_models = config.evaluation.models or [config.evaluation.model]
 
         pairwise_cache: dict[str, list[tuple[MethodType, Proposal]]] = {}
+        success_count = 0
+        attempted_papers: list[str] = []
 
-        for condition in config.conditions:
-            for paper_id in target_papers:
+        for paper_id in candidate_pool:
+            if limit is not None and success_count >= desired_count:
+                break
+
+            attempted_papers.append(paper_id)
+            paper_succeeded = True
+
+            for condition in config.conditions:
                 logger.info("Running %s for %s", condition.name, paper_id)
 
                 try:
@@ -846,6 +911,7 @@ class ExperimentRunner:
                         pairwise_cache.setdefault(paper_id, []).append((condition.method, proposal))
 
                 except Exception as e:
+                    paper_succeeded = False
                     logger.warning("Skipped paper %s for condition %s: %s", paper_id, condition.name, e)
                     summary.skipped_records.append(
                         SkippedPaperRecord(
@@ -856,6 +922,17 @@ class ExperimentRunner:
                         )
                     )
                     continue
+
+            if paper_succeeded:
+                success_count += 1
+
+        if limit is not None and success_count < desired_count:
+            logger.warning(
+                "Only %d/%d papers succeeded (pool exhausted: %d candidates tried)",
+                success_count, desired_count, len(attempted_papers),
+            )
+
+        summary.target_papers = attempted_papers
 
         has_multiple_pairwise_items = len(config.conditions) >= 2 or config.evaluation.include_target
         if config.evaluation.mode in {"pairwise", "both"} and has_multiple_pairwise_items:

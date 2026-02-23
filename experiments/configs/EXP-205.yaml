@@ -16,10 +16,11 @@ targets:
     - "PLACEHOLDER_PAPER_4"
     - "PLACEHOLDER_PAPER_5"
   selection_strategy: "manual"
+  candidate_scope: "dataset"
   connectivity_tier_filter: null
   count: 5
 analysis:
-  max_hops: 3
+  max_hops: 4
   top_k: 10
 prompt:
   graph_format: "mermaid"
