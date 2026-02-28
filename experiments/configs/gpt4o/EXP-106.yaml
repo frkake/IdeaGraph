@@ -1,8 +1,9 @@
 experiment:
-  id: "EXP-102"
-  name: "生成アイデア vs 元論文"
+  id: "EXP-106-gpt4o"
+  name: "元論文 単体評価"
   category: "system_effectiveness"
-  description: "生成提案の絶対的な品質水準を校正する。元論文は上位に入るが常に1位ではないという仮説を、15論文×各3提案+1抽出のPairwise評価（include_target=true）で検定する"
+  description: "ターゲット論文のアイデアを抽出しSingle評価する。生成アイデアの品質校正用ベースラインとして、15論文×各1抽出のSingle評価で定量化する"
+  visualizer_id: "EXP-106"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -25,18 +26,18 @@ prompt:
   include_inline_edges: true
   include_target_paper: false
 conditions:
-  - name: "ideagraph"
-    method: "ideagraph"
+  - name: "target_paper"
+    method: "target_paper"
     generation:
-      num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      num_proposals: 1
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
 evaluation:
-  mode: "pairwise"
+  mode: "single"
   model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true
-  include_target: true
+  include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt4o"

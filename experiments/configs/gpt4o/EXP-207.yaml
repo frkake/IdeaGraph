@@ -1,8 +1,9 @@
 experiment:
-  id: "EXP-207"
+  id: "EXP-207-gpt4o"
   name: "品質-コスト効率"
   category: "ablation"
   description: "品質改善が計算コストに見合うかを示す。一定以上のコンテキスト量では費用対効果が悪化するという仮説を、max_paths/max_nodes={5/25,10/50,20/100}の3条件×10論文×各3提案のSingle評価+実行ログで検証し、Pareto frontierを作成する"
+  visualizer_id: "EXP-207"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -28,7 +29,7 @@ conditions:
     method: "ideagraph"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
     prompt:
       graph_format: "mermaid"
@@ -42,7 +43,7 @@ conditions:
     method: "ideagraph"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
     prompt:
       graph_format: "mermaid"
@@ -56,7 +57,7 @@ conditions:
     method: "ideagraph"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
     prompt:
       graph_format: "mermaid"
@@ -69,9 +70,10 @@ conditions:
 evaluation:
   mode: "single"
   model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-4o-2024-08-06"
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt4o"

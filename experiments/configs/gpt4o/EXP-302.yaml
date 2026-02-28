@@ -1,8 +1,9 @@
 experiment:
-  id: "EXP-306"
-  name: "根拠トレーサビリティ評価"
+  id: "EXP-302-gpt4o"
+  name: "評価再現性"
   category: "evaluation_validity"
-  description: "提案内容がグラフ根拠に支えられているかを測る。IdeaGraphはDirect LLMより根拠リンク可能率が高いという仮説を検証する。提案文の主張単位でグラフ上のノード/エッジに紐づく割合を計測し、人手監査で精度を確認する"
+  description: "LLM評価の再現性を測る。temperature 0.0なら高一致（Krippendorff's alpha > 0.9）という仮説を、同一提案（5論文×各3提案）に対し5回再評価して検証する"
+  visualizer_id: "EXP-302"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -11,7 +12,7 @@ targets:
   selection_strategy: "connectivity_stratified"
   candidate_scope: "dataset"
   connectivity_tier_filter: null
-  count: 10
+  count: 5
 analysis:
   max_hops: 4
   top_k: 10
@@ -28,20 +29,15 @@ conditions:
     method: "ideagraph"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
-  - name: "direct_llm_baseline"
-    method: "direct_llm"
-    generation:
-      num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
 evaluation:
   mode: "single"
   model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-4o-2024-08-06"
   temperature: 0.0
   include_experiment: true
   include_target: false
-  repeat: 1
+  repeat: 5
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt4o"

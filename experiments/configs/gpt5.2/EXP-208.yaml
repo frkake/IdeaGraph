@@ -1,8 +1,8 @@
 experiment:
-  id: "EXP-106"
-  name: "元論文 単体評価"
-  category: "system_effectiveness"
-  description: "ターゲット論文のアイデアを抽出しSingle評価する。生成アイデアの品質校正用ベースラインとして、15論文×各1抽出のSingle評価で定量化する"
+  id: "EXP-208"
+  name: "接続性安定性"
+  category: "comparison"
+  description: "CITES出次数（引用している論文数）の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。connectivity_stratifiedにより高/中/低出次数の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定しているかを分析する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -23,20 +23,20 @@ prompt:
   max_edges: 100
   neighbor_k: 2
   include_inline_edges: true
-  include_target_paper: false
 conditions:
-  - name: "target_paper"
-    method: "target_paper"
+  - name: "ideagraph_default"
+    method: "ideagraph"
     generation:
-      num_proposals: 1
+      num_proposals: 3
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
 evaluation:
   mode: "single"
   model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt5.2"

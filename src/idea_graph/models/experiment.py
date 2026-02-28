@@ -48,6 +48,7 @@ class ExperimentMeta(BaseModel):
     name: str
     category: ExperimentCategory = ExperimentCategory.SYSTEM_EFFECTIVENESS
     description: str = ""
+    visualizer_id: str | None = None
 
 
 class SeedConfig(BaseModel):
@@ -128,6 +129,9 @@ class ConditionConfig(BaseModel):
 class EvaluationConfig(BaseModel):
     mode: EvaluationMode = EvaluationMode.BOTH
     model: str = "gpt-5.2-2025-12-11"
+    """評価（ペア比較・絶対評価）に使うLLM"""
+    extraction_model: str | None = None
+    """ターゲット論文からの研究アイデア抽出に使うLLM。未指定時は model を使う"""
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     include_experiment: bool = True
     include_target: bool = False

@@ -1,8 +1,9 @@
 experiment:
-  id: "EXP-203"
-  name: "プロンプトスコープアブレーション"
+  id: "EXP-204-gpt4o"
+  name: "パス数アブレーション"
   category: "ablation"
-  description: "prompt.scopeの最適な範囲を決める。path_plus_k_hopは多様だがノイズが増えるという仮説を、scope={path,k_hop,path_plus_k_hop}の3条件×10論文×各3提案のSingle評価で検証する"
+  description: "prompt.max_pathsの適正値を決める。10前後で改善が頭打ちになるという仮説を、max_paths={3,5,10,20}の4条件×10論文×各3提案のSingle評価で検証する"
+  visualizer_id: "EXP-204"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -14,7 +15,7 @@ targets:
   count: 10
 analysis:
   max_hops: 4
-  top_k: 10
+  top_k: 20
 prompt:
   graph_format: "mermaid"
   scope: "path"
@@ -24,11 +25,39 @@ prompt:
   neighbor_k: 2
   include_inline_edges: true
 conditions:
-  - name: "scope_path"
+  - name: "paths_3"
     method: "ideagraph"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
+      temperature: 0.0
+    prompt:
+      graph_format: "mermaid"
+      scope: "path"
+      max_paths: 3
+      max_nodes: 50
+      max_edges: 100
+      neighbor_k: 2
+      include_inline_edges: true
+  - name: "paths_5"
+    method: "ideagraph"
+    generation:
+      num_proposals: 3
+      model: "gpt-4o-2024-08-06"
+      temperature: 0.0
+    prompt:
+      graph_format: "mermaid"
+      scope: "path"
+      max_paths: 5
+      max_nodes: 50
+      max_edges: 100
+      neighbor_k: 2
+      include_inline_edges: true
+  - name: "paths_10"
+    method: "ideagraph"
+    generation:
+      num_proposals: 3
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
     prompt:
       graph_format: "mermaid"
@@ -38,30 +67,16 @@ conditions:
       max_edges: 100
       neighbor_k: 2
       include_inline_edges: true
-  - name: "scope_k_hop"
+  - name: "paths_20"
     method: "ideagraph"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
     prompt:
       graph_format: "mermaid"
-      scope: "k_hop"
-      max_paths: 10
-      max_nodes: 50
-      max_edges: 100
-      neighbor_k: 2
-      include_inline_edges: true
-  - name: "scope_path_plus_k_hop"
-    method: "ideagraph"
-    generation:
-      num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
-    prompt:
-      graph_format: "mermaid"
-      scope: "path_plus_k_hop"
-      max_paths: 10
+      scope: "path"
+      max_paths: 20
       max_nodes: 50
       max_edges: 100
       neighbor_k: 2
@@ -69,9 +84,10 @@ conditions:
 evaluation:
   mode: "single"
   model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-4o-2024-08-06"
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt4o"

@@ -33,17 +33,18 @@ class ExperimentVisualizer:
         figures_dir = run_path / "figures"
         meta = load_experiment_meta(run_path)
         exp_id = meta.get("experiment_id", run_path.name.split("_")[0])
+        vis_key = meta.get("visualizer_id") or exp_id
 
         # Look up specialized visualizer
-        vis_fn = get_visualizer(exp_id)
+        vis_fn = get_visualizer(vis_key)
         if vis_fn is not None:
-            logger.info("Using specialized visualizer for %s", exp_id)
+            logger.info("Using specialized visualizer for %s (vis_key=%s)", exp_id, vis_key)
             all_paths = vis_fn(run_path, figures_dir, exp_id)
             logger.info("Generated %d figure files in %s", len(all_paths), figures_dir)
             return all_paths
 
         # Fallback: generic charts
-        logger.info("No specialized visualizer for %s, using fallback", exp_id)
+        logger.info("No specialized visualizer for %s (vis_key=%s), using fallback", exp_id, vis_key)
         return self._fallback(run_path, figures_dir, exp_id)
 
     def generate_paper_figures(

@@ -83,9 +83,10 @@ conditions:
 evaluation:
   mode: "single"
   model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt5.2"

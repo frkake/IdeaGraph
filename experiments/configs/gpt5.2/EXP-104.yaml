@@ -1,8 +1,8 @@
 experiment:
-  id: "EXP-304"
-  name: "クロスモデル評価整合性"
-  category: "evaluation_validity"
-  description: "評価モデルの違いで順位が変わるかを確認する。モデル間でSpearman rho > 0.8という仮説を、同一提案に対しgpt-5.2/gemini-2.5-pro/claude-sonnet-4.5の3モデルで評価して検証する"
+  id: "EXP-104"
+  name: "Direct LLM 単体評価"
+  category: "system_effectiveness"
+  description: "Direct LLM（グラフコンテキストなし）の絶対スコアを計測する。15論文×各3提案のSingle評価で提案品質を定量化する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -11,7 +11,7 @@ targets:
   selection_strategy: "connectivity_stratified"
   candidate_scope: "dataset"
   connectivity_tier_filter: null
-  count: 10
+  count: 15
 analysis:
   max_hops: 4
   top_k: 10
@@ -23,23 +23,20 @@ prompt:
   max_edges: 100
   neighbor_k: 2
   include_inline_edges: true
+  include_target_paper: false
 conditions:
-  - name: "ideagraph_default"
-    method: "ideagraph"
+  - name: "direct_llm"
+    method: "direct_llm"
     generation:
       num_proposals: 3
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
 evaluation:
-  mode: "both"
+  mode: "single"
   model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
-  models:
-    - "gpt-5.2-2025-12-11"
-    - "gemini-2.5-pro"
-    # - "claude-sonnet-4.5"
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt5.2"

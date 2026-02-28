@@ -1,15 +1,15 @@
 experiment:
-  id: "EXP-208"
-  name: "接続性安定性"
+  id: "EXP-209"
+  name: "被引用数安定性"
   category: "comparison"
-  description: "CITES出次数（引用している論文数）の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。connectivity_stratifiedにより高/中/低出次数の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定しているかを分析する"
+  description: "CITES入次数（被引用数）の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。in_degree_stratifiedにより高/中/低被引用の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定しているかを分析する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
 targets:
   paper_ids: []
-  selection_strategy: "connectivity_stratified"
-  candidate_scope: "dataset"
+  selection_strategy: "in_degree_stratified"
+  candidate_scope: "all"
   connectivity_tier_filter: null
   count: 15
 analysis:
@@ -33,9 +33,10 @@ conditions:
 evaluation:
   mode: "single"
   model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-5.2-2025-12-11"
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt5.2"

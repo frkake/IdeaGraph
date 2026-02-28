@@ -85,10 +85,27 @@ class CrossExperimentLoader:
         for d in sorted(self.runs_base.iterdir(), reverse=True):
             if not d.is_dir():
                 continue
-            exp_id = d.name.split("_", 1)[0]
+            exp_id = self._resolve_exp_id(d)
             if exp_id not in latest:
                 latest[exp_id] = d
         return latest
+
+    @staticmethod
+    def _resolve_exp_id(run_dir: Path) -> str:
+        """summary.json の visualizer_id → experiment_id → ディレクトリ名の順でID解決。"""
+        import json
+
+        summary_path = run_dir / "summary.json"
+        if summary_path.exists():
+            try:
+                data = json.loads(summary_path.read_text(encoding="utf-8"))
+                vis_id = data.get("visualizer_id")
+                if vis_id:
+                    return vis_id
+                return data.get("experiment_id", run_dir.name.split("_", 1)[0])
+            except Exception:
+                pass
+        return run_dir.name.split("_", 1)[0]
 
     def _load_experiment(self, exp_id: str, run_dir: Path) -> ExperimentData:
         meta = load_experiment_meta(run_dir)

@@ -468,6 +468,16 @@ uv run idea-graph experiment run <config.yaml> [オプション]
 
 `connectivity_stratified` / `in_degree_stratified` では `connectivity_tier_filter` で特定の層のみ選択可能（`high`, `medium`, `low`）。未指定時は3層から均等にサンプリング。
 
+**評価まわりの設定（`evaluation`）:**
+
+| キー | 説明 | デフォルト |
+|------|------|------------|
+| `evaluation.model` | ペア比較・絶対評価に使うLLM | `gpt-5.2-2025-12-11` |
+| `evaluation.extraction_model` | ターゲット論文からの研究アイデア抽出に使うLLM。未指定時は `evaluation.model` を使用 | 未指定時は `model` と同一 |
+| `evaluation.include_target` | Pairwise にターゲット論文（元論文）の抽出アイデアを含めるか | `false` |
+
+研究アイデア抽出用と評価用で別のLLMを指定したい場合は、`evaluation.extraction_model` を設定する（例: 抽出に `gpt-4o`、評価に `gpt-5.2`）。
+
 **YAML 設定例:**
 
 ```yaml

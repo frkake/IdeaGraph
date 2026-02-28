@@ -1,8 +1,9 @@
 experiment:
-  id: "EXP-104"
-  name: "Direct LLM 単体評価"
-  category: "system_effectiveness"
-  description: "Direct LLM（グラフコンテキストなし）の絶対スコアを計測する。15論文×各3提案のSingle評価で提案品質を定量化する"
+  id: "EXP-305-gpt4o"
+  name: "人間評価との相関"
+  category: "evaluation_validity"
+  description: "LLM評価が人間評価と整合するかを確認する。主要指標でr > 0.6という仮説を検証する。10論文×各3提案のLLM評価結果と、2〜3人の人間評価者による手動評価を比較し、Pearson/Spearman相関とCohen's kappaを算出する"
+  visualizer_id: "EXP-305"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -11,7 +12,7 @@ targets:
   selection_strategy: "connectivity_stratified"
   candidate_scope: "dataset"
   connectivity_tier_filter: null
-  count: 15
+  count: 10
 analysis:
   max_hops: 4
   top_k: 10
@@ -23,20 +24,20 @@ prompt:
   max_edges: 100
   neighbor_k: 2
   include_inline_edges: true
-  include_target_paper: false
 conditions:
-  - name: "direct_llm"
-    method: "direct_llm"
+  - name: "ideagraph_default"
+    method: "ideagraph"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
 evaluation:
   mode: "single"
   model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-4o-2024-08-06"
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt4o"

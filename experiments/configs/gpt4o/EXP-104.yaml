@@ -1,8 +1,9 @@
 experiment:
-  id: "EXP-302"
-  name: "評価再現性"
-  category: "evaluation_validity"
-  description: "LLM評価の再現性を測る。temperature 0.0なら高一致（Krippendorff's alpha > 0.9）という仮説を、同一提案（5論文×各3提案）に対し5回再評価して検証する"
+  id: "EXP-104-gpt4o"
+  name: "Direct LLM 単体評価"
+  category: "system_effectiveness"
+  description: "Direct LLM（グラフコンテキストなし）の絶対スコアを計測する。15論文×各3提案のSingle評価で提案品質を定量化する"
+  visualizer_id: "EXP-104"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -11,7 +12,7 @@ targets:
   selection_strategy: "connectivity_stratified"
   candidate_scope: "dataset"
   connectivity_tier_filter: null
-  count: 5
+  count: 15
 analysis:
   max_hops: 4
   top_k: 10
@@ -23,12 +24,13 @@ prompt:
   max_edges: 100
   neighbor_k: 2
   include_inline_edges: true
+  include_target_paper: false
 conditions:
-  - name: "ideagraph_default"
-    method: "ideagraph"
+  - name: "direct_llm"
+    method: "direct_llm"
     generation:
       num_proposals: 3
-      model: "gpt-5.2-2025-12-11"
+      model: "gpt-4o-2024-08-06"
       temperature: 0.0
 evaluation:
   mode: "single"
@@ -36,6 +38,6 @@ evaluation:
   temperature: 0.0
   include_experiment: true
   include_target: false
-  repeat: 5
+  repeat: 1
 output:
-  base_dir: "experiments/runs"
+  base_dir: "experiments/runs/gpt4o"

@@ -1,0 +1,42 @@
+experiment:
+  id: "EXP-302"
+  name: "評価再現性"
+  category: "evaluation_validity"
+  description: "LLM評価の再現性を測る。temperature 0.0なら高一致（Krippendorff's alpha > 0.9）という仮説を、同一提案（5論文×各3提案）に対し5回再評価して検証する"
+seed:
+  paper_selection: 20260207
+  evaluation_shuffle: 20260207
+targets:
+  paper_ids: []
+  selection_strategy: "connectivity_stratified"
+  candidate_scope: "dataset"
+  connectivity_tier_filter: null
+  count: 5
+analysis:
+  max_hops: 4
+  top_k: 10
+prompt:
+  graph_format: "mermaid"
+  scope: "path"
+  max_paths: 10
+  max_nodes: 50
+  max_edges: 100
+  neighbor_k: 2
+  include_inline_edges: true
+conditions:
+  - name: "ideagraph_default"
+    method: "ideagraph"
+    generation:
+      num_proposals: 3
+      model: "gpt-5.2-2025-12-11"
+      temperature: 0.0
+evaluation:
+  mode: "single"
+  model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-5.2-2025-12-11"
+  temperature: 0.0
+  include_experiment: true
+  include_target: false
+  repeat: 5
+output:
+  base_dir: "experiments/runs/gpt5.2"

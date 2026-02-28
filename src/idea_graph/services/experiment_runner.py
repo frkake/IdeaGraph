@@ -64,6 +64,7 @@ class ExperimentRunSummary(BaseModel):
     run_dir: str
     started_at: str
     completed_at: str | None = None
+    visualizer_id: str | None = None
     target_papers: list[str] = Field(default_factory=list)
     records: list[PaperRunRecord] = Field(default_factory=list)
     pairwise_records: list[PairwiseRunRecord] = Field(default_factory=list)
@@ -606,6 +607,7 @@ class ExperimentRunner:
         include_experiment: bool,
         include_target: bool = False,
         paper_id: str | None = None,
+        extraction_model: str | None = None,
     ) -> dict[str, Any]:
         service = EvaluationService(model_name=model_name)
         proposals = [proposal for _, proposal in proposal_set]
@@ -624,6 +626,7 @@ class ExperimentRunner:
             target_paper_content=target_paper_content,
             target_paper_title=target_paper_title,
             target_paper_id=paper_id if include_target else None,
+            target_paper_extraction_model=extraction_model,
         )
         return result.model_dump(mode="json")
 
@@ -815,12 +818,14 @@ class ExperimentRunner:
             config_file=str(Path(config_path)),
             run_dir=str(run_dir),
             started_at=datetime.now(timezone.utc).isoformat(),
+            visualizer_id=config.experiment.visualizer_id,
             target_papers=[],  # 処理後に設定
         )
 
         config_copy = self._load_yaml(Path(config_path))
         self._save_yaml(run_dir / "config.yaml", config_copy)
 
+        extraction_model = config.evaluation.extraction_model or config.evaluation.model
         metadata = {
             "experiment_id": config.experiment.id,
             "experiment_name": config.experiment.name,
@@ -829,6 +834,7 @@ class ExperimentRunner:
             "models": {
                 "conditions": {c.name: c.generation.model for c in config.conditions},
                 "evaluation": config.evaluation.model,
+                "extraction": extraction_model,
             },
             "neo4j": self._neo4j_stats(),
         }
@@ -942,12 +948,14 @@ class ExperimentRunner:
                     continue
                 for eval_model in eval_models:
                     model_suffix = f"_{eval_model}" if len(eval_models) > 1 else ""
+                    extraction_model = config.evaluation.extraction_model or eval_model
                     pairwise = self._evaluate_pairwise(
                         proposal_set=proposal_set,
                         model_name=eval_model,
                         include_experiment=config.evaluation.include_experiment,
                         include_target=config.evaluation.include_target,
                         paper_id=paper_id,
+                        extraction_model=extraction_model,
                     )
                     pairwise_file = run_dir / "evaluations" / "pairwise" / f"{paper_id}{model_suffix}.json"
                     self._write_json(pairwise_file, pairwise)

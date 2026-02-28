@@ -1023,6 +1023,7 @@ class EvaluationService:
         target_paper_title: str | None = None,
         target_paper_id: str | None = None,
         proposal_sources: list[str] | None = None,
+        target_paper_extraction_model: str | None = None,
     ) -> EvaluationResult:
         """提案群を評価してランキングを生成
 
@@ -1033,6 +1034,8 @@ class EvaluationService:
             target_paper_title: ターゲット論文のタイトル（オプション）
             target_paper_id: ターゲット論文のID（例：arxiv ID）（オプション）
             proposal_sources: 各提案のソース（ideagraph, coi）のリスト（オプション）
+            target_paper_extraction_model: ターゲット論文からのアイデア抽出に使うLLM。
+                未指定時は評価用の self.model_name を使用する。
 
         Returns:
             評価結果
@@ -1042,10 +1045,12 @@ class EvaluationService:
         target_paper_idea_id: str | None = None
         target_paper_extraction: TargetPaperExtraction | None = None
 
+        extraction_model = target_paper_extraction_model or self.model_name
+
         # ターゲット論文がある場合、アイデアを抽出して追加
         if target_paper_content:
             logger.info("Extracting idea from target paper for comparison")
-            extractor = IdeaExtractor(model_name=self.model_name)
+            extractor = IdeaExtractor(model_name=extraction_model)
             extraction = extractor.extract_from_text(target_paper_content)
 
             # Proposal形式に変換
@@ -1058,7 +1063,7 @@ class EvaluationService:
                 paper_id=target_paper_id or TARGET_PAPER_IDEA_ID,
                 paper_title=target_paper_title,
                 extracted_at=datetime.now(),
-                extraction_model=self.model_name,
+                extraction_model=extraction_model,
                 data=target_proposal,
             )
 
@@ -1151,6 +1156,7 @@ class EvaluationService:
         target_paper_id: str | None = None,
         proposal_sources: list[str] | None = None,
         batch_size: int = 2,
+        target_paper_extraction_model: str | None = None,
     ) -> AsyncIterator[EvaluationProgressEvent | EvaluationResult]:
         """提案群を評価してランキングを生成（ストリーミング版、バッチ並列実行）
 
@@ -1162,6 +1168,8 @@ class EvaluationService:
             target_paper_id: ターゲット論文のID（オプション）
             proposal_sources: 各提案のソース（ideagraph, coi）のリスト（オプション）
             batch_size: 並列実行するバッチサイズ
+            target_paper_extraction_model: ターゲット論文からのアイデア抽出に使うLLM。
+                未指定時は評価用の self.model_name を使用する。
 
         Yields:
             EvaluationProgressEvent: 進捗イベント
@@ -1170,6 +1178,8 @@ class EvaluationService:
         all_proposals = list(proposals)
         target_paper_idea_id: str | None = None
         target_paper_extraction: TargetPaperExtraction | None = None
+
+        extraction_model = target_paper_extraction_model or self.model_name
 
         # ターゲット論文がある場合、アイデアを抽出して追加
         if target_paper_content:
@@ -1180,7 +1190,7 @@ class EvaluationService:
             )
 
             logger.info("Extracting idea from target paper for comparison")
-            extractor = IdeaExtractor(model_name=self.model_name)
+            extractor = IdeaExtractor(model_name=extraction_model)
             extraction = extractor.extract_from_text(target_paper_content)
 
             # Proposal形式に変換
@@ -1193,7 +1203,7 @@ class EvaluationService:
                 paper_id=target_paper_id or TARGET_PAPER_IDEA_ID,
                 paper_title=target_paper_title,
                 extracted_at=datetime.now(),
-                extraction_model=self.model_name,
+                extraction_model=extraction_model,
                 data=target_proposal,
             )
 

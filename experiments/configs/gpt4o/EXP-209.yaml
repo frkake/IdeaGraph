@@ -1,0 +1,43 @@
+experiment:
+  id: "EXP-209-gpt4o"
+  name: "被引用数安定性"
+  category: "comparison"
+  description: "CITES入次数（被引用数）の異なる論文群に対してIdeaGraphの性能が安定しているかを確認する。in_degree_stratifiedにより高/中/低被引用の3層から均等にサンプルし、各層での絶対性能（平均スコア・分散）が安定しているかを分析する"
+  visualizer_id: "EXP-209"
+seed:
+  paper_selection: 20260207
+  evaluation_shuffle: 20260207
+targets:
+  paper_ids: []
+  selection_strategy: "in_degree_stratified"
+  candidate_scope: "all"
+  connectivity_tier_filter: null
+  count: 15
+analysis:
+  max_hops: 4
+  top_k: 10
+prompt:
+  graph_format: "mermaid"
+  scope: "path"
+  max_paths: 10
+  max_nodes: 50
+  max_edges: 100
+  neighbor_k: 2
+  include_inline_edges: true
+conditions:
+  - name: "ideagraph_default"
+    method: "ideagraph"
+    generation:
+      num_proposals: 3
+      model: "gpt-4o-2024-08-06"
+      temperature: 0.0
+evaluation:
+  mode: "single"
+  model: "gpt-5.2-2025-12-11"
+  extraction_model: "gpt-4o-2024-08-06"
+  temperature: 0.0
+  include_experiment: true
+  include_target: false
+  repeat: 1
+output:
+  base_dir: "experiments/runs/gpt4o"
