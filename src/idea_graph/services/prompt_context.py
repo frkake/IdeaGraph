@@ -184,6 +184,7 @@ class PromptContextBuilder:
         opts = options or PromptExpansionOptions()
         paths = self._select_paths(target_paper_id, analysis_result, opts)
         paths = self._filter_paths(paths, opts, target_paper_id)
+        paths = self._reverse_paths(paths)
         if opts.graph_format == "paths":
             return self._build_paths_context(paths, opts)
         return self._build_mermaid_context(paths, opts)
@@ -245,7 +246,7 @@ class PromptContextBuilder:
             id_map = {node.id: f"N{idx}" for idx, node in enumerate(merged_nodes, 1)}
 
             stats = MermaidSanitizeStats()
-            mermaid_lines = ["```mermaid", "graph LR"]
+            mermaid_lines = ["```mermaid", "graph RL"]
 
             for node in merged_nodes:
                 label = self._build_mermaid_node_label(node, stats)
@@ -281,7 +282,7 @@ class PromptContextBuilder:
             return "\n".join(mermaid_lines)
         except Exception as exc:
             logger.warning("Mermaid generation failed; returning empty diagram: %s", exc)
-            return "\n".join(["```mermaid", "graph LR", "```"])
+            return "\n".join(["```mermaid", "graph RL", "```"])
 
     def _select_paths(
         self,
@@ -343,6 +344,19 @@ class PromptContextBuilder:
             if filtered_path and filtered_path.nodes:
                 filtered.append(filtered_path)
         return filtered
+
+    def _reverse_paths(self, paths: list[RankedPath]) -> list[RankedPath]:
+        reversed_paths: list[RankedPath] = []
+        for path in paths:
+            reversed_paths.append(
+                RankedPath(
+                    nodes=list(reversed(path.nodes)),
+                    edges=list(reversed(path.edges)),
+                    score=path.score,
+                    score_breakdown=path.score_breakdown,
+                )
+            )
+        return reversed_paths
 
     def _filter_path(
         self,
@@ -528,7 +542,7 @@ class PromptContextBuilder:
         if not path.nodes:
             return ""
         if not options.include_inline_edges or not path.edges:
-            return " -> ".join(node.name for node in path.nodes)
+            return " <- ".join(node.name for node in path.nodes)
 
         output = path.nodes[0].name
         for idx, edge in enumerate(path.edges):
@@ -540,9 +554,9 @@ class PromptContextBuilder:
             if extra:
                 edge_label = f"{edge_label}{extra}" if edge_label else extra
             if edge_label:
-                output += f" -({edge_label})-> {path.nodes[idx + 1].name}"
+                output += f" <-({edge_label})- {path.nodes[idx + 1].name}"
             else:
-                output += f" -> {path.nodes[idx + 1].name}"
+                output += f" <- {path.nodes[idx + 1].name}"
         return output
 
     def _format_edge_details(self, edge: PathEdge, edge_fields: list[str]) -> str:

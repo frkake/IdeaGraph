@@ -13,6 +13,25 @@ from typing import Any
 
 from ._style import METRICS
 
+# ---------------------------------------------------------------------------
+# Module-level paper ID filter
+# ---------------------------------------------------------------------------
+_paper_id_filter: set[str] | None = None
+
+
+def set_paper_filter(paper_ids: list[str] | None) -> None:
+    """Set the active paper ID filter. Pass None to clear."""
+    global _paper_id_filter
+    _paper_id_filter = set(paper_ids) if paper_ids else None
+
+
+def _file_matches_filter(f: Path) -> bool:
+    """Check whether a JSON file's paper_id passes the current filter."""
+    if _paper_id_filter is None:
+        return True
+    paper_id = re.sub(r"_r\d+$", "", f.stem)
+    return paper_id in _paper_id_filter
+
 
 def load_experiment_meta(run_dir: Path) -> dict[str, Any]:
     """Load summary.json metadata."""
@@ -50,6 +69,8 @@ def load_single_scores(run_dir: Path) -> dict[str, dict[str, list[float]]]:
         scores: dict[str, list[float]] = {m: [] for m in METRICS}
         scores["overall"] = []
         for f in sorted(cond_dir.glob("*.json")):
+            if not _file_matches_filter(f):
+                continue
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 for entry in data.get("ranking", []):
@@ -80,6 +101,8 @@ def load_single_scores_per_paper(
             continue
         papers: dict[str, dict[str, float]] = {}
         for f in sorted(cond_dir.glob("*.json")):
+            if not _file_matches_filter(f):
+                continue
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 paper_id = re.sub(r"_r\d+$", "", f.stem)
@@ -110,6 +133,8 @@ def load_pairwise_wins(run_dir: Path) -> dict[str, int]:
     if not root.exists():
         return wins
     for f in sorted(root.glob("*.json")):
+        if not _file_matches_filter(f):
+            continue
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             ranking = data.get("ranking", [])
@@ -128,6 +153,8 @@ def load_pairwise_details(run_dir: Path) -> list[dict[str, Any]]:
     if not root.exists():
         return results
     for f in sorted(root.glob("*.json")):
+        if not _file_matches_filter(f):
+            continue
         try:
             results.append(json.loads(f.read_text(encoding="utf-8")))
         except Exception:
@@ -144,6 +171,8 @@ def load_pairwise_elo_by_source(
     if not root.exists():
         return result
     for f in sorted(root.glob("*.json")):
+        if not _file_matches_filter(f):
+            continue
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             for entry in data.get("ranking", []):
@@ -169,6 +198,8 @@ def load_pairwise_wins_by_source(run_dir: Path) -> dict[str, dict[str, int]]:
     if not root.exists():
         return result
     for f in sorted(root.glob("*.json")):
+        if not _file_matches_filter(f):
+            continue
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             ranking = data.get("ranking", [])
@@ -198,6 +229,8 @@ def load_pairwise_swap_data(run_dir: Path) -> dict[str, list[dict]]:
     if not root.exists():
         return result
     for f in sorted(root.glob("*.json")):
+        if not _file_matches_filter(f):
+            continue
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             entries = []
@@ -224,6 +257,8 @@ def load_paper_degrees(run_dir: Path) -> dict[str, int]:
             paper_id = rec.get("paper_id", "")
             degree = rec.get("degree")
             if paper_id and degree is not None:
+                if _paper_id_filter and paper_id not in _paper_id_filter:
+                    continue
                 degrees[paper_id] = int(degree)
         return degrees
     except Exception:
@@ -241,6 +276,8 @@ def load_repeat_scores(run_dir: Path) -> dict[str, dict[str, list[list[float]]]]
             continue
         repeat_data: dict[int, dict[str, list[float]]] = {}
         for f in sorted(cond_dir.glob("*.json")):
+            if not _file_matches_filter(f):
+                continue
             m = re.match(r"^(.+?)_r(\d+)\.json$", f.name)
             r_idx = int(m.group(2)) if m else 0
             try:
@@ -281,6 +318,8 @@ def load_pairwise_elo_per_paper(
     if not root.exists():
         return result
     for f in sorted(root.glob("*.json")):
+        if not _file_matches_filter(f):
+            continue
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             paper_id = f.stem
@@ -312,6 +351,8 @@ def load_multi_model_scores(
         if not cond_dir.is_dir():
             continue
         for f in sorted(cond_dir.glob("*.json")):
+            if not _file_matches_filter(f):
+                continue
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 model = data.get("model_name", "unknown")

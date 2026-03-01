@@ -241,9 +241,9 @@ Ensure logical coherence: the motivation should naturally lead to the proposed m
     def _generate_mermaid(self, path_nodes: list[PathNode]) -> str:
         """Mermaid 図を生成"""
         if not path_nodes:
-            return "graph LR\n  A[No path]"
+            return "graph RL\n  A[No path]"
 
-        lines = ["graph LR"]
+        lines = ["graph RL"]
         for i, node in enumerate(path_nodes):
             node_id = f"N{i}"
             label = node.name[:30] + "..." if len(node.name) > 30 else node.name

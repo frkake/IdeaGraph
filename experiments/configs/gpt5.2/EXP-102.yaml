@@ -2,7 +2,7 @@ experiment:
   id: "EXP-102"
   name: "生成アイデア vs 元論文"
   category: "system_effectiveness"
-  description: "生成提案の絶対的な品質水準を校正する。元論文は上位に入るが常に1位ではないという仮説を、15論文×各3提案+1抽出のPairwise評価（include_target=true）で検定する"
+  description: "生成提案の絶対的な品質水準を校正する。元論文は上位に入るが常に1位ではないという仮説を、15論文×各1提案+1抽出のPairwise評価（include_target=true）で検定する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -13,7 +13,7 @@ targets:
   connectivity_tier_filter: null
   count: 15
 analysis:
-  max_hops: 4
+  max_hops: 3
   top_k: 10
 prompt:
   graph_format: "mermaid"
@@ -28,7 +28,7 @@ conditions:
   - name: "ideagraph"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
 evaluation:

@@ -2,7 +2,7 @@ experiment:
   id: "EXP-101"
   name: "IdeaGraph vs Direct LLM vs CoI-Agent"
   category: "system_effectiveness"
-  description: "3手法の直接比較。IdeaGraphがNoveltyとSignificanceで優位になるという仮説を、15論文×各3提案のPairwise評価で検定する"
+  description: "3手法の直接比較。IdeaGraphがNoveltyとSignificanceで優位になるという仮説を、15論文×各1提案のPairwise評価で検定する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -13,7 +13,7 @@ targets:
   connectivity_tier_filter: null
   count: 15
 analysis:
-  max_hops: 4
+  max_hops: 3
   top_k: 10
 prompt:
   graph_format: "mermaid"
@@ -28,19 +28,19 @@ conditions:
   - name: "ideagraph"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
   - name: "direct_llm"
     method: "direct_llm"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
   - name: "coi"
     method: "coi"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
 evaluation:

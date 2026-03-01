@@ -2,7 +2,7 @@ experiment:
   id: "EXP-104-gpt4o"
   name: "Direct LLM 単体評価"
   category: "system_effectiveness"
-  description: "Direct LLM（グラフコンテキストなし）の絶対スコアを計測する。15論文×各3提案のSingle評価で提案品質を定量化する"
+  description: "Direct LLM（グラフコンテキストなし）の絶対スコアを計測する。15論文×各1提案のSingle評価で提案品質を定量化する"
   visualizer_id: "EXP-104"
 seed:
   paper_selection: 20260207
@@ -14,7 +14,7 @@ targets:
   connectivity_tier_filter: null
   count: 15
 analysis:
-  max_hops: 4
+  max_hops: 3
   top_k: 10
 prompt:
   graph_format: "mermaid"
@@ -29,7 +29,7 @@ conditions:
   - name: "direct_llm"
     method: "direct_llm"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-4o-2024-08-06"
       temperature: 0.0
 evaluation:

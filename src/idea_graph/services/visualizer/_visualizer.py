@@ -24,12 +24,23 @@ from . import _exp_3xx  # noqa: F401
 class ExperimentVisualizer:
     """Main entry point: auto-generate charts from a run directory."""
 
-    def visualize(self, run_dir: str | Path) -> list[Path]:
+    def visualize(
+        self,
+        run_dir: str | Path,
+        paper_ids: list[str] | None = None,
+    ) -> list[Path]:
         if not HAS_MPL:
             logger.warning("matplotlib not installed. Skipping visualization.")
             return []
 
-        run_path = Path(run_dir)
+        from ._loaders import set_paper_filter
+        set_paper_filter(paper_ids)
+        try:
+            return self._visualize_inner(Path(run_dir))
+        finally:
+            set_paper_filter(None)
+
+    def _visualize_inner(self, run_path: Path) -> list[Path]:
         figures_dir = run_path / "figures"
         meta = load_experiment_meta(run_path)
         exp_id = meta.get("experiment_id", run_path.name.split("_")[0])

@@ -2,7 +2,7 @@ experiment:
   id: "EXP-201"
   name: "マルチホップ深度アブレーション"
   category: "ablation"
-  description: "analysis.max_hopsの最適値を決める。2〜3 hopsで品質が最大になるという仮説を、max_hops={1,2,3,4,5}の5条件×10論文×各3提案のSingle評価で検証する"
+  description: "analysis.max_hopsの最適値を決める。2〜3 hopsで品質が最大になるという仮説を、max_hops={1,2,3,4,5}の5条件×10論文×各1提案のSingle評価で検証する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -27,7 +27,7 @@ conditions:
   - name: "hops_1"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
     analysis:
@@ -36,7 +36,7 @@ conditions:
   - name: "hops_2"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
     analysis:
@@ -45,7 +45,7 @@ conditions:
   - name: "hops_3"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
     analysis:
@@ -54,7 +54,7 @@ conditions:
   - name: "hops_4"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
     analysis:
@@ -63,7 +63,7 @@ conditions:
   - name: "hops_5"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
     analysis:

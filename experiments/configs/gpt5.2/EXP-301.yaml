@@ -2,7 +2,7 @@ experiment:
   id: "EXP-301"
   name: "評価モード整合性"
   category: "evaluation_validity"
-  description: "PairwiseとSingleの順位が一致するかを確認する。Spearman rho > 0.7という仮説を、同一提案セット（10論文×各3提案、IdeaGraph条件）に対し両評価方式で実施して検証する"
+  description: "PairwiseとSingleの順位が一致するかを確認する。Spearman rho > 0.7という仮説を、同一提案セット（10論文×各1提案、IdeaGraph条件）に対し両評価方式で実施して検証する"
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
@@ -13,7 +13,7 @@ targets:
   connectivity_tier_filter: null
   count: 10
 analysis:
-  max_hops: 4
+  max_hops: 3
   top_k: 10
 prompt:
   graph_format: "mermaid"
@@ -27,13 +27,13 @@ conditions:
   - name: "ideagraph_default"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
   - name: "direct_llm_baseline"
     method: "direct_llm"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-5.2-2025-12-11"
       temperature: 0.0
 evaluation:

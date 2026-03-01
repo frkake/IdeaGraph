@@ -2,7 +2,7 @@ experiment:
   id: "EXP-302-gpt4o"
   name: "評価再現性"
   category: "evaluation_validity"
-  description: "LLM評価の再現性を測る。temperature 0.0なら高一致（Krippendorff's alpha > 0.9）という仮説を、同一提案（5論文×各3提案）に対し5回再評価して検証する"
+  description: "LLM評価の再現性を測る。temperature 0.0なら高一致（Krippendorff's alpha > 0.9）という仮説を、同一提案（5論文×各1提案）に対し5回再評価して検証する"
   visualizer_id: "EXP-302"
 seed:
   paper_selection: 20260207
@@ -14,7 +14,7 @@ targets:
   connectivity_tier_filter: null
   count: 5
 analysis:
-  max_hops: 4
+  max_hops: 3
   top_k: 10
 prompt:
   graph_format: "mermaid"
@@ -28,7 +28,7 @@ conditions:
   - name: "ideagraph_default"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-4o-2024-08-06"
       temperature: 0.0
 evaluation:

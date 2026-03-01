@@ -14,7 +14,7 @@ targets:
   connectivity_tier_filter: null
   count: 15
 analysis:
-  max_hops: 4
+  max_hops: 3
   top_k: 10
 prompt:
   graph_format: "mermaid"
@@ -28,13 +28,13 @@ conditions:
   - name: "ideagraph_default"
     method: "ideagraph"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-4o-2024-08-06"
       temperature: 0.0
   - name: "direct_llm_baseline"
     method: "direct_llm"
     generation:
-      num_proposals: 3
+      num_proposals: 1
       model: "gpt-4o-2024-08-06"
       temperature: 0.0
 evaluation:
