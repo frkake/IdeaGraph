@@ -455,6 +455,7 @@ uv run idea-graph experiment run <config.yaml> [オプション]
 | `--limit N` | 対象論文数の制限 |
 | `--no-cache` | キャッシュ読み込みを無効化 |
 | `--clear-cache` | 実行前にキャッシュを削除 |
+| `--parallel N` | 論文単位の並列実行数（デフォルト: 1 = 逐次実行）|
 
 **`targets.selection_strategy` の選択肢:**
 
@@ -522,6 +523,9 @@ uv run idea-graph experiment run experiments/configs/EXP-103.yaml --limit 3
 
 # キャッシュなしで再実行
 uv run idea-graph experiment run experiments/configs/EXP-101.yaml --no-cache
+
+# 4並列で高速実行
+uv run idea-graph experiment run experiments/configs/EXP-101.yaml --parallel 4
 ```
 
 #### `experiment aggregate` / `experiment compare`

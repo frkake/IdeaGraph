@@ -1,0 +1,56 @@
+experiment:
+  id: EXP-210-gpt5.2
+  name: グラフパス順序反転アブレーション
+  category: ablation
+  description: パス順序の反転（基盤的ノードを先に提示）が提案品質に影響するかを検証する。reverse_paths={true,false}の2条件×10論文×各1提案のSingle評価で比較する
+  visualizer_id: EXP-210
+seed:
+  paper_selection: 20260207
+  evaluation_shuffle: 20260207
+targets:
+  paper_ids: []
+  selection_strategy: connectivity_stratified
+  candidate_scope: dataset
+  connectivity_tier_filter: null
+  count: 10
+analysis:
+  max_hops: 3
+  top_k: 10
+prompt:
+  graph_format: mermaid
+  scope: path
+  include_inline_edges: true
+  reverse_paths: true
+conditions:
+- name: reverse_paths_true
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
+  prompt:
+    graph_format: mermaid
+    scope: path
+    include_inline_edges: true
+    reverse_paths: true
+- name: reverse_paths_false
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
+  prompt:
+    graph_format: mermaid
+    scope: path
+    include_inline_edges: true
+    reverse_paths: false
+evaluation:
+  mode: single
+  model: gpt-5.2-2025-12-11
+  extraction_model: gpt-4o-2024-08-06
+  temperature: 0.0
+  include_experiment: true
+  include_target: false
+  repeat: 1
+output:
+  base_dir: experiments/runs/gpt5.2

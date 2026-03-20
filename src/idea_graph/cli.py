@@ -1422,6 +1422,7 @@ def cmd_experiment(args: argparse.Namespace) -> int:
             limit=args.limit,
             no_cache=args.no_cache,
             clear_cache=args.clear_cache,
+            parallel=args.parallel,
         )
         console.print(f"[green]Run ID: {summary.run_id}[/]")
         return 0
@@ -1921,6 +1922,8 @@ def main() -> int:
     exp_run.add_argument("--limit", type=int, default=None, help="対象論文数の制限")
     exp_run.add_argument("--no-cache", action="store_true", help="キャッシュ読み込みを無効化")
     exp_run.add_argument("--clear-cache", action="store_true", help="実行前にキャッシュを削除")
+    exp_run.add_argument("--parallel", type=int, default=1,
+                         help="論文単位の並列実行数 (デフォルト: 1 = 逐次実行)")
 
     experiment_sub.add_parser("list", help="実行履歴の一覧")
 

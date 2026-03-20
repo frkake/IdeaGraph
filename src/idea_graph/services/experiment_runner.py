@@ -8,6 +8,8 @@ import json
 import logging
 import random
 import subprocess
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -69,6 +71,17 @@ class ExperimentRunSummary(BaseModel):
     records: list[PaperRunRecord] = Field(default_factory=list)
     pairwise_records: list[PairwiseRunRecord] = Field(default_factory=list)
     skipped_records: list[SkippedPaperRecord] = Field(default_factory=list)
+
+
+@dataclass
+class PaperResult:
+    """1論文の処理結果（スレッドセーフな戻り値）"""
+
+    paper_id: str
+    succeeded: bool
+    records: list[PaperRunRecord] = field(default_factory=list)
+    skipped_records: list[SkippedPaperRecord] = field(default_factory=list)
+    pairwise_entries: list[tuple[MethodType, Proposal]] = field(default_factory=list)
 
 
 class ExperimentRunner:
@@ -810,6 +823,108 @@ class ExperimentRunner:
         report_path.write_text("\n".join(lines), encoding="utf-8")
         return report_path
 
+    # ──────────────────────────── 論文単位処理 ────────────────────────────
+
+    def _process_paper(
+        self,
+        paper_id: str,
+        config: ExperimentConfig,
+        run_dir: Path,
+        eval_models: list[str],
+        extraction_model: str,
+    ) -> PaperResult:
+        """1論文の全条件を処理し、PaperResult を返す（スレッドセーフ）。"""
+        result = PaperResult(paper_id=paper_id, succeeded=True)
+
+        for condition in config.conditions:
+            logger.info("Running %s for %s", condition.name, paper_id)
+
+            try:
+                if condition.method == MethodType.IDEAGRAPH:
+                    proposal_result = self._run_ideagraph(paper_id, condition, config)
+                elif condition.method == MethodType.DIRECT_LLM:
+                    proposal_result = self._run_direct_llm(paper_id, condition)
+                elif condition.method == MethodType.COI:
+                    proposal_result = self._run_coi(paper_id, condition)
+                elif condition.method == MethodType.TARGET_PAPER:
+                    proposal_result = self._run_target_paper(paper_id, condition)
+                else:
+                    raise ValueError(f"Unsupported method: {condition.method}")
+
+                proposals_file = run_dir / "proposals" / condition.name / f"{paper_id}.json"
+                self._write_json(proposals_file, proposal_result.model_dump(mode="json"))
+
+                single_eval_file: Path | None = None
+                if config.evaluation.mode in {"single", "both"}:
+                    for eval_model in eval_models:
+                        model_suffix = f"_{eval_model}" if len(eval_models) > 1 else ""
+                        if config.evaluation.repeat > 1:
+                            eval_results = self._evaluate_single_repeat(
+                                proposals=proposal_result.proposals,
+                                source=condition.method,
+                                model_name=eval_model,
+                                repeat=config.evaluation.repeat,
+                            )
+                            for r_idx, eval_data in enumerate(eval_results):
+                                repeat_file = (
+                                    run_dir / "evaluations" / "single" / condition.name
+                                    / f"{paper_id}{model_suffix}_r{r_idx}.json"
+                                )
+                                self._write_json(repeat_file, eval_data)
+                            single_eval_file = repeat_file  # type: ignore[assignment]
+                        else:
+                            single_eval = self._evaluate_single(
+                                proposals=proposal_result.proposals,
+                                source=condition.method,
+                                model_name=eval_model,
+                            )
+                            single_eval_file = (
+                                run_dir / "evaluations" / "single" / condition.name
+                                / f"{paper_id}{model_suffix}.json"
+                            )
+                            self._write_json(single_eval_file, single_eval)
+
+                result.records.append(
+                    PaperRunRecord(
+                        paper_id=paper_id,
+                        condition=condition.name,
+                        method=condition.method,
+                        proposals_file=str(proposals_file),
+                        single_evaluation_file=str(single_eval_file) if single_eval_file else None,
+                        degree=self._paper_degrees.get(paper_id),
+                    )
+                )
+
+                for proposal in proposal_result.proposals:
+                    result.pairwise_entries.append((condition.method, proposal))
+
+            except Exception as e:
+                result.succeeded = False
+                logger.warning("Skipped paper %s for condition %s: %s", paper_id, condition.name, e)
+                result.skipped_records.append(
+                    SkippedPaperRecord(
+                        paper_id=paper_id,
+                        condition=condition.name,
+                        method=condition.method,
+                        reason=str(e),
+                    )
+                )
+                continue
+
+        return result
+
+    def _merge_paper_result(
+        self,
+        result: PaperResult,
+        summary: ExperimentRunSummary,
+        pairwise_cache: dict[str, list[tuple[MethodType, Proposal]]],
+    ) -> None:
+        """PaperResult を summary と pairwise_cache にマージする（メインスレッドで呼ぶ）。"""
+        summary.records.extend(result.records)
+        summary.skipped_records.extend(result.skipped_records)
+        if result.pairwise_entries:
+            pairwise_cache.setdefault(result.paper_id, []).extend(result.pairwise_entries)
+
     # ──────────────────────────── メイン実行 ────────────────────────────
 
     def run(
@@ -818,6 +933,7 @@ class ExperimentRunner:
         limit: int | None = None,
         no_cache: bool = False,
         clear_cache: bool = False,
+        parallel: int = 1,
     ) -> ExperimentRunSummary:
         if no_cache:
             self._no_cache = True
@@ -880,90 +996,59 @@ class ExperimentRunner:
         success_count = 0
         attempted_papers: list[str] = []
 
-        for paper_id in candidate_pool:
-            if limit is not None and success_count >= desired_count:
-                break
+        if parallel <= 1:
+            # ── 逐次実行 ──
+            for paper_id in candidate_pool:
+                if limit is not None and success_count >= desired_count:
+                    break
 
-            attempted_papers.append(paper_id)
-            paper_succeeded = True
+                attempted_papers.append(paper_id)
+                result = self._process_paper(paper_id, config, run_dir, eval_models, extraction_model)
+                self._merge_paper_result(result, summary, pairwise_cache)
 
-            for condition in config.conditions:
-                logger.info("Running %s for %s", condition.name, paper_id)
+                if result.succeeded:
+                    success_count += 1
+        else:
+            # ── 並列実行 ──
+            logger.info("Parallel execution: max_workers=%d", parallel)
+            with ThreadPoolExecutor(max_workers=parallel) as executor:
+                pending: dict[Future[PaperResult], str] = {}
+                paper_iter = iter(candidate_pool)
 
-                try:
-                    if condition.method == MethodType.IDEAGRAPH:
-                        proposal_result = self._run_ideagraph(paper_id, condition, config)
-                    elif condition.method == MethodType.DIRECT_LLM:
-                        proposal_result = self._run_direct_llm(paper_id, condition)
-                    elif condition.method == MethodType.COI:
-                        proposal_result = self._run_coi(paper_id, condition)
-                    elif condition.method == MethodType.TARGET_PAPER:
-                        proposal_result = self._run_target_paper(paper_id, condition)
-                    else:
-                        raise ValueError(f"Unsupported method: {condition.method}")
-
-                    proposals_file = run_dir / "proposals" / condition.name / f"{paper_id}.json"
-                    self._write_json(proposals_file, proposal_result.model_dump(mode="json"))
-
-                    single_eval_file: Path | None = None
-                    if config.evaluation.mode in {"single", "both"}:
-                        for eval_model in eval_models:
-                            model_suffix = f"_{eval_model}" if len(eval_models) > 1 else ""
-                            if config.evaluation.repeat > 1:
-                                eval_results = self._evaluate_single_repeat(
-                                    proposals=proposal_result.proposals,
-                                    source=condition.method,
-                                    model_name=eval_model,
-                                    repeat=config.evaluation.repeat,
-                                )
-                                for r_idx, eval_data in enumerate(eval_results):
-                                    repeat_file = (
-                                        run_dir / "evaluations" / "single" / condition.name
-                                        / f"{paper_id}{model_suffix}_r{r_idx}.json"
-                                    )
-                                    self._write_json(repeat_file, eval_data)
-                                single_eval_file = repeat_file  # type: ignore[assignment]
-                            else:
-                                single_eval = self._evaluate_single(
-                                    proposals=proposal_result.proposals,
-                                    source=condition.method,
-                                    model_name=eval_model,
-                                )
-                                single_eval_file = (
-                                    run_dir / "evaluations" / "single" / condition.name
-                                    / f"{paper_id}{model_suffix}.json"
-                                )
-                                self._write_json(single_eval_file, single_eval)
-
-                    summary.records.append(
-                        PaperRunRecord(
-                            paper_id=paper_id,
-                            condition=condition.name,
-                            method=condition.method,
-                            proposals_file=str(proposals_file),
-                            single_evaluation_file=str(single_eval_file) if single_eval_file else None,
-                            degree=self._paper_degrees.get(paper_id),
-                        )
+                # 初期バッチ投入
+                for paper_id in paper_iter:
+                    if len(pending) >= parallel:
+                        break
+                    future = executor.submit(
+                        self._process_paper, paper_id, config, run_dir, eval_models, extraction_model,
                     )
+                    pending[future] = paper_id
+                    attempted_papers.append(paper_id)
 
-                    for proposal in proposal_result.proposals:
-                        pairwise_cache.setdefault(paper_id, []).append((condition.method, proposal))
+                while pending:
+                    done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        paper_id = pending.pop(future)
+                        try:
+                            result = future.result()
+                        except Exception as e:
+                            logger.error("Unexpected error processing paper %s: %s", paper_id, e)
+                            result = PaperResult(paper_id=paper_id, succeeded=False)
 
-                except Exception as e:
-                    paper_succeeded = False
-                    logger.warning("Skipped paper %s for condition %s: %s", paper_id, condition.name, e)
-                    summary.skipped_records.append(
-                        SkippedPaperRecord(
-                            paper_id=paper_id,
-                            condition=condition.name,
-                            method=condition.method,
-                            reason=str(e),
-                        )
-                    )
-                    continue
+                        self._merge_paper_result(result, summary, pairwise_cache)
+                        if result.succeeded:
+                            success_count += 1
 
-            if paper_succeeded:
-                success_count += 1
+                        # limit 未達なら次の論文を投入
+                        if limit is not None and success_count >= desired_count:
+                            continue
+                        for next_paper_id in paper_iter:
+                            future = executor.submit(
+                                self._process_paper, next_paper_id, config, run_dir, eval_models, extraction_model,
+                            )
+                            pending[future] = next_paper_id
+                            attempted_papers.append(next_paper_id)
+                            break
 
         if limit is not None and success_count < desired_count:
             logger.warning(
