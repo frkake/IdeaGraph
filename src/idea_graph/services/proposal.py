@@ -384,7 +384,7 @@ Ensure logical coherence: the motivation should naturally lead to the proposed m
         target_paper_id: str,
         num_proposals: int = 3,
     ) -> ProposalResult:
-        """グラフコンテキストなしで研究アイデアを提案（Direct LLM ベースライン）
+        """グラフコンテキストなしで研究アイデアを提案（Baseline）
 
         Args:
             target_paper_id: ターゲット論文ID
@@ -473,5 +473,5 @@ Ensure logical coherence: the motivation should naturally lead to the proposed m
             )
 
         except Exception as e:
-            logger.error(f"Direct LLM proposal generation failed: {e}")
+            logger.error(f"Baseline proposal generation failed: {e}")
             raise ValueError(f"Failed to generate direct proposals: {e}")

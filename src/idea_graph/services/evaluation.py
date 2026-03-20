@@ -1714,12 +1714,12 @@ class EvaluationService:
         }
 
         lines = [
-            "# Idea Single Evaluation Report",
+            "# Idea Independent Evaluation Report",
             "",
             f"**Evaluated at**: {result.evaluated_at.strftime('%Y-%m-%d %H:%M:%S')}",
             f"**Model**: {result.model_name}",
             f"**Number of proposals**: {len(result.proposals)}",
-            f"**Evaluation mode**: Single (Absolute)",
+            f"**Evaluation mode**: Independent (Absolute)",
             "",
             "## Rankings",
             "",

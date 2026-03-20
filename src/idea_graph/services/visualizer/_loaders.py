@@ -14,23 +14,32 @@ from typing import Any
 from ._style import METRICS
 
 # ---------------------------------------------------------------------------
-# Module-level paper ID filter
+# Module-level paper ID filter (include / exclude)
 # ---------------------------------------------------------------------------
 _paper_id_filter: set[str] | None = None
+_paper_id_exclude: set[str] | None = None
 
 
-def set_paper_filter(paper_ids: list[str] | None) -> None:
+def set_paper_filter(
+    paper_ids: list[str] | None = None,
+    exclude_ids: list[str] | None = None,
+) -> None:
     """Set the active paper ID filter. Pass None to clear."""
-    global _paper_id_filter
+    global _paper_id_filter, _paper_id_exclude
     _paper_id_filter = set(paper_ids) if paper_ids else None
+    _paper_id_exclude = set(exclude_ids) if exclude_ids else None
 
 
 def _file_matches_filter(f: Path) -> bool:
     """Check whether a JSON file's paper_id passes the current filter."""
-    if _paper_id_filter is None:
+    if _paper_id_filter is None and _paper_id_exclude is None:
         return True
     paper_id = re.sub(r"_r\d+$", "", f.stem)
-    return paper_id in _paper_id_filter
+    if _paper_id_exclude and paper_id in _paper_id_exclude:
+        return False
+    if _paper_id_filter is not None:
+        return paper_id in _paper_id_filter
+    return True
 
 
 def load_experiment_meta(run_dir: Path) -> dict[str, Any]:
@@ -46,6 +55,15 @@ def load_metadata(run_dir: Path) -> dict[str, Any]:
     p = run_dir / "metadata.json"
     if p.exists():
         return json.loads(p.read_text(encoding="utf-8"))
+    return {}
+
+
+def load_config(run_dir: Path) -> dict[str, Any]:
+    """Load config.yaml (experiment configuration)."""
+    p = run_dir / "config.yaml"
+    if p.exists():
+        import yaml
+        return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     return {}
 
 
@@ -257,7 +275,9 @@ def load_paper_degrees(run_dir: Path) -> dict[str, int]:
             paper_id = rec.get("paper_id", "")
             degree = rec.get("degree")
             if paper_id and degree is not None:
-                if _paper_id_filter and paper_id not in _paper_id_filter:
+                if _paper_id_exclude and paper_id in _paper_id_exclude:
+                    continue
+                if _paper_id_filter is not None and paper_id not in _paper_id_filter:
                     continue
                 degrees[paper_id] = int(degree)
         return degrees

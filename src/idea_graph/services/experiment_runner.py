@@ -127,6 +127,27 @@ class ExperimentRunner:
             title = record.get("title")
             return title if isinstance(title, str) and title.strip() else None
 
+    def _fetch_paper_published_date(self, paper_id: str) -> datetime | None:
+        """Neo4jからターゲット論文のpublished_dateを取得する。"""
+        try:
+            with Neo4jConnection.session() as session:
+                record = session.run(
+                    "MATCH (p:Paper {id: $paper_id}) RETURN p.published_date AS published_date",
+                    paper_id=paper_id,
+                ).single()
+                if not record:
+                    return None
+                value = record.get("published_date")
+                if value is None:
+                    return None
+                if isinstance(value, datetime):
+                    return value.replace(tzinfo=None)
+                dt = datetime.fromisoformat(str(value))
+                return dt.replace(tzinfo=None)
+        except Exception as exc:
+            logger.warning("Failed to fetch published_date for %s: %s", paper_id, exc)
+            return None
+
     def _query_papers(self, query: str, params: dict[str, Any]) -> list[str]:
         with Neo4jConnection.session() as session:
             return [str(row["id"]) for row in session.run(query, **params) if row.get("id")]
@@ -340,6 +361,7 @@ class ExperimentRunner:
             "include_inline_edges": prompt_cfg.include_inline_edges,
             "include_target_paper": prompt_cfg.include_target_paper,
             "exclude_future_papers": prompt_cfg.exclude_future_papers,
+            "reverse_paths": prompt_cfg.reverse_paths,
         }
 
     # ──────────────────────────── 条件実行 ────────────────────────────
@@ -437,12 +459,23 @@ class ExperimentRunner:
         proposals: list[Proposal] = []
         last_prompt: str = ""
 
+        # ターゲット論文の出版日を取得して検索範囲を制限
+        publication_date = condition.generation.publication_date  # 手動指定優先
+        if publication_date is None:
+            pub_dt = self._fetch_paper_published_date(paper_id)
+            if pub_dt:
+                publication_date = f":{pub_dt.strftime('%Y-%m-%d')}"
+                logger.info("Auto-detected publication_date for %s: %s", paper_id, publication_date)
+
         for i in range(num_proposals):
             logger.info("COI run %d/%d for %s", i + 1, num_proposals, paper_id)
             coi_save_dir = str(
                 (self._cache._base_dir / "coi_raw" / paper_id / str(i)).resolve()
             )
-            runner = CoIRunner(main_model=condition.generation.model)
+            runner = CoIRunner(
+                main_model=condition.generation.model,
+                publication_date=publication_date,
+            )
             result = asyncio.run(runner.run(topic=paper_title, save_dir=coi_save_dir))
             proposal = converter.convert_to_proposal(result)
             proposals.append(proposal)
@@ -664,7 +697,7 @@ class ExperimentRunner:
         # Single 評価サマリー
         single_root = run_dir / "evaluations" / "single"
         if single_root.exists():
-            table = Table(title="Single評価 (平均スコア)", show_header=True, header_style="bold magenta")
+            table = Table(title="Independent評価 (平均スコア)", show_header=True, header_style="bold magenta")
             table.add_column("条件", style="cyan")
             for metric in ["Nov", "Sig", "Fea", "Cla", "Eff", "Avg"]:
                 table.add_column(metric, justify="right")
@@ -739,7 +772,7 @@ class ExperimentRunner:
         # Single 評価サマリー
         single_root = run_dir / "evaluations" / "single"
         if single_root.exists():
-            lines.append("## Single評価サマリー")
+            lines.append("## Independent評価サマリー")
             lines.append("")
             lines.append("| 条件 | Novelty | Significance | Feasibility | Clarity | Effectiveness | Overall |")
             lines.append("|---|---|---|---|---|---|---|")

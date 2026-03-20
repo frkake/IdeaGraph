@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,11 @@ class ProgressManager:
         self._progress: PipelineProgress | None = None
         # 並列 ingest 時の progress.json 破損を防ぐ
         self._lock = threading.RLock()
+        self._autosave_interval_seconds = 1.0
+        self._autosave_every_n_updates = 25
+        self._dirty = False
+        self._dirty_updates = 0
+        self._last_save_monotonic = time.monotonic()
 
     @property
     def progress(self) -> PipelineProgress:
@@ -85,6 +91,21 @@ class ProgressManager:
             tmp_path = self.progress_file.with_name(self.progress_file.name + ".tmp")
             tmp_path.write_text(self._progress.model_dump_json(indent=2), encoding="utf-8")
             os.replace(tmp_path, self.progress_file)
+            self._dirty = False
+            self._dirty_updates = 0
+            self._last_save_monotonic = time.monotonic()
+
+    def _mark_dirty(self, force: bool = False) -> None:
+        with self._lock:
+            self._dirty = True
+            self._dirty_updates += 1
+            elapsed = time.monotonic() - self._last_save_monotonic
+            should_save = force or (
+                self._dirty_updates >= self._autosave_every_n_updates
+                or elapsed >= self._autosave_interval_seconds
+            )
+            if should_save:
+                self._save()
 
     def _recompute_counters(self) -> tuple[int, int]:
         """papers の状態から processed/failed を再計算する。
@@ -107,7 +128,7 @@ class ProgressManager:
         """総論文数を設定"""
         with self._lock:
             self.progress.total_papers = total
-            self._save()
+            self._mark_dirty(force=True)
 
     def get_pending_papers(self) -> list[str]:
         """未処理の論文IDリストを取得"""
@@ -154,7 +175,7 @@ class ProgressManager:
                     depth=depth,
                     source=source,
                 )
-                self._save()
+                self._mark_dirty()
 
     def update_status(
         self,
@@ -185,7 +206,19 @@ class ProgressManager:
                 if prev_status in ("failed", "not_found") and status not in ("failed", "not_found"):
                     paper.error_message = None
 
-            self._save()
+            self._mark_dirty(force=status in ("completed", "failed", "not_found"))
+
+    def flush(self) -> None:
+        """未保存の進捗を強制保存する"""
+        with self._lock:
+            if self._progress is None:
+                return
+            if self._dirty or not self.progress_file.exists():
+                self._save()
+
+    def close(self) -> None:
+        """進捗を保存して終了する"""
+        self.flush()
 
     def get_summary(self) -> dict[str, Any]:
         """進捗サマリーを取得"""

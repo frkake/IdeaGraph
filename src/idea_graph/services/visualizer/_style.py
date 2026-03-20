@@ -154,10 +154,10 @@ METRIC_DISPLAY: dict[str, str] = {
 METHOD_DISPLAY: dict[str, str] = {
     "ideagraph": "IdeaGraph",
     "ideagraph_default": "IdeaGraph",
-    "direct_llm": "Direct LLM",
-    "direct_llm_baseline": "Direct LLM",
-    "coi": "CoI-Agent",
-    "coi_agent": "CoI-Agent",
+    "direct_llm": "Baseline",
+    "direct_llm_baseline": "Baseline",
+    "coi": "Chain-of-Ideas",
+    "coi_agent": "Chain-of-Ideas",
     "target_paper": "Target Paper",
 }
 
@@ -189,6 +189,50 @@ def clean_condition(name: str) -> str:
         if name.startswith(prefix):
             return name[len(prefix):].replace("_", " ").title()
     return name.replace("_", " ").title()
+
+
+# ── Experiment caption mapping (publication-ready) ──
+
+EXP_CAPTION: dict[str, str] = {
+    # 1xx: Main comparisons
+    "EXP-101": "Pairwise ELO comparison across three methods",
+    "EXP-102": "Generated ideas vs.\\ original paper (pairwise ELO)",
+    "EXP-103": "IdeaGraph independent evaluation scores",
+    "EXP-104": "Baseline independent evaluation scores",
+    "EXP-105": "Chain-of-Ideas independent evaluation scores",
+    "EXP-106": "Target paper independent evaluation scores",
+    # 2xx: Ablations
+    "EXP-201": "Multi-hop depth ablation",
+    "EXP-202": "Graph representation format ablation",
+    "EXP-203": "Prompt scope ablation",
+    "EXP-204": "Path count ablation",
+    "EXP-205": "Graph size effect",
+    "EXP-206": "Number of proposals ablation",
+    "EXP-207": "Quality--cost efficiency",
+    "EXP-208": "Connectivity stability (out-degree stratification)",
+    "EXP-209": "Citation stability (in-degree stratification)",
+    "EXP-210": "Graph path order reversal ablation",
+    # 3xx: Validity
+    "EXP-301": "Evaluation mode consistency (independent vs.\\ pairwise)",
+    "EXP-302": "Evaluation reproducibility",
+    "EXP-303": "Position bias measurement",
+    "EXP-304": "Cross-model evaluation consistency",
+    "EXP-305": "Correlation with human evaluation",
+    "EXP-306": "Evidence traceability",
+}
+
+
+def exp_caption(exp_id: str, suffix: str = "") -> str:
+    """Return a publication-ready caption for *exp_id*.
+
+    If *suffix* is given it is appended after a period+space.
+    """
+    base = EXP_CAPTION.get(exp_id.upper(), exp_id)
+    # Capitalise first letter
+    base = base[0].upper() + base[1:]
+    if suffix:
+        return f"{base}. {suffix}"
+    return base
 
 
 # ── Significance annotations ──
@@ -281,16 +325,10 @@ def annotate_n_header(
     n: int,
     fontsize: int = 8,
 ) -> None:
-    """Add 'N = X papers' text in the upper-right corner of *ax*."""
-    ax.text(
-        0.97, 0.97, f"N = {n}",
-        transform=ax.transAxes, fontsize=fontsize,
-        ha="right", va="top", color="#555555",
-        bbox=dict(
-            boxstyle="round,pad=0.3", facecolor="#F8F8F8",
-            edgecolor="#D1D5DB", alpha=0.85,
-        ),
-    )
+    """Add 'N = X papers' text in the upper-right corner of *ax*.
+
+    Currently disabled (no-op) to keep figures cleaner.
+    """
 
 
 def save_figure(fig, output_dir: Path, name: str) -> list[Path]:

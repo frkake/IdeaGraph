@@ -108,8 +108,11 @@ class DownloaderService:
         paper_dir = self._get_paper_dir(paper_id)
         paper_dir.mkdir(parents=True, exist_ok=True)
         metadata_path = paper_dir / "metadata.json"
+        serialized_published_date = None
+        if isinstance(published_date, datetime):
+            serialized_published_date = published_date.isoformat()
         metadata = {
-            "published_date": published_date.isoformat() if published_date else None,
+            "published_date": serialized_published_date,
         }
         with metadata_path.open("w") as f:
             json.dump(metadata, f)
@@ -153,6 +156,10 @@ class DownloaderService:
             )
 
         return None
+
+    def get_cached_download(self, paper_id: str) -> DownloadResult | None:
+        """キャッシュ済みダウンロード結果を取得する。"""
+        return self._check_cache(paper_id)
 
     def _search_arxiv(self, title: str) -> arxiv.Result | None:
         """arXiv で論文を検索

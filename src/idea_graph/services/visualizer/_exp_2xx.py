@@ -1,4 +1,4 @@
-"""200-series: Ablation experiment visualizations (EXP-201 to EXP-209).
+"""200-series: Ablation experiment visualizations (EXP-201 to EXP-210).
 
 EXP-201: Multi-hop depth ablation
 EXP-202: Graph format ablation (mermaid vs paths)
@@ -48,6 +48,7 @@ from ._style import (
     overlay_strip,
     annotate_n,
     annotate_n_header,
+    exp_caption,
     logger,
     PALETTE,
 )
@@ -355,11 +356,11 @@ def _generate_sweep_tables(
 
     # -- Markdown --
     header = (
-        f"| {xlabel} | N | "
-        + " | ".join(METRIC_SHORT.get(m, m) for m in display_metrics)
+        f"| {xlabel} | "
+        + " | ".join(METRIC_DISPLAY.get(m, m) for m in display_metrics)
         + " |"
     )
-    sep = "|-------:|---:|" + "|".join("--------:" for _ in display_metrics) + "|"
+    sep = "|-------:|" + "|".join("--------:" for _ in display_metrics) + "|"
     rows: list[str] = []
     for i, (x, cond) in enumerate(zip(x_values, sorted_conds)):
         x_label = str(int(x)) if x == int(x) else f"{x:.1f}"
@@ -370,19 +371,19 @@ def _generate_sweep_tables(
             if i == best_per_col[j]:
                 cell = f"**{cell}**"
             cells.append(cell)
-        rows.append(f"| {x_label} | {n_per_cond[i]} | " + " | ".join(cells) + " |")
+        rows.append(f"| {x_label} | " + " | ".join(cells) + " |")
 
     md = (
-        f"## {exp_id}: {xlabel} Ablation\n\n"
+        f"## {exp_caption(exp_id, f'mean scores by {xlabel.lower()}')}\n\n"
         f"{header}\n{sep}\n" + "\n".join(rows) + "\n"
     )
     (output_dir / f"table_{exp_id}.md").write_text(md, encoding="utf-8")
 
     # -- LaTeX (booktabs, bold best) --
-    col_spec = "rr" + "r" * len(display_metrics)
+    col_spec = "c" + "c" * len(display_metrics)
     header_tex = (
         " & ".join(
-            [xlabel, "$N$"] + [METRIC_SHORT.get(m, m) for m in display_metrics]
+            [xlabel] + [METRIC_DISPLAY.get(m, m) for m in display_metrics]
         )
         + r" \\"
     )
@@ -397,13 +398,13 @@ def _generate_sweep_tables(
                 cell = rf"\textbf{{{cell}}}"
             cells.append(cell)
         tex_rows.append(
-            f"  {x_label} & {n_per_cond[i]} & " + " & ".join(cells) + r" \\"
+            f"  {x_label} & " + " & ".join(cells) + r" \\"
         )
 
     tex = (
         r"\begin{table}[htbp]" + "\n"
         r"  \centering" + "\n"
-        f"  \\caption{{{exp_id}: {xlabel} Ablation Results}}\n"
+        f"  \\caption{{{exp_caption(exp_id, f'mean scores by {xlabel.lower()}')}}}\n"
         f"  \\begin{{tabular}}{{{col_spec}}}\n"
         r"    \toprule" + "\n"
         f"    {header_tex}\n"
@@ -428,8 +429,8 @@ def _generate_correlation_tables(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # -- Markdown --
-    header = "| Metric | Spearman rho | Pearson r | n |"
-    sep = "|--------|----------:|----------:|--:|"
+    header = "| Metric | Spearman rho | Pearson r |"
+    sep = "|--------|----------:|----------:|"
     rows: list[str] = []
     for m in plot_metrics:
         dx, dy = all_metric_pairs[m]
@@ -437,12 +438,12 @@ def _generate_correlation_tables(
             rho = spearman_fn(dx, dy)
             r = pearson_fn(dx, dy)
             rows.append(
-                f"| {METRIC_SHORT.get(m, m)} | {rho:.3f} | {r:.3f} | {len(dx)} |"
+                f"| {METRIC_DISPLAY.get(m, m)} | {rho:.3f} | {r:.3f} |"
             )
 
     if rows:
         md = (
-            f"## {exp_id}: Degree-Score Correlations\n\n"
+            f"## {exp_caption(exp_id, 'degree--score correlations')}\n\n"
             f"{header}\n{sep}\n" + "\n".join(rows) + "\n"
         )
         (output_dir / f"table_{exp_id}.md").write_text(md, encoding="utf-8")
@@ -456,17 +457,17 @@ def _generate_correlation_tables(
                 rho = spearman_fn(dx, dy)
                 r = pearson_fn(dx, dy)
                 tex_rows.append(
-                    f"  {METRIC_SHORT.get(m, m)} & {rho:.3f} & {r:.3f} & {len(dx)}"
+                    f"  {METRIC_DISPLAY.get(m, m)} & {rho:.3f} & {r:.3f}"
                     + r" \\"
                 )
 
         tex = (
             r"\begin{table}[htbp]" + "\n"
             r"  \centering" + "\n"
-            f"  \\caption{{{exp_id}: Degree-Score Correlations}}\n"
-            r"  \begin{tabular}{lrrr}" + "\n"
+            f"  \\caption{{{exp_caption(exp_id, 'degree--score correlations')}}}\n"
+            r"  \begin{tabular}{lcc}" + "\n"
             r"    \toprule" + "\n"
-            r"    Metric & Spearman $\rho$ & Pearson $r$ & $n$ \\" + "\n"
+            r"    Metric & Spearman $\rho$ & Pearson $r$ \\" + "\n"
             r"    \midrule" + "\n"
             + "\n".join(f"    {r}" for r in tex_rows) + "\n"
             r"    \bottomrule" + "\n"
@@ -555,7 +556,7 @@ def vis_exp_205(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         )
         figures_dir.mkdir(parents=True, exist_ok=True)
         (figures_dir / f"report_{exp_id}.md").write_text(
-            f"## {exp_id}: Graph Size Effect\n\n"
+            f"## {exp_caption(exp_id)}\n\n"
             "評価データが存在しないため、可視化をスキップしました。\n"
             "プレースホルダー論文のみが含まれている可能性があります。\n"
             "実データを配置後に `visualize` コマンドを再実行してください。\n",

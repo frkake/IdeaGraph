@@ -1,66 +1,62 @@
 experiment:
-  id: "EXP-206"
-  name: "提案数アブレーション"
-  category: "ablation"
-  description: "生成数が品質に与える影響を測る。最良提案の品質(best-of-k)は上がるが平均品質(mean-of-k)は下がるという仮説を、num_proposals={1,3,5,7,10}の5条件×10論文のSingle評価で検証する"
+  id: EXP-206
+  name: 提案数アブレーション
+  category: ablation
+  description: 生成数が品質に与える影響を測る。最良提案の品質(best-of-k)は上がるが平均品質(mean-of-k)は下がるという仮説を、num_proposals={1,3,5,7,10}の5条件×10論文のSingle評価で検証する
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
 targets:
   paper_ids: []
-  selection_strategy: "connectivity_stratified"
-  candidate_scope: "dataset"
+  selection_strategy: connectivity_stratified
+  candidate_scope: dataset
   connectivity_tier_filter: null
   count: 10
 analysis:
   max_hops: 3
   top_k: 10
 prompt:
-  graph_format: "mermaid"
-  scope: "path"
-  max_paths: 10
-  max_nodes: 50
-  max_edges: 100
-  neighbor_k: 2
+  graph_format: mermaid
+  scope: path
   include_inline_edges: true
 conditions:
-  - name: "proposals_1"
-    method: "ideagraph"
-    generation:
-      num_proposals: 1
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
-  - name: "proposals_3"
-    method: "ideagraph"
-    generation:
-      num_proposals: 1
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
-  - name: "proposals_5"
-    method: "ideagraph"
-    generation:
-      num_proposals: 5
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
-  - name: "proposals_7"
-    method: "ideagraph"
-    generation:
-      num_proposals: 7
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
-  - name: "proposals_10"
-    method: "ideagraph"
-    generation:
-      num_proposals: 10
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
+- name: proposals_1
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
+- name: proposals_3
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
+- name: proposals_5
+  method: ideagraph
+  generation:
+    num_proposals: 5
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
+- name: proposals_7
+  method: ideagraph
+  generation:
+    num_proposals: 7
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
+- name: proposals_10
+  method: ideagraph
+  generation:
+    num_proposals: 10
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
 evaluation:
-  mode: "single"
-  model: "gpt-5.2-2025-12-11"
-  extraction_model: "gpt-5.2-2025-12-11"
+  mode: single
+  model: gpt-5.2-2025-12-11
+  extraction_model: gpt-5.2-2025-12-11
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs/gpt5.2"
+  base_dir: experiments/runs/gpt5.2

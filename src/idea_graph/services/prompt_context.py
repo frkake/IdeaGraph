@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import unicodedata
@@ -37,7 +38,7 @@ ALLOWED_EDGE_FIELDS_BY_TYPE = {
     "ADDRESSES": {"type", "context"},
 }
 ALLOWED_EDGE_TYPES = set(ALLOWED_EDGE_FIELDS_BY_TYPE.keys())
-ALLOWED_GRAPH_FORMATS = {"mermaid", "paths"}
+ALLOWED_GRAPH_FORMATS = {"mermaid", "paths", "json_graph", "triples", "narrative"}
 MERMAID_UNSAFE_CHARS = set('\"\'[](){}|<>`:;`')
 MERMAID_MAX_LABEL_LINES = 1000
 MERMAID_MAX_LINE_LENGTH = 100000
@@ -70,13 +71,14 @@ class PromptExpansionOptions(BaseModel):
     edge_type_fields: dict[str, list[str]] = Field(
         default_factory=lambda: {edge_type: sorted(fields) for edge_type, fields in ALLOWED_EDGE_FIELDS_BY_TYPE.items()}
     )
-    max_paths: int = Field(default=5)
-    max_nodes: int = Field(default=50)
-    max_edges: int = Field(default=100)
-    neighbor_k: int = Field(default=2)
+    max_paths: int | None = Field(default=None)
+    max_nodes: int | None = Field(default=None)
+    max_edges: int | None = Field(default=None)
+    neighbor_k: int | None = Field(default=None)
     include_inline_edges: bool = Field(default=True)
     include_target_paper: bool = Field(default=False)
     exclude_future_papers: bool = Field(default=True)
+    reverse_paths: bool = Field(default=True)
 
     @field_validator("scope")
     @classmethod
@@ -130,9 +132,9 @@ class PromptExpansionOptions(BaseModel):
 
     @field_validator("max_paths", "max_nodes", "max_edges", "neighbor_k")
     @classmethod
-    def validate_positive(cls, value: int) -> int:
-        if value <= 0:
-            raise ValueError("value must be greater than 0")
+    def validate_positive_or_none(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise ValueError("value must be greater than 0 if specified")
         return value
 
 
@@ -184,9 +186,16 @@ class PromptContextBuilder:
         opts = options or PromptExpansionOptions()
         paths = self._select_paths(target_paper_id, analysis_result, opts)
         paths = self._filter_paths(paths, opts, target_paper_id)
-        paths = self._reverse_paths(paths)
+        if opts.reverse_paths:
+            paths = self._reverse_paths(paths)
         if opts.graph_format == "paths":
             return self._build_paths_context(paths, opts)
+        if opts.graph_format == "json_graph":
+            return self._build_json_graph_context(paths, opts)
+        if opts.graph_format == "triples":
+            return self._build_triples_context(paths, opts)
+        if opts.graph_format == "narrative":
+            return self._build_narrative_context(paths, opts)
         return self._build_mermaid_context(paths, opts)
 
     def _build_paths_context(self, paths: list[RankedPath], options: PromptExpansionOptions) -> str:
@@ -234,19 +243,15 @@ class PromptContextBuilder:
                     continue
                 filtered_edges.append(edge)
 
-            filtered_edges = sorted(
-                filtered_edges,
-                key=lambda edge: (edge.from_id, edge.to_id, edge.edge_type),
-            )
-            if len(filtered_edges) > options.max_edges:
+            if options.max_edges is not None and len(filtered_edges) > options.max_edges:
                 logger.warning("Reached max_edges limit (%s); truncating mermaid edges.", options.max_edges)
                 filtered_edges = filtered_edges[: options.max_edges]
 
-            merged_nodes = sorted(merged_nodes, key=lambda node: node.id)
             id_map = {node.id: f"N{idx}" for idx, node in enumerate(merged_nodes, 1)}
 
+            graph_dir = "RL" if options.reverse_paths else "LR"
             stats = MermaidSanitizeStats()
-            mermaid_lines = ["```mermaid", "graph RL"]
+            mermaid_lines = ["```mermaid", f"graph {graph_dir}"]
 
             for node in merged_nodes:
                 label = self._build_mermaid_node_label(node, stats)
@@ -282,7 +287,208 @@ class PromptContextBuilder:
             return "\n".join(mermaid_lines)
         except Exception as exc:
             logger.warning("Mermaid generation failed; returning empty diagram: %s", exc)
-            return "\n".join(["```mermaid", "graph RL", "```"])
+            fallback_dir = "RL" if options.reverse_paths else "LR"
+            return "\n".join(["```mermaid", f"graph {fallback_dir}", "```"])
+
+    def _build_json_graph_context(self, paths: list[RankedPath], options: PromptExpansionOptions) -> str:
+        if not paths:
+            return ""
+
+        nodes = self._collect_nodes(paths, options.max_nodes)
+        merged_nodes = self._merge_nodes(nodes, options)
+        merged_edges = self._merge_edges(paths, options)
+
+        node_ids = {n.id for n in merged_nodes}
+        filtered_edges = [e for e in merged_edges if e.from_id in node_ids and e.to_id in node_ids]
+        if options.max_edges is not None and len(filtered_edges) > options.max_edges:
+            filtered_edges = filtered_edges[: options.max_edges]
+
+        json_nodes: list[dict] = []
+        for node in merged_nodes:
+            entry: dict = {"id": node.id, "type": node.label, "name": node.name}
+            if node.label == "Paper":
+                if "Summary" in node.details:
+                    entry["summary"] = node.details["Summary"]
+                if "Claims" in node.details:
+                    entry["claims"] = node.details["Claims"].split(", ")
+            else:
+                if "Type" in node.details:
+                    entry["subtype"] = node.details["Type"]
+                if "Description" in node.details:
+                    entry["description"] = node.details["Description"]
+            json_nodes.append(entry)
+
+        json_edges: list[dict] = []
+        for edge in filtered_edges:
+            entry: dict = {"from": edge.from_id, "to": edge.to_id, "relation": edge.edge_type}
+            if edge.details.get("context"):
+                entry["context"] = edge.details["context"]
+            if edge.details.get("importance_score"):
+                entry["importance"] = edge.details["importance_score"]
+            if edge.details.get("citation_type"):
+                entry["citation_type"] = edge.details["citation_type"]
+            json_edges.append(entry)
+
+        json_paths: list[dict] = []
+        for path in paths:
+            route = [n.id for n in path.nodes]
+            path_entry: dict = {"route": route}
+            if path.score:
+                path_entry["score"] = path.score
+            json_paths.append(path_entry)
+
+        graph: dict = {"nodes": json_nodes, "edges": json_edges}
+        if json_paths:
+            graph["paths"] = json_paths
+
+        return json.dumps(graph, indent=2, ensure_ascii=False)
+
+    def _build_triples_context(self, paths: list[RankedPath], options: PromptExpansionOptions) -> str:
+        if not paths:
+            return ""
+
+        nodes = self._collect_nodes(paths, options.max_nodes)
+        merged_nodes = self._merge_nodes(nodes, options)
+        merged_edges = self._merge_edges(paths, options)
+
+        node_ids = {n.id for n in merged_nodes}
+        filtered_edges = [e for e in merged_edges if e.from_id in node_ids and e.to_id in node_ids]
+        if options.max_edges is not None and len(filtered_edges) > options.max_edges:
+            filtered_edges = filtered_edges[: options.max_edges]
+
+        node_map = {n.id: n for n in merged_nodes}
+        lines: list[str] = []
+
+        # Relationships section
+        if filtered_edges:
+            lines.append("## Relationships")
+            for edge in filtered_edges:
+                from_node = node_map.get(edge.from_id)
+                to_node = node_map.get(edge.to_id)
+                if not from_node or not to_node:
+                    continue
+                attrs: list[str] = []
+                if edge.details.get("importance_score"):
+                    attrs.append(f"importance={edge.details['importance_score']}")
+                if edge.details.get("citation_type"):
+                    attrs.append(f"type={edge.details['citation_type']}")
+                predicate = edge.edge_type
+                if attrs:
+                    predicate += "[" + ",".join(attrs) + "]"
+                context_comment = ""
+                if edge.details.get("context"):
+                    context_comment = f" # {edge.details['context']}"
+                lines.append(f"({from_node.name}, {predicate}, {to_node.name}){context_comment}")
+
+        # Node Attributes section
+        if merged_nodes:
+            lines.append("")
+            lines.append("## Node Attributes")
+            for node in merged_nodes:
+                lines.append(f"({node.name}, is_a, {node.label})")
+                for key, value in node.details.items():
+                    attr_name = key.lower()
+                    lines.append(f'({node.name}, {attr_name}, "{value}")')
+
+        # Ranked Paths section
+        if paths:
+            lines.append("")
+            lines.append("## Ranked Paths")
+            for path in paths:
+                route = " -> ".join(n.name for n in path.nodes)
+                score_str = f"[score={path.score}]" if path.score else ""
+                lines.append(f"Path{score_str}: {route}")
+
+        return "\n".join(lines).strip()
+
+    def _build_narrative_context(self, paths: list[RankedPath], options: PromptExpansionOptions) -> str:
+        if not paths:
+            return ""
+
+        nodes = self._collect_nodes(paths, options.max_nodes)
+        merged_nodes = self._merge_nodes(nodes, options)
+        merged_edges = self._merge_edges(paths, options)
+
+        node_map = {n.id: n for n in merged_nodes}
+        edge_map: dict[tuple[str, str], MergedEdge] = {}
+        for edge in merged_edges:
+            edge_map[(edge.from_id, edge.to_id)] = edge
+
+        lines: list[str] = []
+
+        for idx, path in enumerate(paths, 1):
+            score_str = f" (relevance: {path.score})" if path.score else ""
+            lines.append(f"### Path {idx}{score_str}")
+
+            if not path.edges:
+                # No edges, just list nodes
+                node_descs = []
+                for node in path.nodes:
+                    merged = node_map.get(node.id)
+                    node_descs.append(self._describe_node_narrative(merged or node))
+                lines.append(" -> ".join(node_descs))
+            else:
+                segments: list[str] = []
+                for edge_idx, edge in enumerate(path.edges):
+                    if edge_idx + 1 >= len(path.nodes):
+                        break
+                    from_node = node_map.get(path.nodes[edge_idx].id)
+                    to_node = node_map.get(path.nodes[edge_idx + 1].id)
+                    if not from_node or not to_node:
+                        continue
+
+                    merged_edge = edge_map.get((edge.from_id, edge.to_id))
+
+                    if edge_idx == 0:
+                        segments.append(self._describe_node_narrative(from_node))
+
+                    rel_desc = edge.type
+                    details: list[str] = []
+                    if merged_edge:
+                        if merged_edge.details.get("importance_score"):
+                            details.append(f"importance {merged_edge.details['importance_score']}/5")
+                        if merged_edge.details.get("citation_type"):
+                            details.append(f"type: {merged_edge.details['citation_type']}")
+                    detail_str = f" with {', '.join(details)}" if details else ""
+
+                    context_str = ""
+                    if merged_edge and merged_edge.details.get("context"):
+                        context_str = f' Context: "{merged_edge.details["context"]}".'
+
+                    segments.append(f"{rel_desc}{detail_str}")
+                    segments.append(self._describe_node_narrative(to_node))
+                    if context_str:
+                        segments.append(context_str.strip())
+
+                lines.append(" ".join(segments))
+            lines.append("")
+
+        # Graph Summary
+        unique_node_count = len(merged_nodes)
+        unique_edge_count = len(merged_edges)
+        lines.append(f"### Graph Summary")
+        lines.append(f"{len(paths)} paths, {unique_node_count} unique nodes, {unique_edge_count} unique edges.")
+
+        return "\n".join(lines).strip()
+
+    def _describe_node_narrative(self, node) -> str:
+        """Build a compact narrative description of a node."""
+        if isinstance(node, MergedNode):
+            parts = [f'{node.label} "{node.name}"']
+            inline: list[str] = []
+            if "Summary" in node.details:
+                inline.append(f"Summary: {node.details['Summary']}")
+            if "Claims" in node.details:
+                inline.append(f"Claims: {node.details['Claims']}")
+            if "Type" in node.details:
+                parts[0] = f'{node.details["Type"]} "{node.name}"'
+            if "Description" in node.details:
+                inline.append(f"Description: {node.details['Description']}")
+            if inline:
+                return parts[0] + " (" + "; ".join(inline) + ")"
+            return parts[0]
+        # Fallback for PathNode
+        return f'{getattr(node, "label", "Node")} "{getattr(node, "name", str(node))}"'
 
     def _select_paths(
         self,
@@ -293,7 +499,10 @@ class PromptContextBuilder:
         paths: list[RankedPath] = []
 
         if options.scope in {"path", "path_plus_k_hop"}:
-            paths.extend(analysis_result.candidates[: options.max_paths])
+            if options.max_paths is not None:
+                paths.extend(analysis_result.candidates[: options.max_paths])
+            else:
+                paths.extend(analysis_result.candidates)
 
         if options.scope in {"k_hop", "path_plus_k_hop"}:
             try:
@@ -460,10 +669,13 @@ class PromptContextBuilder:
     def _fetch_k_hop_paths(
         self,
         target_paper_id: str,
-        neighbor_k: int,
-        max_paths: int,
-        max_edges: int,
+        neighbor_k: int | None,
+        max_paths: int | None,
+        max_edges: int | None,
     ) -> list[RankedPath]:
+        if neighbor_k is None:
+            return []
+
         paths: list[RankedPath] = []
         query = (
             "MATCH path = (target:Paper {id: $target_id})-[rels*1.."
@@ -474,17 +686,18 @@ class PromptContextBuilder:
             "LIMIT $limit"
         )
 
+        limit = max_paths if max_paths is not None else 1000
         edge_count = 0
         with Neo4jConnection.session() as session:
             result = session.run(
                 query,
                 target_id=target_paper_id,
-                limit=max_paths,
+                limit=limit,
             )
             for record in result:
                 path_nodes = self._nodes_from_records(record["nodes"])
                 path_edges = self._edges_from_records(record["rels"], record["nodes"])
-                if edge_count + len(path_edges) > max_edges:
+                if max_edges is not None and edge_count + len(path_edges) > max_edges:
                     logger.warning("Reached max_edges limit (%s); truncating k-hop paths.", max_edges)
                     break
                 edge_count += len(path_edges)
@@ -723,7 +936,7 @@ class PromptContextBuilder:
         label = "<br/>".join(safe_lines)
         return self._truncate_mermaid_label(label, MERMAID_MAX_LABEL_LENGTH)
 
-    def _collect_nodes(self, paths: list[RankedPath], max_nodes: int) -> list[PromptContextNode]:
+    def _collect_nodes(self, paths: list[RankedPath], max_nodes: int | None) -> list[PromptContextNode]:
         seen: set[str] = set()
         ordered: list[PathNode] = []
         for path in paths:
@@ -732,10 +945,10 @@ class PromptContextBuilder:
                     continue
                 seen.add(node.id)
                 ordered.append(node)
-                if len(ordered) >= max_nodes:
+                if max_nodes is not None and len(ordered) >= max_nodes:
                     logger.warning("Reached max_nodes limit (%s); truncating node details.", max_nodes)
                     break
-            if len(ordered) >= max_nodes:
+            if max_nodes is not None and len(ordered) >= max_nodes:
                 break
 
         return self._fetch_node_details(ordered)

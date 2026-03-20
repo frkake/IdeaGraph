@@ -1,5 +1,6 @@
 """GraphWriter のテスト"""
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -76,6 +77,24 @@ class TestGraphWriterService:
 
             assert count == 3
             mock_session.run.assert_called()
+
+    def test_update_paper_published_dates_batches_updates(self):
+        """公開日更新が UNWIND でまとめて実行されること"""
+        with patch("idea_graph.ingestion.graph_writer.Neo4jConnection") as mock_conn:
+            mock_session = MagicMock()
+            mock_conn.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+            mock_conn.session.return_value.__exit__ = MagicMock(return_value=False)
+
+            service = GraphWriterService(batch_size=10)
+            count = service.update_paper_published_dates(
+                [
+                    ("paper1", datetime(2025, 1, 1)),
+                    ("paper2", datetime(2025, 1, 2)),
+                ]
+            )
+
+            assert count == 2
+            mock_session.run.assert_called_once()
 
     def test_write_extracted_creates_entities(self):
         """Entity ノードが作成されること"""

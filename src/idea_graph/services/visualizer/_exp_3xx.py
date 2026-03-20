@@ -42,6 +42,7 @@ from ._style import (
     overlay_strip,
     annotate_n,
     annotate_n_header,
+    exp_caption,
 )
 from ._loaders import (
     load_single_scores,
@@ -140,7 +141,7 @@ def vis_exp_301(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
 
     annotate_n_header(ax, len(single_vals))
 
-    ax.set_xlabel("Single Overall Score", fontsize=9)
+    ax.set_xlabel("Independent Overall Score", fontsize=9)
     ax.set_ylabel("Pairwise ELO Rating", fontsize=9)
     ax.tick_params(labelsize=8)
     fig.tight_layout()
@@ -159,18 +160,18 @@ def _generate_exp301_report(
     """EXP-301 の散布図に対する解説レポートを生成。"""
     interpretation = "一貫性あり" if rho > 0.7 else "一貫性が不十分"
     lines = [
-        f"## {exp_id}: 評価モード整合性 解説\n",
+        f"## {exp_caption(exp_id)} — 解説\n",
         "### 図の説明",
-        "散布図は各提案のSingle評価のOverallスコア（X軸）と",
+        "散布図は各提案のIndependent評価のOverallスコア（X軸）と",
         "Pairwise評価のELOレーティング（Y軸）の関係を示す。",
-        "理想的にはSingleで高スコアの提案がPairwiseでも高ELOを獲得し、",
+        "理想的にはIndependentで高スコアの提案がPairwiseでも高ELOを獲得し、",
         "正の相関を示す。\n",
         "### Spearman順位相関係数（ρ）",
         f"- **ρ = {rho:.3f}**（n = {n}）",
         f"- 仮説: ρ > 0.7 → **{interpretation}**\n",
         "### 解釈",
         "ρ > 0.7 は両評価方式の順位が概ね一致することを意味し、",
-        "Single評価の効率性（O(n)）とPairwise評価の精度（O(n²)）が",
+        "Independent評価の効率性（O(n)）とPairwise評価の精度（O(n²)）が",
         "同等の順位判定を提供することを示唆する。",
     ]
     (figures_dir / f"report_{exp_id}.md").write_text(
@@ -390,7 +391,7 @@ def _generate_exp302_tables(
         s = safe_std(r_means)
         cv = s / m if m > 0 else 0.0
         rows_data.append({
-            "metric": METRIC_SHORT.get(metric, metric),
+            "metric": METRIC_DISPLAY.get(metric, metric),
             "mean": m,
             "std": s,
             "cv": cv,
@@ -405,14 +406,14 @@ def _generate_exp302_tables(
 
     # ── Markdown ──
     md_lines = [
-        f"## {exp_id}: Reproducibility Metrics\n",
-        "| Metric | Mean | SD | CV | Repeats |",
-        "|--------|-----:|----:|----:|--------:|",
+        f"## {exp_caption(exp_id, 'per-metric coefficient of variation')}\n",
+        "| Metric | Mean | SD | CV |",
+        "|--------|-----:|----:|----:|",
     ]
     for r in rows_data:
         md_lines.append(
             f"| {r['metric']} | {r['mean']:.2f} | {r['std']:.3f} "
-            f"| {r['cv']:.4f} | {r['n_repeats']} |"
+            f"| {r['cv']:.4f} |"
         )
     md_lines.append("")
     (output_dir / f"table_{exp_id}.md").write_text(
@@ -427,16 +428,16 @@ def _generate_exp302_tables(
             cv_str = f"\\textbf{{{cv_str}}}"
         tex_rows.append(
             f"  {r['metric']} & {r['mean']:.2f} & {r['std']:.3f} "
-            f"& {cv_str} & {r['n_repeats']} \\\\"
+            f"& {cv_str} \\\\"
         )
 
     tex = (
         "\\begin{table}[htbp]\n"
         "  \\centering\n"
-        f"  \\caption{{{exp_id}: Reproducibility Metrics}}\n"
-        "  \\begin{tabular}{lrrrr}\n"
+        f"  \\caption{{{exp_caption(exp_id, 'per-metric coefficient of variation')}}}\n"
+        "  \\begin{tabular}{lccc}\n"
         "    \\toprule\n"
-        "    Metric & Mean & SD & CV & Repeats \\\\\n"
+        "    Metric & Mean & SD & CV \\\\\n"
         "    \\midrule\n"
         + "\n".join(f"    {r}" for r in tex_rows) + "\n"
         "    \\bottomrule\n"
@@ -583,7 +584,7 @@ def _generate_exp303_tables(
 
     # ── Markdown ──
     md_lines = [
-        f"## {exp_id}: Position Bias Summary\n",
+        f"## {exp_caption(exp_id, 'per-metric flip rates')}\n",
         f"Overall agreement rate: {agree_rate:.1f}% (n={total})\n",
         "### Per-Metric Flip Rates\n",
         "| Metric | Flips | Total | Rate (%) |",
@@ -593,7 +594,7 @@ def _generate_exp303_tables(
         if metric_totals.get(m, 0) > 0:
             rate = metric_flips[m] / metric_totals[m] * 100
             md_lines.append(
-                f"| {METRIC_SHORT.get(m, m)} | {metric_flips[m]} "
+                f"| {METRIC_DISPLAY.get(m, m)} | {metric_flips[m]} "
                 f"| {metric_totals[m]} | {rate:.1f} |"
             )
     md_lines.append("")
@@ -616,16 +617,15 @@ def _generate_exp303_tables(
             if rate == best_rate:
                 rate_str = f"\\textbf{{{rate_str}}}"
             tex_rows.append(
-                f"  {METRIC_SHORT.get(m, m)} & {metric_flips[m]} "
+                f"  {METRIC_DISPLAY.get(m, m)} & {metric_flips[m]} "
                 f"& {metric_totals[m]} & {rate_str} \\\\"
             )
 
     tex = (
         "\\begin{table}[htbp]\n"
         "  \\centering\n"
-        f"  \\caption{{{exp_id}: Position Bias — Per-Metric Flip Rates"
-        f" (Agreement {agree_rate:.1f}\\%)}}\n"
-        "  \\begin{tabular}{lrrr}\n"
+        "  \\caption{" + exp_caption(exp_id, f"per-metric flip rates (agreement {agree_rate:.1f}\\%)") + "}\n"
+        "  \\begin{tabular}{lccc}\n"
         "    \\toprule\n"
         "    Metric & Flips & Total & Rate (\\%) \\\\\n"
         "    \\midrule\n"
@@ -647,7 +647,7 @@ def _generate_exp303_report(
 ) -> None:
     """EXP-303 の位置バイアス分析に対する解説レポートを生成。"""
     lines = [
-        f"## {exp_id}: 位置バイアス分析 解説\n",
+        f"## {exp_caption(exp_id)} — 解説\n",
         "### 図の説明",
         "Flip Rateバーチャートは各評価指標でAB順とBA順の",
         "評価結果が異なる割合（位置バイアスの程度）を示す。",

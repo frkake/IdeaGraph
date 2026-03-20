@@ -1,49 +1,45 @@
 experiment:
-  id: "EXP-303-gpt4o"
-  name: "ポジションバイアス測定"
-  category: "evaluation_validity"
-  description: "位置バイアス補正（swap test）が効いているかを確認する。AB/BAの不一致が5〜15%存在するという仮説を検証する。EXP-101のPairwise評価データを使用し、AB/BAの一致率と補正前後の順位差を分析する"
-  visualizer_id: "EXP-303"
+  id: EXP-303-gpt4o
+  name: ポジションバイアス測定
+  category: evaluation_validity
+  description: 位置バイアス補正（swap test）が効いているかを確認する。AB/BAの不一致が5〜15%存在するという仮説を検証する。EXP-101のPairwise評価データを使用し、AB/BAの一致率と補正前後の順位差を分析する
+  visualizer_id: EXP-303
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
 targets:
   paper_ids: []
-  selection_strategy: "connectivity_stratified"
-  candidate_scope: "dataset"
+  selection_strategy: connectivity_stratified
+  candidate_scope: dataset
   connectivity_tier_filter: null
   count: 15
 analysis:
   max_hops: 3
   top_k: 10
 prompt:
-  graph_format: "mermaid"
-  scope: "path"
-  max_paths: 10
-  max_nodes: 50
-  max_edges: 100
-  neighbor_k: 2
+  graph_format: mermaid
+  scope: path
   include_inline_edges: true
 conditions:
-  - name: "ideagraph_default"
-    method: "ideagraph"
-    generation:
-      num_proposals: 1
-      model: "gpt-4o-2024-08-06"
-      temperature: 0.0
-  - name: "direct_llm_baseline"
-    method: "direct_llm"
-    generation:
-      num_proposals: 1
-      model: "gpt-4o-2024-08-06"
-      temperature: 0.0
+- name: ideagraph_default
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-4o-2024-08-06
+    temperature: 0.0
+- name: direct_llm_baseline
+  method: direct_llm
+  generation:
+    num_proposals: 1
+    model: gpt-4o-2024-08-06
+    temperature: 0.0
 evaluation:
-  mode: "pairwise"
-  model: "gpt-5.2-2025-12-11"
-  extraction_model: "gpt-4o-2024-08-06"
+  mode: pairwise
+  model: gpt-5.2-2025-12-11
+  extraction_model: gpt-4o-2024-08-06
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs/gpt4o"
+  base_dir: experiments/runs/gpt4o

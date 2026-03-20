@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Iterator
 
 from idea_graph.db import Neo4jConnection
+from idea_graph.ingestion.buffered_writer import BufferedGraphWriter
 from idea_graph.ingestion.dataset_loader import PaperMetadata, generate_paper_id
 from idea_graph.ingestion.downloader import DownloaderService
 from idea_graph.ingestion.extractor import ExtractorService
@@ -51,9 +52,11 @@ class CitationCrawler:
         extractor: ExtractorService,
         writer: GraphWriterService,
         progress: ProgressManager,
+        buffered_writer: BufferedGraphWriter | None = None,
         max_depth: int = 1,
         crawl_limit: int | None = None,
         top_n_citations: int = 5,
+        skip_write: bool = False,
     ):
         """初期化
 
@@ -70,9 +73,11 @@ class CitationCrawler:
         self.extractor = extractor
         self.writer = writer
         self.progress = progress
+        self.buffered_writer = buffered_writer
         self.max_depth = max_depth
         self.crawl_limit = crawl_limit
         self.top_n_citations = top_n_citations
+        self.skip_write = skip_write
 
         # 優先度付きキュー（heapq）
         self._queue: list[CrawlTarget] = []
@@ -207,9 +212,6 @@ class CitationCrawler:
                     error_message=download_result.error_message,
                 )
 
-        # 公開日を保存
-        self.writer.update_paper_published_date(target.paper_id, download_result.published_date)
-
         # 抽出
         self.progress.update_status(target.paper_id, "extracting")
         extracted = self.extractor.extract(
@@ -228,9 +230,18 @@ class CitationCrawler:
                 error_message="Extraction failed",
             )
 
-        # グラフに書き込み
-        self.progress.update_status(target.paper_id, "writing")
-        self.writer.write_extracted([extracted])
+        if not self._write_extracted(
+            target=target,
+            extracted=extracted,
+            published_date=download_result.published_date,
+        ):
+            return CrawlResult(
+                paper_id=target.paper_id,
+                title=target.title,
+                depth=target.depth,
+                status="failed",
+                error_message="Graph write failed",
+            )
 
         # 完了
         self.progress.update_status(target.paper_id, "completed")
@@ -245,6 +256,48 @@ class CitationCrawler:
             depth=target.depth,
             status="completed",
         )
+
+    def _write_extracted(
+        self,
+        target: CrawlTarget,
+        extracted,
+        published_date,
+    ) -> bool:
+        """抽出結果を書き込み、完了まで待つ。"""
+        if self.skip_write:
+            return True
+
+        self.progress.update_status(target.paper_id, "writing")
+
+        done_event = threading.Event()
+        errors: list[Exception] = []
+
+        def on_done(error: Exception | None) -> None:
+            if error is not None:
+                errors.append(error)
+            done_event.set()
+
+        try:
+            if self.buffered_writer is not None:
+                self.buffered_writer.enqueue_extracted(
+                    extracted,
+                    published_date=published_date,
+                    on_done=on_done,
+                )
+            else:
+                if published_date is not None:
+                    self.writer.update_paper_published_date(target.paper_id, published_date)
+                self.writer.write_extracted([extracted])
+                on_done(None)
+        except Exception as exc:
+            errors.append(exc)
+            done_event.set()
+
+        done_event.wait()
+        if errors:
+            self.progress.update_status(target.paper_id, "failed", str(errors[0]))
+            return False
+        return True
 
     def _get_citations_with_importance(
         self, paper_id: str

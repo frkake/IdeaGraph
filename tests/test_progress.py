@@ -1,6 +1,7 @@
 """ProgressManager のテスト"""
 
 import tempfile
+import json
 from pathlib import Path
 
 import pytest
@@ -126,6 +127,21 @@ class TestProgressManager:
             assert manager2.progress.processed_papers == 1
             assert "paper1" in manager2.progress.papers
             assert manager2.progress.papers["paper1"].status == "completed"
+
+    def test_non_terminal_updates_are_flushed_on_demand(self):
+        """非終端更新は flush で永続化できること"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            progress_file = Path(tmpdir) / "progress.json"
+            manager = ProgressManager(progress_file=progress_file)
+
+            manager.register_paper("paper1", "Test Paper 1")
+            assert progress_file.exists() is False
+
+            manager.flush()
+
+            assert progress_file.exists() is True
+            data = json.loads(progress_file.read_text())
+            assert "paper1" in data["papers"]
 
     def test_get_summary(self):
         """サマリーを取得できること"""

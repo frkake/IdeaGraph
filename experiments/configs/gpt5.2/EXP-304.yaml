@@ -1,46 +1,41 @@
 experiment:
-  id: "EXP-304"
-  name: "クロスモデル評価整合性"
-  category: "evaluation_validity"
-  description: "評価モデルの違いで順位が変わるかを確認する。モデル間でSpearman rho > 0.8という仮説を、同一提案に対しgpt-5.2/gemini-2.5-pro/claude-sonnet-4.5の3モデルで評価して検証する"
+  id: EXP-304
+  name: クロスモデル評価整合性
+  category: evaluation_validity
+  description: 評価モデルの違いで順位が変わるかを確認する。モデル間でSpearman rho > 0.8という仮説を、同一提案に対しgpt-5.2/gemini-2.5-pro/claude-sonnet-4.5の3モデルで評価して検証する
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
 targets:
   paper_ids: []
-  selection_strategy: "connectivity_stratified"
-  candidate_scope: "dataset"
+  selection_strategy: connectivity_stratified
+  candidate_scope: dataset
   connectivity_tier_filter: null
   count: 10
 analysis:
   max_hops: 3
   top_k: 10
 prompt:
-  graph_format: "mermaid"
-  scope: "path"
-  max_paths: 10
-  max_nodes: 50
-  max_edges: 100
-  neighbor_k: 2
+  graph_format: mermaid
+  scope: path
   include_inline_edges: true
 conditions:
-  - name: "ideagraph_default"
-    method: "ideagraph"
-    generation:
-      num_proposals: 1
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
+- name: ideagraph_default
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
 evaluation:
-  mode: "both"
-  model: "gpt-5.2-2025-12-11"
-  extraction_model: "gpt-5.2-2025-12-11"
+  mode: both
+  model: gpt-5.2-2025-12-11
+  extraction_model: gpt-5.2-2025-12-11
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
   models:
-    - "gpt-5.2-2025-12-11"
-    - "gemini-2.5-pro"
-    # - "claude-sonnet-4.5"
+  - gpt-5.2-2025-12-11
+  - gemini-2.5-pro
 output:
-  base_dir: "experiments/runs/gpt5.2"
+  base_dir: experiments/runs/gpt5.2

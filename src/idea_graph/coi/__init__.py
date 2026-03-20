@@ -1,1 +1,1 @@
-"""CoI-Agent (Chain of Ideas Agent) wrapper module."""
+"""Chain-of-Ideas wrapper module."""

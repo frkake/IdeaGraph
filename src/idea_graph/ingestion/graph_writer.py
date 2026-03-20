@@ -2,6 +2,8 @@
 
 import hashlib
 import logging
+import re
+from collections import defaultdict
 from datetime import datetime
 from typing import Sequence
 
@@ -11,6 +13,7 @@ from idea_graph.ingestion.dataset_loader import PaperMetadata, generate_paper_id
 from idea_graph.ingestion.extractor import ExtractedInfo
 
 logger = logging.getLogger(__name__)
+_RELATION_TYPE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 class GraphWriterService:
@@ -104,6 +107,38 @@ class GraphWriterService:
             )
         logger.debug(f"Updated published_date for {paper_id}: {published_date}")
 
+    def update_paper_published_dates(
+        self,
+        items: Sequence[tuple[str, datetime | None]],
+    ) -> int:
+        """Paper ノードの公開日をまとめて更新"""
+        updates = [
+            {
+                "paper_id": paper_id,
+                "published_date": published_date.isoformat(),
+            }
+            for paper_id, published_date in items
+            if published_date is not None
+        ]
+        total = 0
+
+        for i in range(0, len(updates), self.batch_size):
+            batch = updates[i : i + self.batch_size]
+            with Neo4jConnection.session() as session:
+                session.run(
+                    """
+                    UNWIND $batch AS item
+                    MATCH (p:Paper {id: item.paper_id})
+                    SET p.published_date = item.published_date
+                    """,
+                    batch=batch,
+                )
+            total += len(batch)
+
+        if total:
+            logger.debug(f"Updated published_date for {total} papers")
+        return total
+
     def write_citations(self, citations: Sequence[tuple[str, str, str]]) -> int:
         """CITES 関係をバッチで作成
 
@@ -139,43 +174,98 @@ class GraphWriterService:
         logger.info(f"Created {total} CITES relationships")
         return total
 
-    def write_extracted(self, extractions: Sequence[ExtractedInfo]) -> int:
-        """抽出情報をグラフに書き込み
-
-        Args:
-            extractions: 抽出情報のリスト
-
-        Returns:
-            処理された件数
-        """
+    def write_extracted_batch(self, extractions: Sequence[ExtractedInfo]) -> int:
+        """抽出情報をまとめてグラフへ書き込む"""
         total = 0
+        extraction_list = list(extractions)
 
-        for extraction in extractions:
+        for i in range(0, len(extraction_list), self.batch_size):
+            batch = extraction_list[i : i + self.batch_size]
+            paper_data = [
+                {
+                    "paper_id": extraction.paper_id,
+                    "summary": extraction.paper_summary,
+                    "claims": extraction.claims,
+                }
+                for extraction in batch
+            ]
+            entity_data = []
+            mentions_data = []
+            relations_by_type: dict[str, list[dict[str, str]]] = defaultdict(list)
+            citations_data = []
+
+            for extraction in batch:
+                entity_by_name = {}
+                for entity in extraction.entities:
+                    entity_id = self._generate_entity_id(entity.type, entity.name)
+                    entity_data.append(
+                        {
+                            "id": entity_id,
+                            "type": entity.type,
+                            "name": entity.name,
+                            "description": entity.description or "",
+                        }
+                    )
+                    mentions_data.append(
+                        {
+                            "paper_id": extraction.paper_id,
+                            "entity_id": entity_id,
+                        }
+                    )
+                    entity_by_name[entity.name] = entity
+
+                for relation in extraction.relations:
+                    relation_type = relation.relation_type.strip().upper()
+                    if not _RELATION_TYPE_PATTERN.fullmatch(relation_type):
+                        logger.warning(
+                            "Skipping invalid relation type '%s' for paper %s",
+                            relation.relation_type,
+                            extraction.paper_id,
+                        )
+                        continue
+
+                    source_entity = entity_by_name.get(relation.source)
+                    target_entity = entity_by_name.get(relation.target)
+                    if not source_entity or not target_entity:
+                        continue
+
+                    relations_by_type[relation_type].append(
+                        {
+                            "source_id": self._generate_entity_id(
+                                source_entity.type,
+                                source_entity.name,
+                            ),
+                            "target_id": self._generate_entity_id(
+                                target_entity.type,
+                                target_entity.name,
+                            ),
+                        }
+                    )
+
+                for cited in extraction.cited_papers:
+                    citations_data.append(
+                        {
+                            "paper_id": extraction.paper_id,
+                            "cited_id": generate_paper_id(cited.title),
+                            "cited_title": cited.title,
+                            "importance_score": cited.importance_score,
+                            "citation_type": cited.citation_type,
+                            "context": cited.context or "",
+                        }
+                    )
+
             with Neo4jConnection.session() as session:
-                # Paper ノードを更新（summary, claims を追加）
                 session.run(
                     """
-                    MERGE (p:Paper {id: $paper_id})
-                    SET p.summary = $summary,
-                        p.claims = $claims
+                    UNWIND $papers AS item
+                    MERGE (p:Paper {id: item.paper_id})
+                    SET p.summary = item.summary,
+                        p.claims = item.claims
                     """,
-                    paper_id=extraction.paper_id,
-                    summary=extraction.paper_summary,
-                    claims=extraction.claims,
+                    papers=paper_data,
                 )
 
-                # Entity ノードを作成
-                if extraction.entities:
-                    entity_data = [
-                        {
-                            "id": self._generate_entity_id(e.type, e.name),
-                            "type": e.type,
-                            "name": e.name,
-                            "description": e.description or "",
-                        }
-                        for e in extraction.entities
-                    ]
-
+                if entity_data:
                     session.run(
                         """
                         UNWIND $entities AS item
@@ -183,19 +273,14 @@ class GraphWriterService:
                         ON CREATE SET e.type = item.type,
                                       e.name = item.name,
                                       e.description = item.description
+                        ON MATCH SET e.type = item.type,
+                                     e.name = item.name,
+                                     e.description = item.description
                         """,
                         entities=entity_data,
                     )
 
-                    # MENTIONS 関係を作成
-                    mentions_data = [
-                        {
-                            "paper_id": extraction.paper_id,
-                            "entity_id": self._generate_entity_id(e.type, e.name),
-                        }
-                        for e in extraction.entities
-                    ]
-
+                if mentions_data:
                     session.run(
                         """
                         UNWIND $mentions AS item
@@ -206,61 +291,41 @@ class GraphWriterService:
                         mentions=mentions_data,
                     )
 
-                # Entity 間関係を作成
-                if extraction.relations:
-                    for relation in extraction.relations:
-                        # source と target の Entity を探す
-                        source_entity = next(
-                            (e for e in extraction.entities if e.name == relation.source),
-                            None,
-                        )
-                        target_entity = next(
-                            (e for e in extraction.entities if e.name == relation.target),
-                            None,
-                        )
+                for relation_type, relation_batch in relations_by_type.items():
+                    session.run(
+                        f"""
+                        UNWIND $relations AS item
+                        MATCH (s:Entity {{id: item.source_id}})
+                        MATCH (t:Entity {{id: item.target_id}})
+                        MERGE (s)-[:{relation_type}]->(t)
+                        """,
+                        relations=relation_batch,
+                    )
 
-                        if source_entity and target_entity:
-                            source_id = self._generate_entity_id(
-                                source_entity.type, source_entity.name
-                            )
-                            target_id = self._generate_entity_id(
-                                target_entity.type, target_entity.name
-                            )
+                if citations_data:
+                    session.run(
+                        """
+                        UNWIND $citations AS item
+                        MATCH (p:Paper {id: item.paper_id})
+                        MERGE (cited:Paper {id: item.cited_id})
+                        ON CREATE SET cited.title = item.cited_title
+                        ON MATCH SET cited.title = CASE
+                            WHEN cited.title IS NULL OR cited.title = "" THEN item.cited_title
+                            ELSE cited.title
+                        END
+                        MERGE (p)-[r:CITES]->(cited)
+                        SET r.importance_score = item.importance_score,
+                            r.citation_type = item.citation_type,
+                            r.context = item.context
+                        """,
+                        citations=citations_data,
+                    )
 
-                            # 動的に関係タイプを設定
-                            session.run(
-                                f"""
-                                MATCH (s:Entity {{id: $source_id}})
-                                MATCH (t:Entity {{id: $target_id}})
-                                MERGE (s)-[:{relation.relation_type}]->(t)
-                                """,
-                                source_id=source_id,
-                                target_id=target_id,
-                            )
-
-                # CITES 関係を重要度付きで作成
-                if extraction.cited_papers:
-                    for cited in extraction.cited_papers:
-                        cited_id = generate_paper_id(cited.title)
-                        session.run(
-                            """
-                            MATCH (p:Paper {id: $paper_id})
-                            MERGE (cited:Paper {id: $cited_id})
-                            ON CREATE SET cited.title = $cited_title
-                            MERGE (p)-[r:CITES]->(cited)
-                            SET r.importance_score = $importance_score,
-                                r.citation_type = $citation_type,
-                                r.context = $context
-                            """,
-                            paper_id=extraction.paper_id,
-                            cited_id=cited_id,
-                            cited_title=cited.title,
-                            importance_score=cited.importance_score,
-                            citation_type=cited.citation_type,
-                            context=cited.context or "",
-                        )
-
-                total += 1
+            total += len(batch)
 
         logger.info(f"Processed {total} extractions")
         return total
+
+    def write_extracted(self, extractions: Sequence[ExtractedInfo]) -> int:
+        """抽出情報をグラフに書き込み"""
+        return self.write_extracted_batch(extractions)

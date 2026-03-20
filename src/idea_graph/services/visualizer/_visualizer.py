@@ -10,7 +10,7 @@ from ._style import (
     safe_mean, safe_std, save_figure, clean_condition, logger,
     FIG_DOUBLE, FIG_DOUBLE_WIDE,
 )
-from ._loaders import load_single_scores, load_pairwise_wins, load_experiment_meta
+from ._loaders import load_single_scores, load_pairwise_wins, load_experiment_meta, load_config
 from ._registry import get_visualizer
 from ._paper_figures import PaperFigureGenerator
 from ._paper_tables import PaperTableGenerator
@@ -28,13 +28,14 @@ class ExperimentVisualizer:
         self,
         run_dir: str | Path,
         paper_ids: list[str] | None = None,
+        exclude_ids: list[str] | None = None,
     ) -> list[Path]:
         if not HAS_MPL:
             logger.warning("matplotlib not installed. Skipping visualization.")
             return []
 
         from ._loaders import set_paper_filter
-        set_paper_filter(paper_ids)
+        set_paper_filter(paper_ids=paper_ids, exclude_ids=exclude_ids)
         try:
             return self._visualize_inner(Path(run_dir))
         finally:
@@ -52,17 +53,25 @@ class ExperimentVisualizer:
             logger.info("Using specialized visualizer for %s (vis_key=%s)", exp_id, vis_key)
             all_paths = vis_fn(run_path, figures_dir, exp_id)
             logger.info("Generated %d figure files in %s", len(all_paths), figures_dir)
-            return all_paths
+        else:
+            # Fallback: generic charts
+            logger.info("No specialized visualizer for %s (vis_key=%s), using fallback", exp_id, vis_key)
+            all_paths = self._fallback(run_path, figures_dir, exp_id)
 
-        # Fallback: generic charts
-        logger.info("No specialized visualizer for %s (vis_key=%s), using fallback", exp_id, vis_key)
-        return self._fallback(run_path, figures_dir, exp_id)
+        # Generate report.md (respects paper_id filter)
+        report_path = self._generate_report(run_path, exp_id)
+        if report_path:
+            all_paths.append(report_path)
+
+        return all_paths
 
     def generate_paper_figures(
         self,
         output_dir: str | Path | None = None,
         runs_base: str | Path | None = None,
         formats: list[str] | None = None,
+        paper_ids: list[str] | None = None,
+        exclude_ids: list[str] | None = None,
     ) -> dict[str, list[Path]]:
         """Generate cross-experiment paper-quality synthesis figures + tables."""
         if not HAS_MPL:
@@ -72,15 +81,20 @@ class ExperimentVisualizer:
         runs = Path(runs_base) if runs_base else Path("experiments/runs")
         out = Path(output_dir) if output_dir else Path("experiments/paper_figures")
 
-        results: dict[str, list[Path]] = {}
+        from ._loaders import set_paper_filter
+        set_paper_filter(paper_ids=paper_ids, exclude_ids=exclude_ids)
+        try:
+            results: dict[str, list[Path]] = {}
 
-        fig_gen = PaperFigureGenerator(runs)
-        results.update(fig_gen.generate_all(out, formats))
+            fig_gen = PaperFigureGenerator(runs)
+            results.update(fig_gen.generate_all(out, formats))
 
-        tbl_gen = PaperTableGenerator(runs)
-        results.update(tbl_gen.generate_all(out))
+            tbl_gen = PaperTableGenerator(runs)
+            results.update(tbl_gen.generate_all(out))
 
-        return results
+            return results
+        finally:
+            set_paper_filter(None)
 
     def _fallback(self, run_path: Path, figures_dir: Path, exp_id: str) -> list[Path]:
         """Generic fallback: grouped bar + radar for any single-eval experiment."""
@@ -144,7 +158,7 @@ class ExperimentVisualizer:
                 fontsize=8, rotation=30, ha="right",
             )
             ax.set_ylim(0, 10)
-            ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=7)
+            ax.legend(loc="upper left", bbox_to_anchor=(-0.3, 1.1), fontsize=7)
             fig.tight_layout()
             all_paths.extend(save_figure(fig, figures_dir, f"fig_{exp_id}_2_radar"))
             plt.close(fig)
@@ -166,6 +180,48 @@ class ExperimentVisualizer:
 
         logger.info("Generated %d figure files in %s", len(all_paths), figures_dir)
         return all_paths
+
+    def _generate_report(self, run_path: Path, exp_id: str) -> Path | None:
+        """Generate report.md from evaluation data (respects paper_id filter)."""
+        config = load_config(run_path)
+        exp_cfg = config.get("experiment", {})
+        exp_name = exp_cfg.get("name", exp_id)
+        exp_desc = exp_cfg.get("description", "")
+        exp_cat = exp_cfg.get("category", "")
+
+        lines = [
+            f"# {exp_id}: {exp_name}",
+            "",
+            f"**説明**: {exp_desc}",
+            f"**カテゴリ**: {exp_cat}",
+            "",
+        ]
+
+        # Single 評価サマリー
+        scores = load_single_scores(run_path)
+        if scores:
+            lines.append("## Independent評価サマリー")
+            lines.append("")
+            lines.append("| 条件 | Novelty | Significance | Feasibility | Clarity | Effectiveness | Overall |")
+            lines.append("|---|---|---|---|---|---|---|")
+
+            for cond in sorted(scores.keys()):
+                cond_scores = scores[cond]
+
+                def _fmt(key: str) -> str:
+                    vals = cond_scores.get(key, [])
+                    return f"{sum(vals) / len(vals):.2f}" if vals else "-"
+
+                lines.append(
+                    f"| {cond} | {_fmt('novelty')} | {_fmt('significance')} | "
+                    f"{_fmt('feasibility')} | {_fmt('clarity')} | {_fmt('effectiveness')} | {_fmt('overall')} |"
+                )
+            lines.append("")
+
+        report_path = run_path / "report.md"
+        report_path.write_text("\n".join(lines), encoding="utf-8")
+        logger.info("Generated report.md in %s", run_path)
+        return report_path
 
     @staticmethod
     def _detect_parameter_sweep(

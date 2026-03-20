@@ -89,19 +89,27 @@ class AnalysisConfig(BaseModel):
 class PromptConfig(BaseModel):
     graph_format: str = "mermaid"
     scope: str = "path"
-    max_paths: int = Field(default=10, ge=1)
-    max_nodes: int = Field(default=50, ge=1)
-    max_edges: int = Field(default=100, ge=1)
-    neighbor_k: int = Field(default=2, ge=1)
+    max_paths: int | None = Field(default=None, description="Noneの場合は制限なし")
+    max_nodes: int | None = Field(default=None, description="Noneの場合は制限なし")
+    max_edges: int | None = Field(default=None, description="Noneの場合は制限なし")
+    neighbor_k: int | None = Field(default=None, description="Noneの場合は制限なし")
     include_inline_edges: bool = True
     include_target_paper: bool = False
     exclude_future_papers: bool = True
+    reverse_paths: bool = True
+
+    @field_validator("max_paths", "max_nodes", "max_edges", "neighbor_k")
+    @classmethod
+    def _validate_positive_or_none(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise ValueError("value must be >= 1 if specified")
+        return value
 
     @field_validator("graph_format")
     @classmethod
     def _validate_graph_format(cls, value: str) -> str:
-        if value not in {"mermaid", "paths"}:
-            raise ValueError("graph_format must be 'mermaid' or 'paths'")
+        if value not in {"mermaid", "paths", "json_graph", "triples", "narrative"}:
+            raise ValueError("graph_format must be one of: mermaid, paths, json_graph, triples, narrative")
         return value
 
     @field_validator("scope")
@@ -116,6 +124,7 @@ class GenerationConfig(BaseModel):
     num_proposals: int = Field(default=3, ge=1)
     model: str = "gpt-5.2-2025-12-11"
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    publication_date: str | None = Field(default=None, description="CoI検索対象の出版日範囲（Semantic Scholar形式、例: ':2022-12-01'）。Noneの場合は実験ランナーが自動取得")
 
 
 class ConditionConfig(BaseModel):

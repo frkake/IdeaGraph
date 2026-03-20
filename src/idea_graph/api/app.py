@@ -1080,6 +1080,8 @@ class CoIRunRequest(BaseModel):
     improve_cnt: int = 1
     coi_main_model: str | None = None
     coi_cheap_model: str | None = None
+    target_paper_id: str | None = None
+    publication_date: str | None = None
 
 
 class CoIArgsResponse(BaseModel):
@@ -1090,6 +1092,7 @@ class CoIArgsResponse(BaseModel):
     min_chain_length: int
     max_chain_numbers: int
     improve_cnt: int
+    publication_date: str | None = None
 
 
 class CoIResultResponse(BaseModel):
@@ -1136,13 +1139,44 @@ class CoILoadRequest(BaseModel):
     result_path: str
 
 
+def _resolve_coi_publication_date(request: CoIRunRequest) -> str | None:
+    """CoIリクエストからpublication_dateを解決する。
+
+    手動指定があればそちらを優先、なければtarget_paper_idからNeo4jで自動取得。
+    """
+    if request.publication_date:
+        return request.publication_date
+    if request.target_paper_id:
+        try:
+            from datetime import datetime
+
+            with Neo4jConnection.session() as session:
+                record = session.run(
+                    "MATCH (p:Paper {id: $paper_id}) RETURN p.published_date AS published_date",
+                    paper_id=request.target_paper_id,
+                ).single()
+                if record:
+                    value = record.get("published_date")
+                    if value is not None:
+                        if isinstance(value, datetime):
+                            dt = value.replace(tzinfo=None)
+                        else:
+                            dt = datetime.fromisoformat(str(value)).replace(tzinfo=None)
+                        return f":{dt.strftime('%Y-%m-%d')}"
+        except Exception:
+            pass
+    return None
+
+
 @app.post("/api/coi/run")
 async def run_coi(request: CoIRunRequest):
-    """CoI-Agentを実行してアイデアを生成（ストリーミング）"""
+    """Chain-of-Ideasを実行してアイデアを生成（ストリーミング）"""
     from fastapi.responses import StreamingResponse
     import json
 
     from idea_graph.services.coi_runner import CoIRunner
+
+    publication_date = _resolve_coi_publication_date(request)
 
     runner = CoIRunner(
         max_chain_length=request.max_chain_length,
@@ -1151,6 +1185,7 @@ async def run_coi(request: CoIRunRequest):
         improve_cnt=request.improve_cnt,
         main_model=request.coi_main_model,
         cheap_model=request.coi_cheap_model,
+        publication_date=publication_date,
     )
 
     async def generate():
@@ -1169,6 +1204,7 @@ async def run_coi(request: CoIRunRequest):
                         min_chain_length=progress.result.args.min_chain_length,
                         max_chain_numbers=progress.result.args.max_chain_numbers,
                         improve_cnt=progress.result.args.improve_cnt,
+                        publication_date=progress.result.args.publication_date,
                     )
                 response.result = CoIResultResponse(
                     idea=progress.result.idea,
@@ -1196,8 +1232,10 @@ async def run_coi(request: CoIRunRequest):
 
 @app.post("/api/coi/run/sync")
 async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
-    """CoI-Agentを実行してアイデアを生成（同期版）"""
+    """Chain-of-Ideasを実行してアイデアを生成（同期版）"""
     from idea_graph.services.coi_runner import CoIRunner
+
+    publication_date = _resolve_coi_publication_date(request)
 
     runner = CoIRunner(
         max_chain_length=request.max_chain_length,
@@ -1206,6 +1244,7 @@ async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
         improve_cnt=request.improve_cnt,
         main_model=request.coi_main_model,
         cheap_model=request.coi_cheap_model,
+        publication_date=publication_date,
     )
 
     try:
@@ -1218,6 +1257,7 @@ async def run_coi_sync(request: CoIRunRequest) -> CoIRunResponse:
                 min_chain_length=result.args.min_chain_length,
                 max_chain_numbers=result.args.max_chain_numbers,
                 improve_cnt=result.args.improve_cnt,
+                publication_date=result.args.publication_date,
             )
         return CoIRunResponse(
             status="completed",

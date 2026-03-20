@@ -19,6 +19,7 @@ from idea_graph.ingestion.extractor import (
     InternalRelation,
 )
 from idea_graph.ingestion.graph_writer import GraphWriterService
+from idea_graph.ingestion.buffered_writer import BufferedGraphWriter
 from idea_graph.ingestion.crawler import CitationCrawler, CrawlTarget, CrawlResult
 from idea_graph.ingestion.rate_limiter import ServiceRateLimiter
 from idea_graph.ingestion.parallel import RateLimiters
@@ -37,6 +38,7 @@ __all__ = [
     "Entity",
     "InternalRelation",
     "GraphWriterService",
+    "BufferedGraphWriter",
     "CitationCrawler",
     "CrawlTarget",
     "CrawlResult",

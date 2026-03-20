@@ -19,6 +19,7 @@ from ._style import (
     METRIC_DISPLAY,
     METRIC_COLORS,
     METHOD_COLORS,
+    PALETTE,
     FIG_SINGLE,
     FIG_SINGLE_TALL,
     FIG_DOUBLE,
@@ -282,7 +283,7 @@ class PaperFigureGenerator:
             ax.set_ylim(min(flat) - 30, max(flat) + 30)
 
         ax.legend(
-            loc="upper right", bbox_to_anchor=(1.30, 1.08),
+            loc="upper left", bbox_to_anchor=(-0.30, 1.08),
             framealpha=0.9,
         )
         fig.tight_layout()
@@ -359,7 +360,7 @@ class PaperFigureGenerator:
                 labels = [clean_condition(c) for c in conds]
                 means = [safe_mean(scores202[c].get("overall", [])) for c in conds]
                 sems = [safe_sem(scores202[c].get("overall", [])) for c in conds]
-                colors = [color_for(c) for c in conds]
+                colors = [PALETTE[i % len(PALETTE)] for i in range(len(conds))]
                 bars = ax2.bar(labels, means, yerr=sems, capsize=2, color=colors, error_kw={"linewidth": 0.8})
                 if means:
                     best_idx = int(np.argmax(means))
@@ -379,6 +380,9 @@ class PaperFigureGenerator:
             ax2.text(0.5, 0.5, "N/A", transform=ax2.transAxes, ha="center", va="center")
         ax2.set_title("(b) Graph Format", fontsize=9, pad=4)
         ax2.grid(axis="y", alpha=0.25, linewidth=0.4)
+        for tick in ax2.get_xticklabels():
+            tick.set_rotation(15)
+            tick.set_ha("right")
 
         # -- Panel 3: Scope bar chart -----------------------------------------
         ax3 = axes[2]
@@ -389,7 +393,7 @@ class PaperFigureGenerator:
                 labels = [clean_condition(c) for c in conds]
                 means = [safe_mean(scores203[c].get("overall", [])) for c in conds]
                 sems = [safe_sem(scores203[c].get("overall", [])) for c in conds]
-                colors = [color_for(c) for c in conds]
+                colors = [PALETTE[i % len(PALETTE)] for i in range(len(conds))]
                 bars = ax3.bar(labels, means, yerr=sems, capsize=2, color=colors, error_kw={"linewidth": 0.8})
                 if means:
                     best_idx = int(np.argmax(means))
@@ -557,7 +561,7 @@ class PaperFigureGenerator:
                     bbox={"boxstyle": "round,pad=0.3", "facecolor": "white",
                           "edgecolor": "#CCCCCC", "alpha": 0.9},
                 )
-                ax2.set_xlabel("Single Score")
+                ax2.set_xlabel("Independent Score")
                 ax2.set_ylabel("Pairwise Score")
             else:
                 ax2.text(0.5, 0.5, "N/A", transform=ax2.transAxes, ha="center", va="center")

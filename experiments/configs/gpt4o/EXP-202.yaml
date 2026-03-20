@@ -1,65 +1,83 @@
 experiment:
-  id: "EXP-202-gpt4o"
-  name: "グラフ表現形式アブレーション"
-  category: "ablation"
-  description: "MermaidとPathsのどちらが有効かを決める。Mermaid形式がClarityで優位になるという仮説を、graph_format={mermaid,paths}の2条件×10論文×各1提案のSingle評価で検証する"
-  visualizer_id: "EXP-202"
+  id: EXP-202-gpt4o
+  name: グラフ表現形式アブレーション
+  category: ablation
+  description: グラフ表現形式の比較。graph_format={mermaid,paths,json_graph,triples,narrative}の5条件×10論文×各1提案のSingle評価で検証する
+  visualizer_id: EXP-202
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
 targets:
   paper_ids: []
-  selection_strategy: "connectivity_stratified"
-  candidate_scope: "dataset"
+  selection_strategy: connectivity_stratified
+  candidate_scope: dataset
   connectivity_tier_filter: null
   count: 10
 analysis:
   max_hops: 3
   top_k: 10
 prompt:
-  graph_format: "paths"
-  scope: "path"
-  max_paths: 10
-  max_nodes: 50
-  max_edges: 100
-  neighbor_k: 2
+  graph_format: paths
+  scope: path
   include_inline_edges: true
 conditions:
-  - name: "format_mermaid"
-    method: "ideagraph"
-    generation:
-      num_proposals: 1
-      model: "gpt-4o-2024-08-06"
-      temperature: 0.0
-    prompt:
-      graph_format: "paths"
-      scope: "path"
-      max_paths: 10
-      max_nodes: 50
-      max_edges: 100
-      neighbor_k: 2
-      include_inline_edges: true
-  - name: "format_paths"
-    method: "ideagraph"
-    generation:
-      num_proposals: 1
-      model: "gpt-4o-2024-08-06"
-      temperature: 0.0
-    prompt:
-      graph_format: "paths"
-      scope: "path"
-      max_paths: 10
-      max_nodes: 50
-      max_edges: 100
-      neighbor_k: 2
-      include_inline_edges: true
+- name: format_mermaid
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-4o-2024-08-06
+    temperature: 0.0
+  prompt:
+    graph_format: paths
+    scope: path
+    include_inline_edges: true
+- name: format_paths
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-4o-2024-08-06
+    temperature: 0.0
+  prompt:
+    graph_format: paths
+    scope: path
+    include_inline_edges: true
+- name: format_json_graph
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-4o-2024-08-06
+    temperature: 0.0
+  prompt:
+    graph_format: json_graph
+    scope: path
+    include_inline_edges: true
+- name: format_triples
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-4o-2024-08-06
+    temperature: 0.0
+  prompt:
+    graph_format: triples
+    scope: path
+    include_inline_edges: true
+- name: format_narrative
+  method: ideagraph
+  generation:
+    num_proposals: 1
+    model: gpt-4o-2024-08-06
+    temperature: 0.0
+  prompt:
+    graph_format: narrative
+    scope: path
+    include_inline_edges: true
 evaluation:
-  mode: "single"
-  model: "gpt-5.2-2025-12-11"
-  extraction_model: "gpt-4o-2024-08-06"
+  mode: single
+  model: gpt-5.2-2025-12-11
+  extraction_model: gpt-4o-2024-08-06
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs/gpt4o"
+  base_dir: experiments/runs/gpt4o

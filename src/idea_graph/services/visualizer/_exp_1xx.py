@@ -1,10 +1,10 @@
 """100-series: System effectiveness experiments (EXP-101 through EXP-106).
 
-EXP-101: 3-method pairwise comparison (IdeaGraph vs Direct LLM vs CoI-Agent) -- ELO
+EXP-101: 3-method pairwise comparison (IdeaGraph vs Baseline vs Chain-of-Ideas) -- ELO
 EXP-102: Generated ideas vs original paper -- Pairwise ELO
 EXP-103: IdeaGraph single evaluation (absolute 1-10 scores)
-EXP-104: Direct LLM single evaluation
-EXP-105: CoI-Agent single evaluation
+EXP-104: Baseline single evaluation
+EXP-105: Chain-of-Ideas single evaluation
 EXP-106: Target Paper single evaluation
 """
 
@@ -52,6 +52,7 @@ from ._style import (
     annotate_n,
     annotate_n_header,
     save_figure,
+    exp_caption,
     logger,
 )
 
@@ -190,14 +191,14 @@ def _generate_single_tables(
 
     # --- Markdown ---
     md_lines = [
-        f"## {exp_id}: {display_name(condition_name)} Single Evaluation Scores",
+        f"## {exp_caption(exp_id, f'{display_name(condition_name)} per-metric breakdown')}",
         "",
-        "| Metric | Mean | SEM | N |",
-        "|--------|-----:|----:|--:|",
+        "| Metric | Mean | SEM |",
+        "|--------|-----:|----:|",
     ]
     for label, mean, sem, n in rows_data:
         bold = "**" if mean == best_mean else ""
-        md_lines.append(f"| {label} | {bold}{mean:.2f}{bold} | {sem:.2f} | {n} |")
+        md_lines.append(f"| {label} | {bold}{mean:.2f}{bold} | {sem:.2f} |")
 
     (output_dir / f"table_{exp_id}.md").write_text(
         "\n".join(md_lines) + "\n", encoding="utf-8",
@@ -209,15 +210,15 @@ def _generate_single_tables(
         val_str = f"{mean:.2f} $\\pm$ {sem:.2f}"
         if mean == best_mean:
             val_str = f"\\textbf{{{mean:.2f}}} $\\pm$ {sem:.2f}"
-        tex_rows.append(f"  {label} & {val_str} & {n}" + r" \\")
+        tex_rows.append(f"  {label} & {val_str}" + r" \\")
 
     tex = (
         r"\begin{table}[htbp]" + "\n"
         r"  \centering" + "\n"
-        f"  \\caption{{{exp_id}: {display_name(condition_name)} Single Evaluation Scores}}\n"
-        r"  \begin{tabular}{lrr}" + "\n"
+        "  \\caption{" + exp_caption(exp_id, f"{display_name(condition_name)} per-metric breakdown (Mean $\\pm$ SEM)") + "}\n"
+        r"  \begin{tabular}{lc}" + "\n"
         r"    \toprule" + "\n"
-        r"    Metric & Score (Mean $\pm$ SEM) & $N$ \\" + "\n"
+        r"    Metric & Score (Mean $\pm$ SEM) \\" + "\n"
         r"    \midrule" + "\n"
         + "\n".join(f"    {r}" for r in tex_rows) + "\n"
         r"    \bottomrule" + "\n"
@@ -234,7 +235,7 @@ def _generate_single_tables(
 
 @register("EXP-101")
 def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
-    """EXP-101: IdeaGraph vs Direct LLM vs CoI-Agent -- Pairwise ELO."""
+    """EXP-101: IdeaGraph vs Baseline vs Chain-of-Ideas -- Pairwise ELO."""
     if not HAS_MPL:
         return []
 
@@ -476,8 +477,8 @@ def vis_exp_101(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     if _n_papers:
         annotate_n_header(ax4, _n_papers)
     ax4.legend(
-        fontsize=8, loc="upper right",
-        bbox_to_anchor=(1.30, 1.08), framealpha=0.9,
+        fontsize=8, loc="upper left",
+        bbox_to_anchor=(-0.30, 1.08), framealpha=0.9,
     )
     fig4.tight_layout()
     all_paths.extend(save_figure(fig4, figures_dir, f"fig_{exp_id}_4_radar"))
@@ -568,8 +569,8 @@ def vis_exp_102(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
     if _n_papers_102:
         annotate_n_header(ax1, _n_papers_102)
     ax1.legend(
-        fontsize=8, loc="upper right",
-        bbox_to_anchor=(1.25, 1.05),
+        fontsize=8, loc="upper left",
+        bbox_to_anchor=(-0.25, 1.05),
     )
     fig1.tight_layout()
     all_paths.extend(save_figure(fig1, figures_dir, f"fig_{exp_id}_1_radar"))
@@ -670,13 +671,13 @@ def vis_exp_103(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
 
 @register("EXP-104")
 def vis_exp_104(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
-    """EXP-104: Direct LLM single evaluation scores."""
+    """EXP-104: Baseline single evaluation scores."""
     return _single_score_bar(run_dir, figures_dir, exp_id, "direct_llm")
 
 
 @register("EXP-105")
 def vis_exp_105(run_dir: Path, figures_dir: Path, exp_id: str) -> list[Path]:
-    """EXP-105: CoI-Agent single evaluation scores."""
+    """EXP-105: Chain-of-Ideas single evaluation scores."""
     return _single_score_bar(run_dir, figures_dir, exp_id, "coi")
 
 
@@ -724,14 +725,14 @@ def _generate_exp101_tables(
         md_rows.append(f"| {name} | " + " | ".join(cells) + " |")
 
     md_content = (
-        f"## {exp_id}: 3-Method ELO Comparison\n\n"
+        "## " + exp_caption(exp_id, "Mean +/- SEM") + "\n\n"
         + md_header + "\n" + md_sep + "\n"
         + "\n".join(md_rows) + "\n"
     )
     (output_dir / f"table_{exp_id}.md").write_text(md_content, encoding="utf-8")
 
     # --- LaTeX ---
-    col_spec = "l" + "r" * len(display_metrics)
+    col_spec = "l" + "c" * len(display_metrics)
     tex_header = (
         " & ".join(["Method"] + [METRIC_DISPLAY.get(m, m) for m in display_metrics])
         + r" \\"
@@ -753,7 +754,7 @@ def _generate_exp101_tables(
     tex = (
         r"\begin{table}[htbp]" + "\n"
         r"  \centering" + "\n"
-        f"  \\caption{{{exp_id}: 3-Method ELO Comparison (Mean $\\pm$ SEM)}}\n"
+        "  \\caption{" + exp_caption(exp_id, r'Mean $\pm$ SEM') + "}\n"
         f"  \\begin{{tabular}}{{{col_spec}}}\n"
         r"    \toprule" + "\n"
         f"    {tex_header}\n"
@@ -804,14 +805,14 @@ def _generate_exp102_tables(
         md_rows.append(f"| {name} | " + " | ".join(cells) + " |")
 
     md_content = (
-        f"## {exp_id}: IdeaGraph vs Target Paper\n\n"
+        "## " + exp_caption(exp_id, "Mean +/- SEM") + "\n\n"
         + md_header + "\n" + md_sep + "\n"
         + "\n".join(md_rows) + "\n"
     )
     (output_dir / f"table_{exp_id}.md").write_text(md_content, encoding="utf-8")
 
     # --- LaTeX ---
-    col_spec = "l" + "r" * len(display_metrics)
+    col_spec = "l" + "c" * len(display_metrics)
     tex_header = (
         " & ".join(["Source"] + [METRIC_DISPLAY.get(m, m) for m in display_metrics])
         + r" \\"
@@ -833,7 +834,7 @@ def _generate_exp102_tables(
     tex = (
         r"\begin{table}[htbp]" + "\n"
         r"  \centering" + "\n"
-        f"  \\caption{{{exp_id}: IdeaGraph vs Target Paper (Mean $\\pm$ SEM)}}\n"
+        "  \\caption{" + exp_caption('EXP-102', r'Mean $\pm$ SEM') + "}\n"
         f"  \\begin{{tabular}}{{{col_spec}}}\n"
         r"    \toprule" + "\n"
         f"    {tex_header}\n"

@@ -93,6 +93,7 @@ class TestCitationCrawler:
         self,
         max_depth: int = 2,
         crawl_limit: int | None = None,
+        buffered_writer: MagicMock | None = None,
     ) -> tuple[CitationCrawler, MagicMock, MagicMock, MagicMock, MagicMock]:
         """テスト用クローラーを作成"""
         downloader = MagicMock()
@@ -108,6 +109,7 @@ class TestCitationCrawler:
             extractor=extractor,
             writer=writer,
             progress=progress,
+            buffered_writer=buffered_writer,
             max_depth=max_depth,
             crawl_limit=crawl_limit,
         )
@@ -310,6 +312,36 @@ class TestCitationCrawler:
         downloader.download.assert_called_once()
         extractor.extract.assert_called_once()
         writer.write_extracted.assert_called_once()
+
+    def test_crawl_uses_buffered_writer_when_available(self):
+        """buffered writer があればそちらに enqueue すること"""
+        buffered_writer = MagicMock()
+        buffered_writer.enqueue_extracted.side_effect = (
+            lambda extracted, published_date=None, on_done=None: on_done(None)
+        )
+        crawler, downloader, extractor, writer, progress = self._create_crawler(
+            max_depth=1,
+            buffered_writer=buffered_writer,
+        )
+
+        downloader.download.return_value = DownloadResult(
+            paper_id="test",
+            success=True,
+            file_path="/tmp/test.pdf",
+            file_type=FileType.PDF,
+        )
+        extractor.extract.return_value = MagicMock()
+
+        target = create_target(paper_id="success", title="Success", depth=1)
+        heapq.heappush(crawler._queue, target)
+        crawler._visited.add("success")
+
+        results = list(crawler.crawl())
+
+        assert len(results) == 1
+        assert results[0].status == "completed"
+        buffered_writer.enqueue_extracted.assert_called_once()
+        writer.write_extracted.assert_not_called()
 
     def test_get_stats(self):
         """get_stats が正しい統計を返すこと"""

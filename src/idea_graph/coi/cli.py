@@ -1,7 +1,7 @@
-"""CoI-Agent CLI ラッパー
+"""Chain-of-Ideas CLI ラッパー
 
-Chain of Ideas Agent を uv 経由で実行するためのCLIエントリポイント。
-.env ファイルから設定を読み込み、CoI-Agent形式の環境変数に変換して実行する。
+Chain-of-Ideas を uv 経由で実行するためのCLIエントリポイント。
+.env ファイルから設定を読み込み、Chain-of-Ideas形式の環境変数に変換して実行する。
 """
 
 import argparse
@@ -13,19 +13,19 @@ from pathlib import Path
 
 
 def setup_environment() -> Path:
-    """環境変数をCoI-Agent形式で設定し、作業ディレクトリを変更する
+    """環境変数をChain-of-Ideas形式で設定し、作業ディレクトリを変更する
 
     Returns:
-        CoI-Agentディレクトリのパス
+        Chain-of-Ideasディレクトリのパス
     """
     from idea_graph.coi.config import COI_AGENT_DIR, coi_settings
 
-    # CoI-Agentのパスをsys.pathに追加（インポート用）
+    # Chain-of-Ideasのパスをsys.pathに追加（インポート用）
     sys.path.insert(0, str(COI_AGENT_DIR))
     coi_settings.is_azure = False
-    # 環境変数設定（CoI-Agentが期待する形式）
+    # 環境変数設定（Chain-of-Ideasが期待する形式）
     os.environ["SEMENTIC_SEARCH_API_KEY"] = coi_settings.semantic_search_api_key
-    # CoI-Agent側は `if is_azure:` のように判定しており、文字列 "false" でも truthy になってしまうため
+    # Chain-of-Ideas側は `if is_azure:` のように判定しており、文字列 "false" でも truthy になってしまうため
     # falseの場合は空文字列を渡して falsy として扱われるようにする
     os.environ["is_azure"] = "true" if coi_settings.is_azure else ""
     os.environ["OPENAI_API_KEY"] = coi_settings.openai_api_key
@@ -52,16 +52,16 @@ def setup_environment() -> Path:
     if coi_settings.embedding_model:
         os.environ["EMBEDDING_MODEL"] = coi_settings.embedding_model
 
-    # 作業ディレクトリをCoI-Agentに変更（相対パス参照のため）
+    # 作業ディレクトリをChain-of-Ideasに変更（相対パス参照のため）
     os.chdir(COI_AGENT_DIR)
 
     return COI_AGENT_DIR
 
 
 def main() -> int:
-    """CoI-Agent CLIエントリポイント"""
+    """Chain-of-Ideas CLIエントリポイント"""
     parser = argparse.ArgumentParser(
-        description="CoI-Agent: Chain of Ideas Agent - LLMを使った研究アイデア生成",
+        description="Chain-of-Ideas - LLMを使った研究アイデア生成",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用例:
@@ -110,13 +110,19 @@ def main() -> int:
         default=1,
         help="処理するチェーンの最大数（デフォルト: 1）",
     )
+    parser.add_argument(
+        "--publication-date",
+        type=str,
+        default=None,
+        help="検索対象の出版日範囲（Semantic Scholar形式、例: ':2022-12-01'）",
+    )
     args = parser.parse_args()
 
     # 環境設定
     coi_dir = setup_environment()
-    print(f"CoI-Agent ディレクトリ: {coi_dir}")
+    print(f"Chain-of-Ideas ディレクトリ: {coi_dir}")
 
-    # CoI-Agentのモジュールをインポート（環境設定後）
+    # Chain-of-Ideasのモジュールをインポート（環境設定後）
     import nest_asyncio
     from agents import DeepResearchAgent, ReviewAgent, get_llms
 
@@ -143,6 +149,7 @@ def main() -> int:
         max_chain_length=args.max_chain_length,
         min_chain_length=args.min_chain_length,
         max_chain_numbers=args.max_chain_numbers,
+        publicationData=args.publication_date,
     )
 
     # アイデア生成

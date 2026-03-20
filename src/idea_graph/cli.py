@@ -516,18 +516,33 @@ def _format_proposals_markdown(result: "ProposalResult") -> str:
 
 def cmd_ingest(args: argparse.Namespace) -> int:
     """インジェストコマンド"""
+    import queue
     import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from dataclasses import dataclass
 
     from idea_graph.ingestion import (
+        BufferedGraphWriter,
+        CitationCrawler,
         DatasetLoaderService,
         DownloaderService,
         ExtractorService,
         GraphWriterService,
-        CitationCrawler,
     )
     from idea_graph.ingestion.parallel import RateLimiters
     from idea_graph.ingestion.progress import ProgressManager
+
+    @dataclass
+    class ExtractionTask:
+        paper: object
+        file_path: Path
+        file_type: object
+        published_date: object
+
+    @dataclass
+    class PipelineResult:
+        paper_id: str
+        status: str
+        error_message: str | None = None
 
     logging.info("Starting ingestion pipeline...")
 
@@ -535,7 +550,14 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     settings.ensure_cache_dirs()
 
     # 並列数の決定
-    workers = args.workers or settings.ingestion_max_workers
+    workers = max(1, args.workers or settings.ingestion_max_workers)
+    download_workers = 1 if args.skip_download else min(workers, 2)
+    extract_workers = 0
+    if not args.skip_extract:
+        extract_workers = max(
+            1,
+            min(workers, max(1, settings.gemini_max_concurrent + 1)),
+        )
 
     # レートリミッター・サービスの初期化
     rate_limiters = RateLimiters()
@@ -544,137 +566,260 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     extractor = ExtractorService(rate_limiters=rate_limiters)
     writer = GraphWriterService()
     progress = ProgressManager()
+    buffered_writer: BufferedGraphWriter | None = None
+    exit_code = 0
 
-    logging.info(f"Using {workers} workers for parallel processing")
+    logging.info(
+        "Using workers: total=%s download=%s extract=%s write=%s",
+        workers,
+        download_workers,
+        extract_workers,
+        0 if args.skip_write else 1,
+    )
 
-    # インデックスの作成
-    logging.info("Ensuring Neo4j indexes...")
     try:
-        writer.ensure_indexes()
-    except Exception as e:
-        logging.error(f"Failed to create indexes: {e}")
-        logging.error("Make sure Neo4j is running (docker compose up -d)")
-        return 1
+        if not args.skip_write:
+            logging.info("Ensuring Neo4j indexes...")
+            try:
+                writer.ensure_indexes()
+            except Exception as e:
+                logging.error(f"Failed to create indexes: {e}")
+                logging.error("Make sure Neo4j is running (docker compose up -d)")
+                return 1
+            buffered_writer = BufferedGraphWriter(writer=writer)
+        else:
+            logging.info("Skipping all Neo4j writes (--skip-write)")
 
-    # データセットの読み込み
-    logging.info("Loading dataset...")
-    papers = list(loader.load())
-    logging.info(f"Found {len(papers)} papers")
+        # データセットの読み込み
+        logging.info("Loading dataset...")
+        papers = list(loader.load())
+        logging.info(f"Found {len(papers)} papers")
 
-    # 制限がある場合
-    if args.limit:
-        papers = papers[: args.limit]
-        logging.info(f"Limited to {args.limit} papers")
-    progress.set_total(len(papers))
+        # 制限がある場合
+        if args.limit:
+            papers = papers[: args.limit]
+            logging.info(f"Limited to {args.limit} papers")
+        progress.set_total(len(papers))
 
-    # 完了済みをスキップ
-    completed_all = progress.get_completed_papers()
-    completed_in_scope = {p.paper_id for p in papers if p.paper_id in completed_all}
-    papers_to_process = [p for p in papers if p.paper_id not in completed_in_scope]
-    logging.info(f"Skipping {len(completed_in_scope)} already processed papers")
-    logging.info(f"Processing {len(papers_to_process)} papers")
+        # 完了済みをスキップ
+        completed_all = progress.get_completed_papers()
+        completed_in_scope = {p.paper_id for p in papers if p.paper_id in completed_all}
+        papers_to_process = [p for p in papers if p.paper_id not in completed_in_scope]
+        logging.info(f"Skipping {len(completed_in_scope)} already processed papers")
+        logging.info(f"Processing {len(papers_to_process)} papers")
 
-    # Paper ノードを作成
-    logging.info("Writing Paper nodes...")
-    writer.write_papers(papers)
+        if not args.skip_write:
+            logging.info("Writing Paper nodes...")
+            writer.write_papers(papers)
 
-    # 各論文を処理（並列）
-    extractions = []
-    extractions_lock = threading.Lock()
+        download_queue: queue.Queue[object | None] = queue.Queue()
+        extract_queue: queue.Queue[ExtractionTask | None] = queue.Queue()
+        result_queue: queue.Queue[PipelineResult] = queue.Queue()
+        download_threads: list[threading.Thread] = []
+        extract_threads: list[threading.Thread] = []
+        download_shutdown_lock = threading.Lock()
+        finished_download_workers = 0
 
-    def process_paper(paper):
-        """単一論文のダウンロード→抽出を行うワーカー関数"""
-        progress.register_paper(paper.paper_id, paper.title)
+        def publish_result(paper_id: str, status: str, error_message: str | None = None) -> None:
+            result_queue.put(
+                PipelineResult(
+                    paper_id=paper_id,
+                    status=status,
+                    error_message=error_message,
+                )
+            )
 
-        if args.skip_download:
-            return
+        def complete_after_write(paper_id: str):
+            def callback(error: Exception | None) -> None:
+                if error is not None:
+                    progress.update_status(paper_id, "failed", str(error))
+                    publish_result(paper_id, "failed", str(error))
+                    return
+                progress.update_status(paper_id, "completed")
+                publish_result(paper_id, "completed")
 
-        # ダウンロード
-        progress.update_status(paper.paper_id, "downloading")
-        result = downloader.download(paper.paper_id, paper.title)
+            return callback
 
-        if not result.success:
-            progress.update_status(paper.paper_id, "failed", result.error_message)
-            return
+        def fail_paper(paper_id: str, error_message: str) -> None:
+            progress.update_status(paper_id, "failed", error_message)
+            publish_result(paper_id, "failed", error_message)
 
-        # 公開日を保存
-        writer.update_paper_published_date(paper.paper_id, result.published_date)
+        def download_worker() -> None:
+            nonlocal finished_download_workers
+            while True:
+                paper = download_queue.get()
+                if paper is None:
+                    with download_shutdown_lock:
+                        finished_download_workers += 1
+                        if finished_download_workers == download_workers:
+                            for _ in range(extract_workers):
+                                extract_queue.put(None)
+                    return
 
-        if args.skip_extract:
-            progress.update_status(paper.paper_id, "completed")
-            return
+                progress.register_paper(paper.paper_id, paper.title)
 
-        # 抽出
-        progress.update_status(paper.paper_id, "extracting")
-        extracted = extractor.extract(paper.paper_id, result.file_path, result.file_type)
+                try:
+                    if args.skip_download:
+                        result = downloader.get_cached_download(paper.paper_id)
+                        if result is None:
+                            fail_paper(
+                                paper.paper_id,
+                                "Download skipped and no cached file found",
+                            )
+                            continue
+                    else:
+                        progress.update_status(paper.paper_id, "downloading")
+                        result = downloader.download(paper.paper_id, paper.title)
 
-        if extracted is None:
-            progress.update_status(paper.paper_id, "failed", "Extraction failed")
-            return
+                    if not result.success:
+                        fail_paper(
+                            paper.paper_id,
+                            result.error_message or "Download failed",
+                        )
+                        continue
 
-        with extractions_lock:
-            extractions.append(extracted)
-        progress.update_status(paper.paper_id, "completed")
+                    if args.skip_extract:
+                        if args.skip_write or buffered_writer is None:
+                            progress.update_status(paper.paper_id, "completed")
+                            publish_result(paper.paper_id, "completed")
+                            continue
+                        progress.update_status(paper.paper_id, "writing")
+                        buffered_writer.enqueue_published_date(
+                            paper.paper_id,
+                            result.published_date,
+                            on_done=complete_after_write(paper.paper_id),
+                        )
+                        continue
 
-    with logging_redirect_tqdm():
-        with tqdm(
-            total=len(papers),
-            initial=len(completed_in_scope),
-            desc="Processing papers",
-            unit="paper",
-            dynamic_ncols=True,
-            leave=True,
-        ) as pbar:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(process_paper, p): p
-                    for p in papers_to_process
-                }
-                for future in as_completed(futures):
-                    paper = futures[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        progress.update_status(paper.paper_id, "failed", str(e))
-                    pbar.update(1)
+                    if result.file_path is None or result.file_type is None:
+                        fail_paper(
+                            paper.paper_id,
+                            "Download succeeded but file metadata is missing",
+                        )
+                        continue
 
-    # 抽出結果をグラフに書き込み
-    if extractions:
-        logging.info(f"Writing {len(extractions)} extractions to graph...")
-        writer.write_extracted(extractions)
+                    extract_queue.put(
+                        ExtractionTask(
+                            paper=paper,
+                            file_path=result.file_path,
+                            file_type=result.file_type,
+                            published_date=result.published_date,
+                        )
+                    )
+                except Exception as exc:
+                    fail_paper(paper.paper_id, str(exc))
 
-    # 引用論文のクロール（max_depth > 0 の場合）
-    if args.max_depth > 0 and not args.skip_download:
-        logging.info(
-            f"Starting citation crawl (max_depth={args.max_depth}, "
-            f"top_n_citations={args.top_n_citations})..."
-        )
-        crawler = CitationCrawler(
-            downloader=downloader,
-            extractor=extractor,
-            writer=writer,
-            progress=progress,
-            max_depth=args.max_depth,
-            crawl_limit=args.crawl_limit,
-            top_n_citations=args.top_n_citations,
-        )
-        crawler.add_seeds(papers)
+        def extract_worker() -> None:
+            while True:
+                task = extract_queue.get()
+                if task is None:
+                    return
 
-        crawl_stats = {"completed": 0, "failed": 0, "not_found": 0, "skipped": 0}
+                progress.update_status(task.paper.paper_id, "extracting")
+                try:
+                    extracted = extractor.extract(
+                        task.paper.paper_id,
+                        task.file_path,
+                        task.file_type,
+                    )
+                    if extracted is None:
+                        fail_paper(task.paper.paper_id, "Extraction failed")
+                        continue
+
+                    if args.skip_write or buffered_writer is None:
+                        progress.update_status(task.paper.paper_id, "completed")
+                        publish_result(task.paper.paper_id, "completed")
+                        continue
+
+                    progress.update_status(task.paper.paper_id, "writing")
+                    buffered_writer.enqueue_extracted(
+                        extracted,
+                        published_date=task.published_date,
+                        on_done=complete_after_write(task.paper.paper_id),
+                    )
+                except Exception as exc:
+                    fail_paper(task.paper.paper_id, str(exc))
+
+        for _ in range(download_workers):
+            thread = threading.Thread(target=download_worker, daemon=True)
+            thread.start()
+            download_threads.append(thread)
+
+        for _ in range(extract_workers):
+            thread = threading.Thread(target=extract_worker, daemon=True)
+            thread.start()
+            extract_threads.append(thread)
+
+        for paper in papers_to_process:
+            download_queue.put(paper)
+        for _ in range(download_workers):
+            download_queue.put(None)
+
         with logging_redirect_tqdm():
-            # total は条件から事前に決める（ETAを安定させる）
-            planned_total = crawler.get_planned_total(seed_count=len(papers))
-            # crawl_limit がある場合は「実際に処理した件数（skipped除外）」を進捗として扱う
-            limit = args.crawl_limit
             with tqdm(
-                total=(limit if limit is not None else planned_total),
-                desc="Crawling citations",
+                total=len(papers),
+                initial=len(completed_in_scope),
+                desc="Processing papers",
                 unit="paper",
                 dynamic_ncols=True,
                 leave=True,
             ) as pbar:
-                if workers > 1:
-                    for result in crawler.crawl_parallel(max_workers=workers):
+                completed_count = 0
+                while completed_count < len(papers_to_process):
+                    result = result_queue.get()
+                    completed_count += 1
+                    pbar.update(1)
+
+                    if result.status == "failed":
+                        logging.warning(
+                            "Paper %s failed during dataset ingest: %s",
+                            result.paper_id,
+                            result.error_message,
+                        )
+
+        for thread in download_threads:
+            thread.join()
+        for thread in extract_threads:
+            thread.join()
+        if buffered_writer is not None:
+            buffered_writer.flush()
+
+        # 引用論文のクロール（max_depth > 0 の場合）
+        if args.max_depth > 0 and not args.skip_download and not args.skip_write:
+            logging.info(
+                f"Starting citation crawl (max_depth={args.max_depth}, "
+                f"top_n_citations={args.top_n_citations})..."
+            )
+            crawler = CitationCrawler(
+                downloader=downloader,
+                extractor=extractor,
+                writer=writer,
+                progress=progress,
+                buffered_writer=buffered_writer,
+                max_depth=args.max_depth,
+                crawl_limit=args.crawl_limit,
+                top_n_citations=args.top_n_citations,
+                skip_write=args.skip_write,
+            )
+            crawler.add_seeds(papers)
+
+            crawl_stats = {"completed": 0, "failed": 0, "not_found": 0, "skipped": 0}
+            with logging_redirect_tqdm():
+                planned_total = crawler.get_planned_total(seed_count=len(papers))
+                limit = args.crawl_limit
+                with tqdm(
+                    total=(limit if limit is not None else planned_total),
+                    desc="Crawling citations",
+                    unit="paper",
+                    dynamic_ncols=True,
+                    leave=True,
+                ) as pbar:
+                    if workers > 1:
+                        results = crawler.crawl_parallel(max_workers=workers)
+                    else:
+                        results = crawler.crawl()
+
+                    for result in results:
                         crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
 
                         if limit:
@@ -690,37 +835,39 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                             skipped=crawl_stats["skipped"],
                             queued=crawler.get_queue_size(),
                         )
-                else:
-                    for result in crawler.crawl():
-                        crawl_stats[result.status] = crawl_stats.get(result.status, 0) + 1
 
-                        if limit:
-                            if result.status != "skipped":
-                                pbar.update(1)
-                        else:
-                            pbar.update(1)
+                    if limit is None and pbar.total is not None and pbar.n < pbar.total:
+                        pbar.total = pbar.n
+                        pbar.refresh()
 
-                        pbar.set_postfix(
-                            completed=crawl_stats["completed"],
-                            failed=crawl_stats["failed"],
-                            not_found=crawl_stats["not_found"],
-                            skipped=crawl_stats["skipped"],
-                            queued=crawler.get_queue_size(),
-                        )
-                # 上限 total より少ない件数で終わった場合、見た目上も 100% で閉じる
-                if limit is None and pbar.total is not None and pbar.n < pbar.total:
-                    pbar.total = pbar.n
-                    pbar.refresh()
+            if buffered_writer is not None:
+                buffered_writer.flush()
+            logging.info(f"Crawl completed: {crawl_stats}")
+        elif args.max_depth > 0 and args.skip_write:
+            logging.info("Skipping citation crawl because --skip-write disables graph updates")
 
-        logging.info(f"Crawl completed: {crawl_stats}")
+        summary = progress.get_summary()
+        logging.info(f"Completed: {summary['processed']}/{summary['total']}")
+        logging.info(f"Failed: {summary['failed']}")
+        logging.info(f"Pending: {summary['pending']}")
+    except Exception as exc:
+        logging.error(f"Ingestion pipeline failed: {exc}")
+        exit_code = 1
+    finally:
+        if buffered_writer is not None:
+            try:
+                buffered_writer.close()
+            except Exception as exc:
+                logging.error(f"Failed to close graph writer: {exc}")
+                exit_code = 1
 
-    # サマリー
-    summary = progress.get_summary()
-    logging.info(f"Completed: {summary['processed']}/{summary['total']}")
-    logging.info(f"Failed: {summary['failed']}")
-    logging.info(f"Pending: {summary['pending']}")
+        try:
+            progress.close()
+        except Exception as exc:
+            logging.error(f"Failed to save progress: {exc}")
+            exit_code = 1
 
-    return 0
+    return exit_code
 
 
 def cmd_rebuild(args: argparse.Namespace) -> int:
@@ -1058,11 +1205,11 @@ def _print_single_evaluation_rich(result) -> None:
     """単体評価結果をリッチフォーマットで表示"""
     console.print()
     console.print(Panel(
-        f"[bold]Single Evaluation Results[/bold]\n"
+        f"[bold]Independent Evaluation Results[/bold]\n"
         f"Model: {result.model_name}\n"
         f"Proposals: {len(result.proposals)}\n"
         f"Evaluated at: {result.evaluated_at.strftime('%Y-%m-%d %H:%M:%S')}",
-        title="Idea Single Evaluation Report",
+        title="Idea Independent Evaluation Report",
         border_style="green",
     ))
 
@@ -1350,6 +1497,8 @@ def cmd_experiment(args: argparse.Namespace) -> int:
             output_dir=args.output,
             runs_base=args.runs_base,
             formats=args.formats,
+            paper_ids=args.paper_ids,
+            exclude_ids=args.exclude_paper_ids,
         )
         if not results:
             console.print("[yellow]No figures or tables generated. Check that experiments/runs/ contains run data.[/]")
@@ -1794,6 +1943,10 @@ def main() -> int:
                            help="実験結果ディレクトリ (デフォルト: experiments/runs)")
     exp_paper.add_argument("--formats", nargs="+", default=["png", "svg"],
                            help="出力形式 (デフォルト: png svg)")
+    exp_paper.add_argument("--paper-ids", nargs="+", default=None,
+                           help="描画対象の論文IDリスト")
+    exp_paper.add_argument("--exclude-paper-ids", nargs="+", default=None,
+                           help="除外する論文IDリスト")
 
     # evaluate コマンド
     evaluate_parser = subparsers.add_parser("evaluate", help="提案をペアワイズ比較評価")
@@ -1832,7 +1985,7 @@ def main() -> int:
         "--mode",
         choices=["pairwise", "single"],
         default="pairwise",
-        help="評価モード: pairwise (ペアワイズ比較) / single (単体評価) (デフォルト: pairwise)",
+        help="評価モード: pairwise (ペアワイズ比較) / single (独立評価) (デフォルト: pairwise)",
     )
 
     args = parser.parse_args()

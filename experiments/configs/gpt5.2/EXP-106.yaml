@@ -1,42 +1,38 @@
 experiment:
-  id: "EXP-106"
-  name: "元論文 単体評価"
-  category: "system_effectiveness"
-  description: "ターゲット論文のアイデアを抽出しSingle評価する。生成アイデアの品質校正用ベースラインとして、15論文×各1抽出のSingle評価で定量化する"
+  id: EXP-106
+  name: 元論文 単体評価
+  category: system_effectiveness
+  description: ターゲット論文のアイデアを抽出しSingle評価する。生成アイデアの品質校正用ベースラインとして、15論文×各1抽出のSingle評価で定量化する
 seed:
   paper_selection: 20260207
   evaluation_shuffle: 20260207
 targets:
   paper_ids: []
-  selection_strategy: "connectivity_stratified"
-  candidate_scope: "dataset"
+  selection_strategy: connectivity_stratified
+  candidate_scope: dataset
   connectivity_tier_filter: null
   count: 15
 analysis:
   max_hops: 3
   top_k: 10
 prompt:
-  graph_format: "mermaid"
-  scope: "path"
-  max_paths: 10
-  max_nodes: 50
-  max_edges: 100
-  neighbor_k: 2
+  graph_format: mermaid
+  scope: path
   include_inline_edges: true
   include_target_paper: false
 conditions:
-  - name: "target_paper"
-    method: "target_paper"
-    generation:
-      num_proposals: 1
-      model: "gpt-5.2-2025-12-11"
-      temperature: 0.0
+- name: target_paper
+  method: target_paper
+  generation:
+    num_proposals: 1
+    model: gpt-5.2-2025-12-11
+    temperature: 0.0
 evaluation:
-  mode: "single"
-  model: "gpt-5.2-2025-12-11"
+  mode: single
+  model: gpt-5.2-2025-12-11
   temperature: 0.0
   include_experiment: true
   include_target: false
   repeat: 1
 output:
-  base_dir: "experiments/runs/gpt5.2"
+  base_dir: experiments/runs/gpt5.2

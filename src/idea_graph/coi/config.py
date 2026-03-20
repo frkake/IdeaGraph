@@ -1,4 +1,4 @@
-"""CoI-Agent 設定管理モジュール"""
+"""Chain-of-Ideas 設定管理モジュール"""
 
 import os
 from pathlib import Path
@@ -7,14 +7,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# CoI-Agentディレクトリのパス
+# Chain-of-Ideasディレクトリのパス
 COI_AGENT_DIR = Path(__file__).parent.parent.parent.parent / "3rdparty" / "CoI-Agent"
 
 
 class CoISettings:
-    """CoI-Agent設定クラス
+    """Chain-of-Ideas設定クラス
 
-    既存の.envファイルから設定を読み込み、CoI-Agent形式の環境変数に変換する。
+    既存の.envファイルから設定を読み込み、Chain-of-Ideas形式の環境変数に変換する。
     """
 
     def __init__(self) -> None:
@@ -22,7 +22,7 @@ class CoISettings:
         self.openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
         self.openai_base_url: str = os.getenv("COI_OPENAI_BASE_URL", "")
 
-        # CoI-Agent固有設定（.envから読み込み、なければデフォルト）
+        # Chain-of-Ideas固有設定（.envから読み込み、なければデフォルト）
         self.semantic_search_api_key: str = os.getenv("COI_SEMANTIC_SEARCH_API_KEY", "")
         self.is_azure: bool = os.getenv("COI_IS_AZURE", "false").lower() == "true"
         self.main_llm_model: str = os.getenv("COI_MAIN_LLM_MODEL", "gpt-4o")

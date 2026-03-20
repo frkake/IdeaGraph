@@ -166,20 +166,14 @@ class PaperTableGenerator:
         sources = sorted(elo.keys())
         disp_metrics = METRICS + ["overall"]
 
-        # Determine sample size (N) per source
-        source_n: dict[str, int] = {}
-        for src in sources:
-            n_vals = [len(elo[src].get(m, [])) for m in disp_metrics]
-            source_n[src] = max(n_vals) if n_vals else 0
-
         # Pre-compute means for bold detection
         means_grid: dict[str, list[float]] = {}  # metric -> [mean per source]
         for m in disp_metrics:
             means_grid[m] = [safe_mean(elo[s].get(m, [])) for s in sources]
 
         # -- LaTeX --
-        col_spec = "l" + "r" * len(disp_metrics) + "r"
-        header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics] + ["$N$"]
+        col_spec = "l" + "c" * len(disp_metrics)
+        header_cells = ["Method"] + [METRIC_DISPLAY.get(m, m) for m in disp_metrics]
         header = " & ".join(header_cells) + r" \\"
 
         tex_rows: list[str] = []
@@ -210,14 +204,14 @@ class PaperTableGenerator:
                     row[1][col_idx] = r"\textbf{" + row[1][col_idx] + "}"
 
         latex_body = "\n".join(
-            f"    {row[0]} & " + " & ".join(row[1]) + f" & {source_n.get(sources[r_idx], 0)}" + r" \\"
-            for r_idx, row in enumerate(tex_rows)
+            f"    {row[0]} & " + " & ".join(row[1]) + r" \\"
+            for row in tex_rows
         )
 
         latex = (
             r"\begin{table}[htbp]" + "\n"
             r"  \centering" + "\n"
-            r"  \caption{Main results: ELO ratings by method (EXP-101).}" + "\n"
+            r"  \caption{Pairwise ELO comparison across three methods (Mean $\pm$ SEM).}" + "\n"
             r"  \label{tab:main-results}" + "\n"
             f"  \\begin{{tabular}}{{{col_spec}}}\n"
             r"    \toprule" + "\n"
@@ -230,13 +224,13 @@ class PaperTableGenerator:
         )
 
         # -- Markdown --
-        md_header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics] + ["N"]
+        md_header_cells = ["Method"] + [METRIC_DISPLAY.get(m, m) for m in disp_metrics]
         md_header = "| " + " | ".join(md_header_cells) + " |"
         md_sep = "|" + "|".join(
             " :---: " if i == 0 else " ---: " for i in range(len(md_header_cells))
         ) + "|"
 
-        md_rows: list[tuple[str, list[str], list[float], int]] = []
+        md_rows: list[tuple[str, list[str], list[float]]] = []
         for s_idx, src in enumerate(sources):
             name = display_name(src)
             cells: list[str] = []
@@ -250,7 +244,7 @@ class PaperTableGenerator:
                     cells.append(f"{mn:.0f} +/- {se:.0f}")
                 else:
                     cells.append(f"{mn:.0f}")
-            md_rows.append((name, cells, raw_for_bold, source_n.get(src, 0)))
+            md_rows.append((name, cells, raw_for_bold))
 
         for col_idx, m in enumerate(disp_metrics):
             col_raw = [row[2][col_idx] for row in md_rows]
@@ -262,7 +256,7 @@ class PaperTableGenerator:
                     row[1][col_idx] = f"**{row[1][col_idx]}**"
 
         md_body = "\n".join(
-            "| " + row[0] + " | " + " | ".join(row[1]) + f" | {row[3]} |"
+            "| " + row[0] + " | " + " | ".join(row[1]) + " |"
             for row in md_rows
         )
         markdown = f"{md_header}\n{md_sep}\n{md_body}\n"
@@ -280,8 +274,8 @@ class PaperTableGenerator:
         # Map experiment -> method label
         exp_method: list[tuple[str, str]] = [
             ("EXP-103", "IdeaGraph"),
-            ("EXP-104", "Direct LLM"),
-            ("EXP-105", "CoI-Agent"),
+            ("EXP-104", "Baseline"),
+            ("EXP-105", "Chain-of-Ideas"),
             ("EXP-106", "Target Paper"),
         ]
 
@@ -305,15 +299,9 @@ class PaperTableGenerator:
 
         disp_metrics = METRICS + ["overall"]
 
-        # Determine sample size per method
-        method_n: dict[str, int] = {}
-        for method in method_order:
-            n_vals = [len(all_scores[method].get(m, [])) for m in disp_metrics]
-            method_n[method] = max(n_vals) if n_vals else 0
-
         # -- LaTeX --
-        col_spec = "l" + "r" * len(disp_metrics) + "r"
-        header_cells = ["Method"] + [METRIC_SHORT.get(m, m) for m in disp_metrics] + ["$N$"]
+        col_spec = "l" + "c" * len(disp_metrics)
+        header_cells = ["Method"] + [METRIC_DISPLAY.get(m, m) for m in disp_metrics]
         header = " & ".join(header_cells) + r" \\"
 
         tex_rows: list[tuple[str, list[str], list[float]]] = []
@@ -342,15 +330,15 @@ class PaperTableGenerator:
                     row[1][col_idx] = r"\textbf{" + row[1][col_idx] + "}"
 
         latex_body = "\n".join(
-            f"    {row[0]} & " + " & ".join(row[1]) + f" & {method_n.get(method_order[r_idx], 0)}" + r" \\"
-            for r_idx, row in enumerate(tex_rows)
+            f"    {row[0]} & " + " & ".join(row[1]) + r" \\"
+            for row in tex_rows
         )
 
         latex = (
             r"\begin{table}[htbp]" + "\n"
             r"  \centering" + "\n"
-            r"  \caption{Single evaluation scores by method.}" + "\n"
-            r"  \label{tab:single-scores}" + "\n"
+            r"  \caption{Absolute evaluation scores by method (Mean $\pm$ SD).}" + "\n"
+            r"  \label{tab:independent-scores}" + "\n"
             f"  \\begin{{tabular}}{{{col_spec}}}\n"
             r"    \toprule" + "\n"
             f"    {header}\n"
@@ -363,9 +351,9 @@ class PaperTableGenerator:
 
         # -- Markdown --
         md_header = "| " + " | ".join(header_cells) + " |"
-        md_sep = "| :--- |" + " ---: |" * (len(disp_metrics) + 1)
+        md_sep = "| :--- |" + " ---: |" * len(disp_metrics)
 
-        md_rows_t2: list[tuple[str, list[str], list[float], int]] = []
+        md_rows_t2: list[tuple[str, list[str], list[float]]] = []
         for method in method_order:
             cells = []
             raw = []
@@ -378,7 +366,7 @@ class PaperTableGenerator:
                     cells.append(f"{mn:.2f} +/- {sd:.2f}")
                 else:
                     cells.append(f"{mn:.2f}")
-            md_rows_t2.append((method, cells, raw, method_n.get(method, 0)))
+            md_rows_t2.append((method, cells, raw))
 
         for col_idx in range(len(disp_metrics)):
             col_raw = [row[2][col_idx] for row in md_rows_t2]
@@ -390,7 +378,7 @@ class PaperTableGenerator:
                     row[1][col_idx] = f"**{row[1][col_idx]}**"
 
         md_body = "\n".join(
-            "| " + row[0] + " | " + " | ".join(row[1]) + f" | {row[3]} |"
+            "| " + row[0] + " | " + " | ".join(row[1]) + " |"
             for row in md_rows_t2
         )
         markdown = f"{md_header}\n{md_sep}\n{md_body}\n"
@@ -472,7 +460,7 @@ class PaperTableGenerator:
             return None
 
         # -- LaTeX --
-        header = r"Parameter & Best Value & Default Value & $\Delta$ Overall & $N$ \\"
+        header = r"Parameter & Best Value & Default Value & $\Delta$ Overall \\"
         tex_rows: list[str] = []
         for row in rows:
             d_str = row["delta"]
@@ -482,15 +470,15 @@ class PaperTableGenerator:
             else:
                 d_str_tex = d_str
             tex_rows.append(
-                f"    {row['param']} & {row['best']} & {row['default']} & {d_str_tex} & {row['n']}" + r" \\"
+                f"    {row['param']} & {row['best']} & {row['default']} & {d_str_tex}" + r" \\"
             )
 
         latex = (
             r"\begin{table}[htbp]" + "\n"
             r"  \centering" + "\n"
-            r"  \caption{Ablation summary: best vs.\ default parameter settings.}" + "\n"
+            r"  \caption{Ablation summary: best vs.\ default parameter settings and their effect on overall score.}" + "\n"
             r"  \label{tab:ablation-summary}" + "\n"
-            r"  \begin{tabular}{lllrr}" + "\n"
+            r"  \begin{tabular}{lccc}" + "\n"
             r"    \toprule" + "\n"
             f"    {header}\n"
             r"    \midrule" + "\n"
@@ -501,15 +489,15 @@ class PaperTableGenerator:
         )
 
         # -- Markdown --
-        md_header = "| Parameter | Best Value | Default Value | Delta Overall | N |"
-        md_sep = "| :--- | :--- | :--- | ---: | ---: |"
+        md_header = "| Parameter | Best Value | Default Value | Delta Overall |"
+        md_sep = "| :--- | :--- | :--- | ---: |"
         md_rows_str: list[str] = []
         for row in rows:
             d = row["delta"]
             if d.startswith("+") and float(d) > 0:
                 d = f"**{d}**"
             md_rows_str.append(
-                f"| {row['param']} | {row['best']} | {row['default']} | {d} | {row['n']} |"
+                f"| {row['param']} | {row['best']} | {row['default']} | {d} |"
             )
         markdown = f"{md_header}\n{md_sep}\n" + "\n".join(md_rows_str) + "\n"
 
@@ -581,23 +569,22 @@ class PaperTableGenerator:
 
         # -- LaTeX --
         status_sym = {"Y": r"\checkmark", "N": r"$\times$"}
-        header = r"Metric & Value & Threshold & Status & $N$ \\"
+        header = r"Metric & Value & Threshold & Status \\"
         tex_rows: list[str] = []
         for row in validity_rows:
             s = status_sym.get(row["status"], row["status"])
             val = row.get("value", "")
             thr = row.get("threshold", "")
-            n_val = row.get("n", "")
             tex_rows.append(
-                f"    {row['metric']} & {val} & {thr} & {s} & {n_val}" + r" \\"
+                f"    {row['metric']} & {val} & {thr} & {s}" + r" \\"
             )
 
         latex = (
             r"\begin{table}[htbp]" + "\n"
             r"  \centering" + "\n"
-            r"  \caption{Evaluation validity metrics.}" + "\n"
+            r"  \caption{Evaluation validity: mode consistency, reproducibility, and position bias.}" + "\n"
             r"  \label{tab:eval-validity}" + "\n"
-            r"  \begin{tabular}{llllr}" + "\n"
+            r"  \begin{tabular}{lccc}" + "\n"
             r"    \toprule" + "\n"
             f"    {header}\n"
             r"    \midrule" + "\n"
@@ -608,8 +595,8 @@ class PaperTableGenerator:
         )
 
         # -- Markdown --
-        md_header = "| Metric | Value | Threshold | Status | N |"
-        md_sep = "| :--- | ---: | :--- | :---: | ---: |"
+        md_header = "| Metric | Value | Threshold | Status |"
+        md_sep = "| :--- | ---: | :--- | :---: |"
         md_body_lines: list[str] = []
         for row in validity_rows:
             val = row.get("value_md", row.get("value", "").replace("\\%", "%"))
@@ -618,9 +605,8 @@ class PaperTableGenerator:
             val = val.replace("$", "").replace("\\rho", "rho")
             thr = thr.replace("$", "").replace("\\rho", "rho")
             status_emoji = "Pass" if row["status"] == "Y" else "Fail"
-            n_val = row.get("n", "")
             md_body_lines.append(
-                f"| {row['metric_md']} | {val} | {thr} | {status_emoji} | {n_val} |"
+                f"| {row['metric_md']} | {val} | {thr} | {status_emoji} |"
             )
         markdown = f"{md_header}\n{md_sep}\n" + "\n".join(md_body_lines) + "\n"
 
@@ -696,19 +682,40 @@ class PaperTableGenerator:
         """Compute AB/BA agreement rate from swap test data.
 
         Returns (agreement_pct, n_pairs).
+
+        Each swap entry has ``ab_scores`` and ``ba_scores`` dicts mapping
+        metric → int (0 = tie, 1 = A wins, 2 = B wins).  We derive the
+        overall winner from the sum of per-metric scores and check whether
+        AB order and BA order agree on which side is better.
         """
         swap = load_pairwise_swap_data(exp.run_dir)
         if not swap:
             return None, 0
 
+        def _side_winner(scores: dict[str, int]) -> str:
+            """Return 'A', 'B', or 'tie' from per-metric score dict."""
+            a_wins = sum(1 for v in scores.values() if v == 1)
+            b_wins = sum(1 for v in scores.values() if v == 2)
+            if a_wins > b_wins:
+                return "A"
+            if b_wins > a_wins:
+                return "B"
+            return "tie"
+
         total = 0
         consistent = 0
-        for _paper, info in swap.items():
-            ab = info.get("ab_winner", "")
-            ba = info.get("ba_winner", "")
-            if ab and ba:
+        for _paper, entries in swap.items():
+            for entry in entries:
+                ab_scores = entry.get("ab_scores", {})
+                ba_scores = entry.get("ba_scores", {})
+                if not ab_scores or not ba_scores:
+                    continue
+                ab_winner = _side_winner(ab_scores)
+                # In BA order the positions are swapped, so A/B labels flip
+                ba_raw = _side_winner(ba_scores)
+                ba_winner = {"A": "B", "B": "A"}.get(ba_raw, "tie")
                 total += 1
-                if ab == ba:
+                if ab_winner == ba_winner:
                     consistent += 1
 
         if total == 0:

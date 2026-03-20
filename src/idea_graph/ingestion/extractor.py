@@ -287,7 +287,11 @@ class ExtractorService:
             try:
                 data = json.loads(cache_path.read_text())
                 cache_version = data.get("_cache_version")
-                if cache_version != EXTRACTION_CACHE_VERSION:
+                if cache_version is None:
+                    logger.info(
+                        f"Using legacy cached extraction for {paper_id} without version marker"
+                    )
+                elif cache_version != EXTRACTION_CACHE_VERSION:
                     logger.info(
                         f"Ignoring cached extraction for {paper_id} due to version mismatch "
                         f"(cache={cache_version}, expected={EXTRACTION_CACHE_VERSION})"

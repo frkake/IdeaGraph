@@ -1,6 +1,6 @@
-"""CoI-Agent実行サービス
+"""Chain-of-Ideas実行サービス
 
-CoI-Agent (Chain of Ideas) をサブプロセスとして実行し、
+Chain-of-Ideas をサブプロセスとして実行し、
 進捗をストリーミングで取得するサービス。
 """
 
@@ -50,10 +50,11 @@ class CoIArgs(BaseModel):
     min_chain_length: int = Field(description="アイデアチェーン最小長")
     max_chain_numbers: int = Field(description="処理するチェーン最大数")
     improve_cnt: int = Field(description="実験改善反復回数")
+    publication_date: str | None = Field(default=None, description="検索対象の出版日範囲（Semantic Scholar形式、例: ':2022-12-01'）")
 
 
 class CoIResult(BaseModel):
-    """CoI-Agentの出力モデル"""
+    """Chain-of-Ideasの出力モデル"""
 
     idea: str = Field(description="生成されたアイデア（Title, Motivation, Methodology含む長文）")
     idea_chain: str = Field(default="", description="複数論文のアイデアチェーン")
@@ -79,7 +80,7 @@ class CoIProgress(BaseModel):
 
 
 class CoIRunner:
-    """CoI-Agent実行サービス"""
+    """Chain-of-Ideas実行サービス"""
 
     def __init__(
         self,
@@ -89,6 +90,7 @@ class CoIRunner:
         improve_cnt: int = 1,
         main_model: str | None = None,
         cheap_model: str | None = None,
+        publication_date: str | None = None,
     ) -> None:
         """初期化
 
@@ -99,6 +101,7 @@ class CoIRunner:
             improve_cnt: 実験改善の反復回数
             main_model: CoIメインLLMモデル名（Noneならcoi_settingsのデフォルト）
             cheap_model: CoI安価LLMモデル名（Noneならcoi_settingsのデフォルト）
+            publication_date: 検索対象の出版日範囲（Semantic Scholar形式、例: ':2022-12-01'）
         """
         self.max_chain_length = max_chain_length
         self.min_chain_length = min_chain_length
@@ -106,16 +109,17 @@ class CoIRunner:
         self.improve_cnt = improve_cnt
         self.main_model = main_model
         self.cheap_model = cheap_model
+        self.publication_date = publication_date
 
     def _setup_environment(self) -> dict[str, str]:
-        """CoI-Agent用の環境変数を準備
+        """Chain-of-Ideas用の環境変数を準備
 
         Returns:
             設定された環境変数の辞書
         """
         env = os.environ.copy()
 
-        # CoI-Agentが期待する環境変数を設定
+        # Chain-of-Ideasが期待する環境変数を設定
         env["SEMENTIC_SEARCH_API_KEY"] = coi_settings.semantic_search_api_key
         env["is_azure"] = "true" if coi_settings.is_azure else ""
         env["OPENAI_API_KEY"] = coi_settings.openai_api_key
@@ -147,14 +151,14 @@ class CoIRunner:
         topic: str,
         save_dir: str | None = None,
     ) -> CoIResult:
-        """CoI-Agentを実行してアイデアを生成（同期版）
+        """Chain-of-Ideasを実行してアイデアを生成（同期版）
 
         Args:
             topic: 研究トピック
             save_dir: 保存先ディレクトリ
 
         Returns:
-            CoI-Agentの実行結果
+            Chain-of-Ideasの実行結果
         """
         result: CoIResult | None = None
         error_msg: str | None = None
@@ -167,14 +171,14 @@ class CoIRunner:
 
         if result:
             return result
-        raise RuntimeError(error_msg or "CoI-Agent execution failed without result")
+        raise RuntimeError(error_msg or "Chain-of-Ideas execution failed without result")
 
     async def run_streaming(
         self,
         topic: str,
         save_dir: str | None = None,
     ) -> AsyncIterator[CoIProgress]:
-        """CoI-Agentを実行して進捗をストリーミング
+        """Chain-of-Ideasを実行して進捗をストリーミング
 
         Args:
             topic: 研究トピック
@@ -191,7 +195,7 @@ class CoIRunner:
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)
 
-        yield CoIProgress(status="running", progress="CoI-Agentを起動中...")
+        yield CoIProgress(status="running", progress="Chain-of-Ideasを起動中...")
 
         # 環境変数を準備
         env = self._setup_environment()
@@ -230,8 +234,10 @@ class CoIRunner:
             "--improve-cnt",
             str(self.improve_cnt),
         ]
+        if self.publication_date is not None:
+            cmd += ["--publication-date", self.publication_date]
 
-        logger.info(f"Starting CoI-Agent with topic: {topic}")
+        logger.info(f"Starting Chain-of-Ideas with topic: {topic}")
         logger.debug(f"Command: {' '.join(cmd)}")
 
         try:
@@ -256,7 +262,7 @@ class CoIRunner:
             return_code = await process.wait()
 
             if return_code != 0:
-                error_msg = f"CoI-Agent exited with code {return_code}"
+                error_msg = f"Chain-of-Ideas exited with code {return_code}"
                 logger.error(error_msg)
                 yield CoIProgress(status="error", error=error_msg)
                 return
@@ -279,6 +285,7 @@ class CoIRunner:
                 min_chain_length=self.min_chain_length,
                 max_chain_numbers=self.max_chain_numbers,
                 improve_cnt=self.improve_cnt,
+                publication_date=self.publication_date,
             )
             result = CoIResult(
                 idea=result_data.get("idea", ""),
@@ -297,19 +304,19 @@ class CoIRunner:
                 args=coi_args,
             )
 
-            logger.info("CoI-Agent completed successfully")
+            logger.info("Chain-of-Ideas completed successfully")
             yield CoIProgress(status="completed", progress="完了", result=result)
 
         except FileNotFoundError as e:
-            error_msg = f"CoI-Agent executable not found: {e}"
+            error_msg = f"Chain-of-Ideas executable not found: {e}"
             logger.error(error_msg)
             yield CoIProgress(status="error", error=error_msg)
         except asyncio.TimeoutError:
-            error_msg = "CoI-Agent execution timed out"
+            error_msg = "Chain-of-Ideas execution timed out"
             logger.error(error_msg)
             yield CoIProgress(status="error", error=error_msg)
         except Exception as e:
-            error_msg = f"CoI-Agent execution failed: {e}"
+            error_msg = f"Chain-of-Ideas execution failed: {e}"
             logger.exception(error_msg)
             yield CoIProgress(status="error", error=error_msg)
 
