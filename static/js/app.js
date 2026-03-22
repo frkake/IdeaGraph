@@ -105,12 +105,18 @@ const MODEL_PRESETS = {
         coi_cheap: 'gpt-5-mini-2025-08-07',
         ideagraph: 'gpt-5-2025-08-07',
     },
+    gpt52: {
+        label: 'GPT-5.2',
+        coi_main: 'gpt-5.2-2025-12-11',
+        coi_cheap: 'gpt-5.2-2025-12-11',
+        ideagraph: 'gpt-5.2-2025-12-11',
+    },
 };
 
 function getSelectedModels() {
     const el = document.getElementById('modelPreset');
-    const key = el ? el.value : 'gpt5';
-    return MODEL_PRESETS[key] || MODEL_PRESETS.gpt5;
+    const key = el ? el.value : 'gpt52';
+    return MODEL_PRESETS[key] || MODEL_PRESETS.gpt52;
 }
 
 function onModelPresetChange() {
