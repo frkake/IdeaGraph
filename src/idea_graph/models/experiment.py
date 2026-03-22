@@ -123,6 +123,7 @@ class PromptConfig(BaseModel):
 class GenerationConfig(BaseModel):
     num_proposals: int = Field(default=3, ge=1)
     model: str = "gpt-5.2-2025-12-11"
+    cheap_model: str | None = Field(default=None, description="CoI安価LLMモデル名。Noneの場合はcoi_settingsのデフォルトを使用")
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     publication_date: str | None = Field(default=None, description="CoI検索対象の出版日範囲（Semantic Scholar形式、例: ':2022-12-01'）。Noneの場合は実験ランナーが自動取得")
 

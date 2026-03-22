@@ -487,6 +487,7 @@ class ExperimentRunner:
             )
             runner = CoIRunner(
                 main_model=condition.generation.model,
+                cheap_model=condition.generation.cheap_model,
                 publication_date=publication_date,
             )
             result = asyncio.run(runner.run(topic=paper_title, save_dir=coi_save_dir))

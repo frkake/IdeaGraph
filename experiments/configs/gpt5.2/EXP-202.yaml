@@ -60,16 +60,6 @@ conditions:
     graph_format: triples
     scope: path
     include_inline_edges: true
-- name: format_narrative
-  method: ideagraph
-  generation:
-    num_proposals: 1
-    model: gpt-5.2-2025-12-11
-    temperature: 0.0
-  prompt:
-    graph_format: narrative
-    scope: path
-    include_inline_edges: true
 evaluation:
   mode: single
   model: gpt-5.2-2025-12-11

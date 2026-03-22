@@ -3,66 +3,90 @@
  */
 
 // ========== プロンプト設定の定義 ==========
-const PAPER_FIELD_OPTIONS = [
-    { value: 'paper_title', label: '論文タイトル' },
-    { value: 'paper_summary', label: '論文要約' },
-    { value: 'paper_claims', label: '論文の主張' },
-];
+function getPaperFieldOptions() {
+    return [
+        { value: 'paper_title', label: t('field.paper_title') },
+        { value: 'paper_summary', label: t('field.paper_summary') },
+        { value: 'paper_claims', label: t('field.paper_claims') },
+    ];
+}
 
-const ENTITY_FIELD_OPTIONS = [
-    { value: 'entity_type', label: 'Entity種別' },
-    { value: 'entity_description', label: 'Entity説明' },
-];
+function getEntityFieldOptions() {
+    return [
+        { value: 'entity_type', label: t('field.entity_type') },
+        { value: 'entity_description', label: t('field.entity_description') },
+    ];
+}
 
-const EDGE_FIELD_OPTIONS = {
-    CITES: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'citation_type', label: '引用種別' },
-        { value: 'importance_score', label: '重要度' },
-        { value: 'context', label: '文脈' },
-    ],
-    MENTIONS: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'context', label: '文脈' },
-    ],
-    USES: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'context', label: '文脈' },
-    ],
-    EXTENDS: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'context', label: '文脈' },
-    ],
-    COMPARES: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'context', label: '文脈' },
-    ],
-    ENABLES: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'context', label: '文脈' },
-    ],
-    IMPROVES: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'context', label: '文脈' },
-    ],
-    ADDRESSES: [
-        { value: 'type', label: '関係タイプ' },
-        { value: 'context', label: '文脈' },
-    ],
+function getEdgeFieldOptions() {
+    return {
+        CITES: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'citation_type', label: t('field.citation_type') },
+            { value: 'importance_score', label: t('field.importance') },
+            { value: 'context', label: t('field.context') },
+        ],
+        MENTIONS: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'context', label: t('field.context') },
+        ],
+        USES: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'context', label: t('field.context') },
+        ],
+        EXTENDS: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'context', label: t('field.context') },
+        ],
+        COMPARES: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'context', label: t('field.context') },
+        ],
+        ENABLES: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'context', label: t('field.context') },
+        ],
+        IMPROVES: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'context', label: t('field.context') },
+        ],
+        ADDRESSES: [
+            { value: 'type', label: t('field.relation_type') },
+            { value: 'context', label: t('field.context') },
+        ],
+    };
+}
+
+// Backward-compatible aliases used by buildDefault* helpers
+const PAPER_FIELD_OPTIONS_STATIC = [
+    { value: 'paper_title' }, { value: 'paper_summary' }, { value: 'paper_claims' },
+];
+const ENTITY_FIELD_OPTIONS_STATIC = [
+    { value: 'entity_type' }, { value: 'entity_description' },
+];
+const EDGE_FIELD_OPTIONS_KEYS = {
+    CITES: ['type', 'citation_type', 'importance_score', 'context'],
+    MENTIONS: ['type', 'context'],
+    USES: ['type', 'context'],
+    EXTENDS: ['type', 'context'],
+    COMPARES: ['type', 'context'],
+    ENABLES: ['type', 'context'],
+    IMPROVES: ['type', 'context'],
+    ADDRESSES: ['type', 'context'],
 };
 
 function buildDefaultNodeTypeFields() {
     return {
-        Paper: PAPER_FIELD_OPTIONS.map(option => option.value),
-        Entity: ENTITY_FIELD_OPTIONS.map(option => option.value),
+        Paper: PAPER_FIELD_OPTIONS_STATIC.map(option => option.value),
+        Entity: ENTITY_FIELD_OPTIONS_STATIC.map(option => option.value),
     };
 }
 
 function buildDefaultEdgeTypeFields() {
     return Object.fromEntries(
-        Object.entries(EDGE_FIELD_OPTIONS).map(([edgeType, options]) => [
+        Object.entries(EDGE_FIELD_OPTIONS_KEYS).map(([edgeType, keys]) => [
             edgeType,
-            options.map(option => option.value),
+            keys,
         ])
     );
 }
@@ -202,13 +226,13 @@ function escapeHtml(text) {
 }
 
 function formatInlineList(items) {
-    if (!Array.isArray(items) || items.length === 0) return 'なし';
+    if (!Array.isArray(items) || items.length === 0) return t('generic.none');
     return items.map(item => escapeHtml(item)).join(', ');
 }
 
 function renderList(items, emptyLabel) {
     if (!Array.isArray(items) || items.length === 0) {
-        return `<div class="detail-empty">${escapeHtml(emptyLabel || 'なし')}</div>`;
+        return `<div class="detail-empty">${escapeHtml(emptyLabel || t('generic.none'))}</div>`;
     }
     return `
         <ul class="detail-list">
@@ -219,7 +243,7 @@ function renderList(items, emptyLabel) {
 
 function renderTextBlock(text, emptyLabel) {
     if (!text) {
-        return `<div class="detail-empty">${escapeHtml(emptyLabel || 'なし')}</div>`;
+        return `<div class="detail-empty">${escapeHtml(emptyLabel || t('generic.none'))}</div>`;
     }
     return `<p class="proposal-detail-text">${escapeHtml(text)}</p>`;
 }
@@ -330,7 +354,7 @@ async function appendCoIProposal(proposal, statusMessage) {
     const newIndex = AppState.proposals.length;
     AppState.proposals.push(proposal);
     AppState.proposalSources[newIndex] = 'coi';
-    updateStatus(statusMessage || 'CoI提案を追加しました');
+    updateStatus(statusMessage || t('coi.added'));
     renderProposals();
     await saveProposal(newIndex);
     return newIndex;
@@ -434,7 +458,7 @@ function getPromptOptionsFromUI() {
     if (maxEdgesRaw && (Number.isNaN(maxEdges) || maxEdges < 1)) invalid.push('max_edges');
     if (neighborRaw && (Number.isNaN(neighborK) || neighborK < 1)) invalid.push('neighbor_k');
     if (invalid.length) {
-        throw new Error(`プロンプト設定が不正です: ${invalid.join(', ')}`);
+        throw new Error(t('prompt.invalid_settings') + invalid.join(', '));
     }
 
     AppState.promptOptions = options;
@@ -480,7 +504,7 @@ function sortNodeTypes(types) {
 }
 
 function sortEdgeTypes(types) {
-    const order = Object.keys(EDGE_FIELD_OPTIONS);
+    const order = Object.keys(EDGE_FIELD_OPTIONS_KEYS);
     return [...types].sort((a, b) => {
         const indexA = order.indexOf(a);
         const indexB = order.indexOf(b);
@@ -500,15 +524,15 @@ function ensurePromptOptionsForTypes(promptOptions, nodeTypes, edgeTypes) {
 
     nodeTypes.forEach((nodeType) => {
         if (!updated.node_type_fields[nodeType]) {
-            const defaults = nodeType === 'Paper' ? PAPER_FIELD_OPTIONS : ENTITY_FIELD_OPTIONS;
+            const defaults = nodeType === 'Paper' ? PAPER_FIELD_OPTIONS_STATIC : ENTITY_FIELD_OPTIONS_STATIC;
             updated.node_type_fields[nodeType] = defaults.map(option => option.value);
         }
     });
 
     edgeTypes.forEach((edgeType) => {
-        if (!EDGE_FIELD_OPTIONS[edgeType]) return;
+        if (!EDGE_FIELD_OPTIONS_KEYS[edgeType]) return;
         if (!updated.edge_type_fields[edgeType]) {
-            updated.edge_type_fields[edgeType] = EDGE_FIELD_OPTIONS[edgeType].map(option => option.value);
+            updated.edge_type_fields[edgeType] = EDGE_FIELD_OPTIONS_KEYS[edgeType];
         }
     });
 
@@ -608,15 +632,15 @@ function switchTab(tabName) {
     }
 
     // ステータス更新
-    const tabNames = {
-        'explore': '探索モード',
-        'analyze': '分析モード',
-        'propose': '提案モード',
-        'evaluate': '評価モード',
-        'history': '履歴モード',
-        'experiment': '実験モード'
+    const tabModeKey = {
+        'explore': 'mode.explore',
+        'analyze': 'mode.analyze',
+        'propose': 'mode.propose',
+        'evaluate': 'mode.evaluate',
+        'history': 'mode.history',
+        'experiment': 'mode.experiment'
     };
-    updateStatus(tabNames[tabName] || tabName);
+    updateStatus(t(tabModeKey[tabName]) || tabName);
 }
 
 function updateRightPanelContent(tabName) {
@@ -626,19 +650,19 @@ function updateRightPanelContent(tabName) {
     if (!content) return;
 
     if (tabName === 'analyze') {
-        if (headerTitle) headerTitle.textContent = '分析結果';
+        if (headerTitle) headerTitle.textContent = t('panel.analysis_results');
         renderAnalysisResults();
     } else if (tabName === 'propose') {
-        if (headerTitle) headerTitle.textContent = '研究提案';
+        if (headerTitle) headerTitle.textContent = t('panel.research_proposals');
         renderProposals();
     } else if (tabName === 'evaluate') {
-        if (headerTitle) headerTitle.textContent = '提案評価';
+        if (headerTitle) headerTitle.textContent = t('panel.proposal_evaluation');
         renderEvaluation();
     } else if (tabName === 'history') {
-        if (headerTitle) headerTitle.textContent = '履歴';
+        if (headerTitle) headerTitle.textContent = t('panel.history');
         renderHistory();
     } else if (tabName === 'experiment') {
-        if (headerTitle) headerTitle.textContent = '実験管理';
+        if (headerTitle) headerTitle.textContent = t('panel.experiment_management');
         renderExperimentTab();
     }
 }
@@ -657,7 +681,7 @@ async function initGraph() {
         const response = await fetch('/api/visualization/config');
         const config = await response.json();
 
-        AppState.neo4jPassword = prompt('Neo4jパスワードを入力してください:', 'password') || 'password';
+        AppState.neo4jPassword = prompt(t('graph.neo4j_password'), 'password') || 'password';
 
         const neovisConfig = {
             containerId: "graph",
@@ -764,13 +788,13 @@ async function initGraph() {
 
         AppState.viz = new NeoVis.default(neovisConfig);
         AppState.viz.render();
-        updateStatus('グラフを読み込み中...');
+        updateStatus(t('graph.loading'));
 
         AppState.viz.registerOnEvent("completed", () => {
             const nodeCount = AppState.viz.nodes ? AppState.viz.nodes.length : 0;
             const edgeCount = AppState.viz.edges ? AppState.viz.edges.length : 0;
-            updateStatus('読み込み完了');
-            updateStats(`ノード: ${nodeCount}, エッジ: ${edgeCount}`);
+            updateStatus(t('graph.loaded'));
+            updateStats(t('graph.stats', {nodes: nodeCount, edges: edgeCount}));
         });
 
         AppState.viz.registerOnEvent("clickNode", (event) => {
@@ -783,7 +807,7 @@ async function initGraph() {
 
     } catch (error) {
         console.error('Graph initialization failed:', error);
-        updateStatus('グラフの初期化に失敗しました: ' + error.message);
+        updateStatus(t('graph.init_failed') + error.message);
     }
 }
 
@@ -792,7 +816,7 @@ function filterBy(type) {
     const query = FILTER_QUERIES[type];
     if (query && AppState.viz) {
         document.getElementById('query').value = query;
-        updateStatus(`フィルター: ${type}`);
+        updateStatus(t('graph.filter', {type}));
         AppState.viz.renderWithCypher(query);
     }
 }
@@ -800,7 +824,7 @@ function filterBy(type) {
 function searchKeyword() {
     const keyword = document.getElementById('keyword').value.trim();
     if (!keyword) {
-        alert('キーワードを入力してください');
+        alert(t('search.enter_keyword'));
         return;
     }
 
@@ -812,7 +836,7 @@ function searchKeyword() {
         RETURN n, r, m LIMIT 50
     `;
     document.getElementById('query').value = query;
-    updateStatus(`検索: "${keyword}"`);
+    updateStatus(t('search.searching', {keyword}));
     if (AppState.viz) {
         AppState.viz.renderWithCypher(query);
     }
@@ -820,14 +844,14 @@ function searchKeyword() {
 
 function runQuery() {
     const query = document.getElementById('query').value;
-    updateStatus('クエリを実行中...');
+    updateStatus(t('query.executing'));
 
     try {
         if (AppState.viz) {
             AppState.viz.renderWithCypher(query);
         }
     } catch (error) {
-        updateStatus('クエリ実行エラー: ' + error.message);
+        updateStatus(t('query.error') + error.message);
     }
 }
 
@@ -837,24 +861,24 @@ async function runAnalysis() {
     const hopK = parseInt(document.getElementById('hopK').value);
 
     if (!paperId) {
-        alert('論文IDを入力してください');
+        alert(t('analysis.enter_paper_id'));
         return;
     }
 
-    updateStatus('分析を実行中...');
+    updateStatus(t('analysis.executing'));
 
     // 右パネルにローディング表示
     openRightPanel();
     const content = document.getElementById('rightPanelContent');
     const headerTitle = document.querySelector('.right-panel-header h3');
-    if (headerTitle) headerTitle.textContent = '分析結果';
+    if (headerTitle) headerTitle.textContent = t('panel.analysis_results');
     if (content) {
         content.innerHTML = `
             <div class="loading">
                 <div class="loading-spinner"></div>
             </div>
             <div style="text-align: center; color: #888; margin-top: 1rem;">
-                分析を実行中...
+                ${t('analysis.executing')}
             </div>
         `;
     }
@@ -886,9 +910,9 @@ async function runAnalysis() {
             : (result.candidates ? result.candidates.length : 0);
         const displayLimit = Math.min(ANALYSIS_DISPLAY_LIMIT, totalCount);
         const countLabel = totalCount > displayLimit
-            ? `${totalCount}件 (表示${displayLimit}件)`
-            : `${totalCount}件`;
-        updateStatus(`分析完了: ${countLabel}のパス`);
+            ? `${totalCount}${t('analysis.items')} (${t('analysis.display_items', {count: displayLimit})})`
+            : `${totalCount}${t('analysis.items')}`;
+        updateStatus(t('analysis.complete', {count: countLabel}));
 
         // 結果をグラフに表示
         const cypher = `
@@ -914,12 +938,12 @@ async function runAnalysis() {
         }
 
     } catch (error) {
-        updateStatus('分析エラー: ' + error.message);
+        updateStatus(t('analysis.error') + error.message);
         if (content) {
             content.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">⚠️</div>
-                    <div class="empty-state-text">分析エラー<br>${error.message}</div>
+                    <div class="empty-state-text">${t('analysis.error')}<br>${error.message}</div>
                 </div>
             `;
         }
@@ -937,14 +961,14 @@ function renderAnalysisResults() {
     const totalPaths = Number.isFinite(result?.total_paths) ? result.total_paths : allPaths.length;
     const displayPaths = allPaths.slice(0, ANALYSIS_DISPLAY_LIMIT);
     const pathCountLabel = totalPaths !== null
-        ? `${displayPaths.length} / ${totalPaths} パス`
-        : `${displayPaths.length} パス`;
+        ? `${displayPaths.length} / ${totalPaths} ${t('analysis.paths')}`
+        : `${displayPaths.length} ${t('analysis.paths')}`;
 
     if (!result || allPaths.length === 0) {
         content.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">📊</div>
-                <div class="empty-state-text">分析結果がありません<br>左のサイドバーから論文を選択して<br>「分析実行」をクリックしてください</div>
+                <div class="empty-state-text">${t('analysis.no_results')}<br>${t('analysis.no_results_hint').replace('\n', '<br>')}</div>
             </div>
         `;
         return;
@@ -957,16 +981,16 @@ function renderAnalysisResults() {
     const promptOptions = ensurePromptOptionsForTypes(AppState.promptOptions, nodeTypes, edgeTypes);
     const promptDefaults = computePromptDefaults(result);
     const defaultsSourceNote = Number.isFinite(result?.total_nodes) && Number.isFinite(result?.total_edges)
-        ? '（分析結果全体から算出）'
-        : '（表示中のパスから算出）';
+        ? t('analysis.computed_from_all')
+        : t('analysis.computed_from_display');
     AppState.promptOptions = promptOptions;
 
     const sortedNodeTypes = sortNodeTypes(nodeTypes);
-    const sortedEdgeTypes = sortEdgeTypes(edgeTypes).filter((type) => EDGE_FIELD_OPTIONS[type]);
+    const sortedEdgeTypes = sortEdgeTypes(edgeTypes).filter((type) => EDGE_FIELD_OPTIONS_KEYS[type]);
 
     const nodeTypeOptionsHtml = sortedNodeTypes.map((nodeType) => {
         const selected = promptOptions.node_type_fields[nodeType] || [];
-        const fieldOptions = nodeType === 'Paper' ? PAPER_FIELD_OPTIONS : ENTITY_FIELD_OPTIONS;
+        const fieldOptions = nodeType === 'Paper' ? getPaperFieldOptions() : getEntityFieldOptions();
         return `
             <div class="prompt-options-type">
                 <div class="prompt-options-type-title">${escapeHtml(nodeType)}</div>
@@ -979,7 +1003,7 @@ function renderAnalysisResults() {
 
     const edgeTypeOptionsHtml = sortedEdgeTypes.map((edgeType) => {
         const selected = promptOptions.edge_type_fields[edgeType] || [];
-        const fieldOptions = EDGE_FIELD_OPTIONS[edgeType] || [];
+        const fieldOptions = (getEdgeFieldOptions())[edgeType] || [];
         return `
             <div class="prompt-options-type">
                 <div class="prompt-options-type-title">${escapeHtml(edgeType)}</div>
@@ -997,12 +1021,12 @@ function renderAnalysisResults() {
 
     const promptOptionsHtml = `
         <details class="prompt-options-panel">
-            <summary class="prompt-options-summary">プロンプト設定</summary>
+            <summary class="prompt-options-summary">${t('prompt.settings')}</summary>
             <div class="prompt-options-body">
-                <div class="prompt-options-note">空欄は分析結果に合わせて自動設定されます。</div>
+                <div class="prompt-options-note">${t('prompt.auto_note')}</div>
                 <div class="prompt-options-group">
-                    <label class="prompt-options-label" for="promptGraphFormat">出力形式</label>
-                    <div class="prompt-options-help">グラフ情報のLLMへの出力形式を選択します。</div>
+                    <label class="prompt-options-label" for="promptGraphFormat">${t('prompt.output_format')}</label>
+                    <div class="prompt-options-help">${t('prompt.output_format_help')}</div>
                     <select id="promptGraphFormat" class="prompt-options-select">
                         <option value="mermaid" ${promptOptions.graph_format === 'mermaid' ? 'selected' : ''}>Mermaid</option>
                         <option value="paths" ${promptOptions.graph_format === 'paths' ? 'selected' : ''}>Paths</option>
@@ -1012,69 +1036,69 @@ function renderAnalysisResults() {
                     </select>
                 </div>
                 <div class="prompt-options-group">
-                    <label class="prompt-options-label" for="promptScope">スコープ</label>
-                    <div class="prompt-options-help">パスとk-hop近傍のどちらをプロンプトに含めるかを選択します。</div>
+                    <label class="prompt-options-label" for="promptScope">${t('prompt.scope')}</label>
+                    <div class="prompt-options-help">${t('prompt.scope_help')}</div>
                     <select id="promptScope" class="prompt-options-select">
-                        <option value="path" ${promptOptions.scope === 'path' ? 'selected' : ''}>パスのみ</option>
-                        <option value="k_hop" ${promptOptions.scope === 'k_hop' ? 'selected' : ''}>k-hop 近傍</option>
-                        <option value="path_plus_k_hop" ${promptOptions.scope === 'path_plus_k_hop' ? 'selected' : ''}>パス + k-hop</option>
+                        <option value="path" ${promptOptions.scope === 'path' ? 'selected' : ''}>${t('prompt.scope_path_only')}</option>
+                        <option value="k_hop" ${promptOptions.scope === 'k_hop' ? 'selected' : ''}>${t('prompt.scope_k_hop')}</option>
+                        <option value="path_plus_k_hop" ${promptOptions.scope === 'path_plus_k_hop' ? 'selected' : ''}>${t('prompt.scope_path_plus_k_hop')}</option>
                     </select>
                 </div>
                 <div class="prompt-options-group">
-                    <div class="prompt-options-label">ノード情報</div>
-                    <div class="prompt-options-help">ノード種別ごとに含めたい情報を選びます。</div>
+                    <div class="prompt-options-label">${t('prompt.node_info')}</div>
+                    <div class="prompt-options-help">${t('prompt.node_info_help')}</div>
                     <div class="prompt-options-type-list">
                         ${nodeTypeOptionsHtml}
                     </div>
                 </div>
                 <div class="prompt-options-group">
-                    <div class="prompt-options-label">エッジ情報</div>
-                    <div class="prompt-options-help">エッジ種別ごとに出力する属性を選びます。</div>
+                    <div class="prompt-options-label">${t('prompt.edge_info')}</div>
+                    <div class="prompt-options-help">${t('prompt.edge_info_help')}</div>
                     <div class="prompt-options-type-list">
                         ${edgeTypeOptionsHtml}
                     </div>
                 </div>
                 <div class="prompt-options-grid">
                     <label class="prompt-options-field">
-                        <span>パス上限</span>
+                        <span>${t('prompt.max_paths')}</span>
                         <input type="number" id="promptMaxPaths" min="1" step="1" value="${maxPathsValue}" placeholder="${promptDefaults.max_paths}">
                     </label>
                     <label class="prompt-options-field">
-                        <span>ノード上限</span>
+                        <span>${t('prompt.max_nodes')}</span>
                         <input type="number" id="promptMaxNodes" min="1" step="1" value="${maxNodesValue}" placeholder="${promptDefaults.max_nodes}">
                     </label>
                     <label class="prompt-options-field">
-                        <span>エッジ上限</span>
+                        <span>${t('prompt.max_edges')}</span>
                         <input type="number" id="promptMaxEdges" min="1" step="1" value="${maxEdgesValue}" placeholder="${promptDefaults.max_edges}">
                     </label>
                     <label class="prompt-options-field">
-                        <span>k-hop 深さ</span>
+                        <span>${t('prompt.k_hop_depth')}</span>
                         <input type="number" id="promptNeighborK" min="1" step="1" value="${neighborValue}" placeholder="${promptDefaults.neighbor_k}">
                     </label>
                 </div>
                 <div class="prompt-options-help">
-                    空欄時の自動値: パス ${promptDefaults.max_paths} / ノード ${promptDefaults.max_nodes} / エッジ ${promptDefaults.max_edges} / k-hop ${promptDefaults.neighbor_k} ${defaultsSourceNote}
+                    ${t('prompt.auto_defaults', {paths: promptDefaults.max_paths, nodes: promptDefaults.max_nodes, edges: promptDefaults.max_edges, khop: promptDefaults.neighbor_k, source: defaultsSourceNote})}
                 </div>
                 <div class="prompt-options-group" style="margin-top: 0.5rem;">
-                    <div class="prompt-options-label">フィルタリング</div>
+                    <div class="prompt-options-label">${t('prompt.filtering')}</div>
                     <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0; font-size: 0.75rem;">
                         <input type="checkbox" id="promptIncludeTargetPaper">
-                        <span>ターゲット論文を含める</span>
+                        <span>${t('prompt.include_target_paper')}</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0; font-size: 0.75rem;">
                         <input type="checkbox" id="promptExcludeFuturePapers" checked>
-                        <span>未来の論文を除外する</span>
+                        <span>${t('prompt.exclude_future_papers')}</span>
                     </label>
                 </div>
                 <div class="prompt-preview-actions" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
                     <button class="btn-secondary" onclick="previewPrompt()" style="width: 100%; padding: 0.5rem;">
-                        プロンプトを作成
+                        ${t('prompt.create_prompt')}
                     </button>
                 </div>
                 <div id="promptPreviewContainer" style="display: none; margin-top: 0.5rem;">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem;">
                         <div id="promptStats" style="font-size: 0.7rem; color: #888; display: flex; gap: 1rem;"></div>
-                        <button id="promptPreviewCopy" class="btn-secondary" type="button" onclick="copyPromptPreview()" style="padding: 0.3rem 0.5rem; font-size: 0.65rem;" disabled>コピー</button>
+                        <button id="promptPreviewCopy" class="btn-secondary" type="button" onclick="copyPromptPreview()" style="padding: 0.3rem 0.5rem; font-size: 0.65rem;" disabled>${t('copy.button')}</button>
                     </div>
                     <pre class="prompt-preview-content" style="max-height: 300px; overflow: auto; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem; white-space: pre-wrap; word-break: break-word;"></pre>
                 </div>
@@ -1084,19 +1108,19 @@ function renderAnalysisResults() {
 
     let html = `
         <div class="analysis-header" style="margin-bottom: 0.75rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px;">
-            <div style="font-size: 0.75rem; color: #888;">対象論文</div>
+            <div style="font-size: 0.75rem; color: #888;">${t('analysis.target_paper')}</div>
             <div style="font-size: 0.9rem; color: #fff; font-weight: bold;">${truncateText(AppState.selectedPaperId, 35)}</div>
             <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">
-                ${pathCountLabel} (${result.multihop_k || 3} ホップ)
+                ${pathCountLabel} (${result.multihop_k || 3} ${t('analysis.hops')})
             </div>
         </div>
         ${promptOptionsHtml}
         <div class="analysis-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
             <button class="btn-primary" onclick="generateProposals()" style="flex: 1; padding: 0.6rem;">
-                💡 提案を生成
+                ${t('analysis.generate_proposal')}
             </button>
         </div>
-        <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">発見されたパス:</div>
+        <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">${t('analysis.discovered_paths')}</div>
         <div class="analysis-results">
     `;
 
@@ -1180,7 +1204,7 @@ function showPathDetail(path, index) {
                 justify-content: space-between;
                 align-items: center;
             ">
-                <span style="font-weight: bold; color: var(--accent-blue);">パス #${index + 1} 詳細</span>
+                <span style="font-weight: bold; color: var(--accent-blue);">${t('path.detail', {n: index + 1})}</span>
                 <button onclick="closePathDetail()" style="
                     background: none;
                     border: none;
@@ -1191,7 +1215,7 @@ function showPathDetail(path, index) {
             </div>
             <div style="padding: 0.75rem; overflow-y: auto; max-height: 240px;">
                 <div style="font-size: 0.75rem; color: #888; margin-bottom: 0.5rem;">
-                    スコア: <span style="color: var(--score-high);">${path.score?.toFixed(2) || 'N/A'}</span>
+                    ${t('path.score')}: <span style="color: var(--score-high);">${path.score?.toFixed(2) || 'N/A'}</span>
                 </div>
     `;
 
@@ -1212,7 +1236,7 @@ function showPathDetail(path, index) {
                 border-left: 3px solid ${nodeColor};
             ">
                 <div style="font-size: 0.7rem; color: #888;">${icon} ${nodeType}${node.entity_type ? ` (${node.entity_type})` : ''}</div>
-                <div style="font-size: 0.85rem; color: #fff;">${node.name || node.id || '不明'}</div>
+                <div style="font-size: 0.85rem; color: #fff;">${node.name || node.id || t('path.unknown')}</div>
                 ${node.description ? `<div style="font-size: 0.7rem; color: #aaa; margin-top: 0.25rem;">${truncateText(node.description, 80)}</div>` : ''}
             </div>
         `;
@@ -1235,7 +1259,7 @@ function showPathDetail(path, index) {
                     font-size: 0.75rem;
                 ">
                     ↓ <strong>${edge.type}</strong>
-                    ${edge.importance_score ? ` (重要度: ${'★'.repeat(edge.importance_score)})` : ''}
+                    ${edge.importance_score ? ` (${t('score.importance')}: ${'★'.repeat(edge.importance_score)})` : ''}
                 </div>
             `;
 
@@ -1260,14 +1284,14 @@ function showPathDetail(path, index) {
         const bd = path.score_breakdown;
         detailHtml += `
             <div style="margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--bg-tertiary);">
-                <div style="font-size: 0.75rem; color: #888; margin-bottom: 0.25rem;">スコア内訳:</div>
+                <div style="font-size: 0.75rem; color: #888; margin-bottom: 0.25rem;">${t('score.breakdown')}</div>
                 <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.7rem;">
         `;
-        if (bd.cite_importance_score) detailHtml += `<span style="color: var(--citation-extends);">引用重要度: ${bd.cite_importance_score.toFixed(1)}</span>`;
-        if (bd.cite_type_score) detailHtml += `<span style="color: var(--citation-compares);">引用種別: ${bd.cite_type_score.toFixed(1)}</span>`;
-        if (bd.mentions_score) detailHtml += `<span style="color: var(--accent-green);">言及: ${bd.mentions_score.toFixed(1)}</span>`;
-        if (bd.entity_relation_score) detailHtml += `<span style="color: var(--entity-dataset);">Entity関係: ${bd.entity_relation_score.toFixed(1)}</span>`;
-        if (bd.length_penalty) detailHtml += `<span style="color: var(--score-low);">距離ペナルティ: ${bd.length_penalty.toFixed(1)}</span>`;
+        if (bd.cite_importance_score) detailHtml += `<span style="color: var(--citation-extends);">${t('score.cite_importance')}: ${bd.cite_importance_score.toFixed(1)}</span>`;
+        if (bd.cite_type_score) detailHtml += `<span style="color: var(--citation-compares);">${t('score.cite_type')}: ${bd.cite_type_score.toFixed(1)}</span>`;
+        if (bd.mentions_score) detailHtml += `<span style="color: var(--accent-green);">${t('score.mentions')}: ${bd.mentions_score.toFixed(1)}</span>`;
+        if (bd.entity_relation_score) detailHtml += `<span style="color: var(--entity-dataset);">${t('score.entity_relation')}: ${bd.entity_relation_score.toFixed(1)}</span>`;
+        if (bd.length_penalty) detailHtml += `<span style="color: var(--score-low);">${t('score.length_penalty')}: ${bd.length_penalty.toFixed(1)}</span>`;
         detailHtml += `</div></div>`;
     }
 
@@ -1319,7 +1343,7 @@ function highlightPathOnGraph(path) {
     });
 
     if (matchedNodeIds.length === 0) {
-        updateStatus('パスのノードがグラフ上に見つかりません');
+        updateStatus(t('path.nodes_not_found'));
         return;
     }
 
@@ -1368,7 +1392,7 @@ function highlightPathOnGraph(path) {
         });
     }
 
-    updateStatus(`パス: ${matchedNodeIds.length}/${nodes.length}ノードをハイライト`);
+    updateStatus(t('path.highlight', {matched: matchedNodeIds.length, total: nodes.length}));
 
     // 一定時間後にハイライトを解除するボタンを表示
     showResetHighlightButton();
@@ -1381,7 +1405,7 @@ function showResetHighlightButton() {
 
     const btn = document.createElement('button');
     btn.id = 'resetHighlightBtn';
-    btn.innerHTML = '🔄 ハイライト解除';
+    btn.innerHTML = t('path.reset_highlight');
     btn.style.cssText = `
         position: fixed;
         bottom: 70px;
@@ -1431,13 +1455,13 @@ function resetHighlight() {
     const btn = document.getElementById('resetHighlightBtn');
     if (btn) btn.remove();
 
-    updateStatus('ハイライトを解除しました');
+    updateStatus(t('path.highlight_reset'));
 }
 
 // ========== 提案生成 ==========
 async function previewPrompt() {
     if (!AppState.analysisResult) {
-        alert('先に分析を実行してください');
+        alert(t('prompt.run_analysis_first'));
         return;
     }
 
@@ -1454,7 +1478,7 @@ async function previewPrompt() {
 
     // ローディング表示
     container.style.display = 'block';
-    previewContent.textContent = 'プロンプトを生成中...';
+    previewContent.textContent = t('prompt.generating');
     if (statsEl) statsEl.textContent = '';
     updatePromptPreviewCopyButton('loading');
 
@@ -1479,21 +1503,21 @@ async function previewPrompt() {
 
         const result = await response.json();
         const promptText = result.prompt || '';
-        previewContent.textContent = promptText || 'プロンプトが生成されませんでした';
+        previewContent.textContent = promptText || t('prompt.not_generated');
         updatePromptPreviewCopyButton(promptText ? 'ready' : 'disabled');
 
         // 行数・文字数を表示
         if (statsEl && promptText) {
             const lineCount = promptText.split('\n').length;
             const charCount = promptText.length;
-            statsEl.innerHTML = `<span>📝 ${lineCount.toLocaleString()} 行</span><span>📏 ${charCount.toLocaleString()} 文字</span>`;
+            statsEl.innerHTML = `<span>📝 ${lineCount.toLocaleString()} ${t('prompt.lines')}</span><span>📏 ${charCount.toLocaleString()} ${t('prompt.chars')}</span>`;
         }
 
-        updateStatus('プロンプトを生成しました');
+        updateStatus(t('prompt.generated'));
     } catch (error) {
-        previewContent.textContent = 'エラー: ' + error.message;
+        previewContent.textContent = t('generic.error') + error.message;
         updatePromptPreviewCopyButton('disabled');
-        updateStatus('プロンプト生成エラー: ' + error.message);
+        updateStatus(t('prompt.generation_error') + error.message);
     }
 }
 
@@ -1503,22 +1527,22 @@ function updatePromptPreviewCopyButton(state) {
 
     if (state === 'ready') {
         button.disabled = false;
-        button.textContent = 'コピー';
+        button.textContent = t('copy.button');
         return;
     }
     if (state === 'loading') {
         button.disabled = true;
-        button.textContent = 'コピー準備中';
+        button.textContent = t('copy.preparing');
         return;
     }
     if (state === 'copied') {
         button.disabled = false;
-        button.textContent = 'コピーしました';
+        button.textContent = t('copy.copied');
         return;
     }
 
     button.disabled = true;
-    button.textContent = 'コピー';
+    button.textContent = t('copy.button');
 }
 
 async function copyPromptPreview() {
@@ -1528,8 +1552,8 @@ async function copyPromptPreview() {
 
     const promptText = previewContent.textContent || '';
     const trimmed = promptText.trim();
-    if (!trimmed || trimmed === 'プロンプトを生成中...' || trimmed === 'プロンプトが生成されませんでした' || trimmed.startsWith('エラー:')) {
-        updateStatus('コピーするプロンプトがありません');
+    if (!trimmed || trimmed === t('prompt.generating') || trimmed === t('prompt.not_generated') || trimmed.startsWith(t('generic.error'))) {
+        updateStatus(t('copy.no_content'));
         return;
     }
 
@@ -1549,39 +1573,39 @@ async function copyPromptPreview() {
             const success = document.execCommand('copy');
             document.body.removeChild(textarea);
             if (!success) {
-                throw new Error('コピーに失敗しました');
+                throw new Error(t('copy.failed'));
             }
         }
 
         updatePromptPreviewCopyButton('copied');
-        updateStatus('プロンプトをコピーしました');
+        updateStatus(t('copy.success'));
         setTimeout(() => updatePromptPreviewCopyButton('ready'), 1200);
     } catch (error) {
-        updateStatus('コピーに失敗しました: ' + (error?.message || String(error)));
+        updateStatus(t('copy.error') + (error?.message || String(error)));
     }
 }
 
 async function generateProposals() {
     if (!AppState.analysisResult) {
-        alert('先に分析を実行してください');
+        alert(t('prompt.run_analysis_first'));
         return;
     }
 
-    updateStatus('提案を生成中... (数分かかる場合があります)');
+    updateStatus(t('proposal.generating'));
 
     // 右パネルにローディング表示
     openRightPanel();
     const content = document.getElementById('rightPanelContent');
     const headerTitle = document.querySelector('.right-panel-header h3');
-    if (headerTitle) headerTitle.textContent = '研究提案';
+    if (headerTitle) headerTitle.textContent = t('panel.research_proposals');
     if (content) {
         content.innerHTML = `
             <div class="loading">
                 <div class="loading-spinner"></div>
             </div>
             <div style="text-align: center; color: #888; margin-top: 1rem;">
-                LLMで提案を生成中...<br>
-                <span style="font-size: 0.75rem;">数分かかる場合があります</span>
+                ${t('proposal.generating_llm')}<br>
+                <span style="font-size: 0.75rem;">${t('proposal.generating_hint')}</span>
             </div>
         `;
     }
@@ -1592,7 +1616,7 @@ async function generateProposals() {
             promptOptions = getPromptOptionsFromUI();
         } catch (error) {
             alert(error.message);
-            updateStatus('提案生成エラー: ' + error.message);
+            updateStatus(t('proposal.error') + error.message);
             return;
         }
 
@@ -1619,7 +1643,7 @@ async function generateProposals() {
         AppState.proposalPrompt = result.prompt || '';
         AppState.proposalSources = {};
 
-        updateStatus(`提案生成完了: ${AppState.proposals.length}件`);
+        updateStatus(t('proposal.complete', {count: AppState.proposals.length}));
 
         // 提案タブに切り替え
         switchTab('propose');
@@ -1628,12 +1652,12 @@ async function generateProposals() {
         await saveAllProposals();
 
     } catch (error) {
-        updateStatus('提案生成エラー: ' + error.message);
+        updateStatus(t('proposal.error') + error.message);
         if (content) {
             content.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">⚠️</div>
-                    <div class="empty-state-text">提案生成エラー<br>${error.message}</div>
+                    <div class="empty-state-text">${t('proposal.error_title')}<br>${error.message}</div>
                 </div>
             `;
         }
@@ -1652,8 +1676,8 @@ function renderProposals() {
                 <div class="loading-spinner"></div>
             </div>
             <div style="text-align: center; color: #888; margin-top: 1rem;">
-                Chain-of-Ideasを実行中...<br>
-                <span style="font-size: 0.75rem;" id="coiProgressText">初期化中...</span>
+                ${t('coi.running_progress')}<br>
+                <span style="font-size: 0.75rem;" id="coiProgressText">${t('coi.initializing')}</span>
             </div>
             <div id="coiProgressLog" style="margin-top: 1rem; max-height: 200px; overflow-y: auto; padding: 0.5rem; background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem; font-family: monospace;"></div>
         `;
@@ -1664,7 +1688,7 @@ function renderProposals() {
         content.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">💡</div>
-                <div class="empty-state-text">提案がありません<br>分析を実行してから「提案を生成」をクリックしてください</div>
+                <div class="empty-state-text">${t('proposal.no_proposals')}<br>${t('proposal.no_proposals_hint')}</div>
             </div>
             ${renderCoISection()}
         `;
@@ -1673,7 +1697,7 @@ function renderProposals() {
 
     const promptHtml = AppState.proposalPrompt ? `
         <details class="prompt-panel">
-            <summary class="prompt-summary">生成プロンプト</summary>
+            <summary class="prompt-summary">${t('proposal.generation_prompt')}</summary>
             <pre class="prompt-content">${escapeHtml(AppState.proposalPrompt)}</pre>
         </details>
     ` : '';
@@ -1682,20 +1706,20 @@ function renderProposals() {
         <div class="proposal-actions" style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
             <div class="eval-mode-selector" style="display: flex; gap: 0.25rem; align-items: center;">
                 <select id="evaluationMode" onchange="AppState.evaluationMode = this.value" style="padding: 0.35rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); color: var(--text-primary); font-size: 0.8rem; cursor: pointer;">
-                    <option value="pairwise" ${AppState.evaluationMode === 'pairwise' ? 'selected' : ''}>ペアワイズ比較</option>
-                    <option value="single" ${AppState.evaluationMode === 'single' ? 'selected' : ''}>独立評価</option>
+                    <option value="pairwise" ${AppState.evaluationMode === 'pairwise' ? 'selected' : ''}>${t('eval.pairwise')}</option>
+                    <option value="single" ${AppState.evaluationMode === 'single' ? 'selected' : ''}>${t('eval.single')}</option>
                 </select>
-                <button class="btn-evaluate" onclick="runEvaluationByMode()" title="提案を評価・ランキング">
-                    🏆 評価を実行
+                <button class="btn-evaluate" onclick="runEvaluationByMode()">
+                    ${t('eval.run')}
                 </button>
             </div>
             <button class="btn-secondary" onclick="openComparisonModal()">
-                比較ビュー
+                ${t('eval.comparison_view')}
             </button>
-            <button class="btn-secondary" onclick="exportProposals('markdown')" title="Markdownでエクスポート">
+            <button class="btn-secondary" onclick="exportProposals('markdown')" title="Markdown">
                 📄
             </button>
-            <button class="btn-secondary" onclick="exportProposals('json')" title="JSONでエクスポート">
+            <button class="btn-secondary" onclick="exportProposals('json')" title="JSON">
                 📋
             </button>
         </div>
@@ -1703,7 +1727,7 @@ function renderProposals() {
         <div class="target-paper-option" style="margin-bottom: 0.75rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 6px; display: flex; align-items: center; gap: 0.5rem;">
             <input type="checkbox" id="includeTargetPaper" checked>
             <label for="includeTargetPaper" style="font-size: 0.8rem; color: #ccc; cursor: pointer;">
-                📄 ターゲット論文（${escapeHtml(AppState.selectedPaperTitle || AppState.selectedPaperId)}）を比較に含める
+                ${t('eval.include_target', {paper: escapeHtml(AppState.selectedPaperTitle || AppState.selectedPaperId)})}
             </label>
         </div>
         ` : ''}
@@ -1733,18 +1757,18 @@ function renderProposalCard(proposal, index) {
                 <span class="proposal-title">${truncateText(proposal.title, 30)}</span>
                 <div class="proposal-actions">
                     ${sourceBadge}
-                    <button class="btn-icon" onclick="toggleProposalDetails(${index})" title="詳細">
+                    <button class="btn-icon" onclick="toggleProposalDetails(${index})" title="${t('proposal.detail')}">
                         📖
                     </button>
                 </div>
             </div>
             <div class="proposal-card-body">
                 <div class="proposal-section">
-                    <div class="proposal-section-title">動機</div>
+                    <div class="proposal-section-title">${t('proposal.motivation')}</div>
                     <div class="proposal-section-content">${truncateText(proposal.motivation, 100)}</div>
                 </div>
                 <div class="proposal-section">
-                    <div class="proposal-section-title">手法</div>
+                    <div class="proposal-section-title">${t('proposal.method')}</div>
                     <div class="proposal-section-content">${truncateText(proposal.method, 100)}</div>
                 </div>
                 <div class="rating" data-proposal="${index}">
@@ -1762,7 +1786,7 @@ function getSourceBadge(source) {
         case 'coi':
             return '<span class="source-badge source-coi">🟢 CoI</span>';
         case 'target_paper':
-            return '<span class="source-badge source-target">📄 ターゲット</span>';
+            return `<span class="source-badge source-target">${t('source.target')}</span>`;
         case 'ideagraph':
         default:
             return '<span class="source-badge source-ideagraph">🔵 IdeaGraph</span>';
@@ -1773,22 +1797,22 @@ function renderCoISection() {
     return `
         <div class="coi-section" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid rgba(76, 175, 80, 0.3);">
             <h4 style="font-size: 0.9rem; color: #4CAF50; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                🔗 CoI（Chain-of-Ideas）で比較
+                ${t('coi.section_title')}
             </h4>
             <p style="font-size: 0.75rem; color: #aaa; margin-bottom: 0.75rem;">
-                Chain-of-Ideasを実行してIdeaGraphと比較します。実行には数分〜十数分かかります。
+                ${t('coi.description')}
             </p>
             <div style="margin-bottom: 0.5rem;">
-                <label style="font-size: 0.75rem; color: #aaa;">出版日フィルタ（空なら自動取得）:</label>
+                <label style="font-size: 0.75rem; color: #aaa;">${t('coi.date_filter')}</label>
                 <input type="text" id="coiPublicationDate" placeholder=":2022-12-01"
                     style="width: 160px; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; margin-left: 0.5rem;" />
             </div>
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                 <button class="btn-coi" onclick="runCoI()" ${AppState.coiRunning ? 'disabled' : ''}>
-                    ${AppState.coiRunning ? '実行中...' : '🚀 CoIを実行'}
+                    ${AppState.coiRunning ? t('coi.running') : t('coi.run')}
                 </button>
-                <button class="btn-secondary" onclick="openCoILoadModal()" title="既存のCoI結果を読み込み">
-                    📂 結果を読み込み
+                <button class="btn-secondary" onclick="openCoILoadModal()">
+                    ${t('coi.load_result')}
                 </button>
             </div>
             <div id="coiStatus" style="margin-top: 0.5rem; font-size: 0.75rem; color: #888;"></div>
@@ -1815,7 +1839,7 @@ function openProposalDetailsModal(index) {
     const rationaleHtml = proposal.rationale
         ? `
             <section class="proposal-detail-section">
-                <div class="proposal-detail-title">提案理由</div>
+                <div class="proposal-detail-title">${t('proposal.rationale')}</div>
                 ${renderTextBlock(proposal.rationale)}
             </section>
         `
@@ -1823,7 +1847,7 @@ function openProposalDetailsModal(index) {
     const researchTrendsHtml = proposal.research_trends
         ? `
             <section class="proposal-detail-section">
-                <div class="proposal-detail-title">研究動向</div>
+                <div class="proposal-detail-title">${t('proposal.research_trends')}</div>
                 ${renderTextBlock(proposal.research_trends)}
             </section>
         `
@@ -1831,7 +1855,7 @@ function openProposalDetailsModal(index) {
     const coiIdeaHtml = proposal.coi && proposal.coi.idea
         ? `
             <section class="proposal-detail-section">
-                <div class="proposal-detail-title">CoI原文</div>
+                <div class="proposal-detail-title">${t('proposal.coi_original')}</div>
                 ${renderTextBlock(proposal.coi.idea)}
             </section>
         `
@@ -1844,7 +1868,7 @@ function openProposalDetailsModal(index) {
     modal.innerHTML = `
         <div class="modal proposal-modal">
             <div class="modal-header">
-                <h2 class="modal-title">提案 #${index + 1}: ${escapeHtml(proposal.title || 'Untitled')}</h2>
+                <h2 class="modal-title">#${index + 1}: ${escapeHtml(proposal.title || 'Untitled')}</h2>
                 <button class="modal-close" onclick="closeProposalDetailsModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1853,61 +1877,61 @@ function openProposalDetailsModal(index) {
                     ${researchTrendsHtml}
                     ${coiIdeaHtml}
                     <section class="proposal-detail-section">
-                        <div class="proposal-detail-title">動機</div>
+                        <div class="proposal-detail-title">${t('proposal.motivation')}</div>
                         ${renderTextBlock(proposal.motivation)}
                     </section>
                     <section class="proposal-detail-section">
-                        <div class="proposal-detail-title">手法</div>
+                        <div class="proposal-detail-title">${t('proposal.method')}</div>
                         ${renderTextBlock(proposal.method)}
                     </section>
                     <section class="proposal-detail-section">
-                        <div class="proposal-detail-title">実験計画</div>
+                        <div class="proposal-detail-title">${t('proposal.experiment_plan')}</div>
                         <div class="detail-grid">
                             <div class="detail-item">
-                                <div class="detail-label">データセット</div>
+                                <div class="detail-label">${t('proposal.datasets')}</div>
                                 ${renderList(exp.datasets)}
                             </div>
                             <div class="detail-item">
-                                <div class="detail-label">ベースライン</div>
+                                <div class="detail-label">${t('proposal.baselines')}</div>
                                 ${renderList(exp.baselines)}
                             </div>
                             <div class="detail-item">
-                                <div class="detail-label">評価指標</div>
+                                <div class="detail-label">${t('proposal.metrics')}</div>
                                 ${renderList(exp.metrics)}
                             </div>
                             <div class="detail-item">
-                                <div class="detail-label">アブレーション</div>
+                                <div class="detail-label">${t('proposal.ablations')}</div>
                                 ${renderList(exp.ablations)}
                             </div>
                         </div>
                         <div class="detail-item detail-wide">
-                            <div class="detail-label">期待結果</div>
+                            <div class="detail-label">${t('proposal.expected_results')}</div>
                             ${renderTextBlock(exp.expected_results)}
                         </div>
                         <div class="detail-item detail-wide">
-                            <div class="detail-label">失敗時の解釈</div>
+                            <div class="detail-label">${t('proposal.failure_interpretation')}</div>
                             ${renderTextBlock(exp.failure_interpretation)}
                         </div>
                     </section>
                     <section class="proposal-detail-section">
-                        <div class="proposal-detail-title">既存研究との差異</div>
+                        <div class="proposal-detail-title">${t('proposal.differences')}</div>
                         ${renderList(proposal.differences)}
                     </section>
                     <section class="proposal-detail-section">
-                        <div class="proposal-detail-title">根拠</div>
+                        <div class="proposal-detail-title">${t('proposal.grounding')}</div>
                         <div class="detail-grid">
                             <div class="detail-item">
-                                <div class="detail-label">関連論文</div>
+                                <div class="detail-label">${t('proposal.related_papers')}</div>
                                 ${renderList(grounding.papers)}
                             </div>
                             <div class="detail-item">
-                                <div class="detail-label">関連エンティティ</div>
+                                <div class="detail-label">${t('proposal.related_entities')}</div>
                                 ${renderList(grounding.entities)}
                             </div>
                         </div>
                         ${grounding.path_mermaid ? `
                             <div class="detail-item detail-wide">
-                                <div class="detail-label">知識グラフパス</div>
+                                <div class="detail-label">${t('proposal.knowledge_graph_path')}</div>
                                 <pre class="detail-code">${escapeHtml(grounding.path_mermaid)}</pre>
                             </div>
                         ` : ''}
@@ -1915,8 +1939,8 @@ function openProposalDetailsModal(index) {
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeProposalDetailsModal()">閉じる</button>
-                <button class="btn-primary" onclick="saveProposal(${index})">保存</button>
+                <button class="btn-secondary" onclick="closeProposalDetailsModal()">${t('proposal.close')}</button>
+                <button class="btn-primary" onclick="saveProposal(${index})">${t('proposal.save')}</button>
             </div>
         </div>
     `;
@@ -1954,7 +1978,7 @@ function rateProposal(index, rating) {
 // ========== 比較モーダル ==========
 function openComparisonModal() {
     if (!AppState.proposals || AppState.proposals.length < 2) {
-        alert('比較するには2つ以上の提案が必要です');
+        alert(t('comparison.need_two'));
         return;
     }
 
@@ -1964,7 +1988,7 @@ function openComparisonModal() {
     modal.innerHTML = `
         <div class="modal" style="width: 90vw; max-width: 1200px;">
             <div class="modal-header">
-                <h2 class="modal-title">提案の比較</h2>
+                <h2 class="modal-title">${t('comparison.title')}</h2>
                 <button class="modal-close" onclick="closeComparisonModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1979,25 +2003,25 @@ function openComparisonModal() {
                                 </div>
                                 <div class="comparison-card-body">
                                     <div class="comparison-section">
-                                        <div class="comparison-section-title">動機</div>
+                                        <div class="comparison-section-title">${t('proposal.motivation')}</div>
                                         <div class="comparison-section-content">${escapeHtml(proposal.motivation || '')}</div>
                                     </div>
                                     <div class="comparison-section">
-                                        <div class="comparison-section-title">手法</div>
+                                        <div class="comparison-section-title">${t('proposal.method')}</div>
                                         <div class="comparison-section-content">${escapeHtml(proposal.method || '')}</div>
                                     </div>
                                     <div class="comparison-section">
-                                        <div class="comparison-section-title">実験計画</div>
+                                        <div class="comparison-section-title">${t('proposal.experiment_plan')}</div>
                                         <div class="comparison-section-content">
-                                            <div><strong>データセット:</strong> ${formatInlineList(exp.datasets)}</div>
-                                            <div><strong>ベースライン:</strong> ${formatInlineList(exp.baselines)}</div>
-                                            <div><strong>評価指標:</strong> ${formatInlineList(exp.metrics)}</div>
+                                            <div><strong>${t('proposal.datasets')}:</strong> ${formatInlineList(exp.datasets)}</div>
+                                            <div><strong>${t('proposal.baselines')}:</strong> ${formatInlineList(exp.baselines)}</div>
+                                            <div><strong>${t('proposal.metrics')}:</strong> ${formatInlineList(exp.metrics)}</div>
                                         </div>
                                     </div>
                                     <div class="comparison-section">
-                                        <div class="comparison-section-title">既存研究との差異</div>
+                                        <div class="comparison-section-title">${t('proposal.differences')}</div>
                                         <div class="comparison-section-content">
-                                            ${renderList(proposal.differences, 'なし')}
+                                            ${renderList(proposal.differences)}
                                         </div>
                                     </div>
                                 </div>
@@ -2007,8 +2031,8 @@ function openComparisonModal() {
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeComparisonModal()">閉じる</button>
-                <button class="btn-primary" onclick="exportProposals('markdown')">エクスポート</button>
+                <button class="btn-secondary" onclick="closeComparisonModal()">${t('comparison.close')}</button>
+                <button class="btn-primary" onclick="exportProposals('markdown')">${t('comparison.export')}</button>
             </div>
         </div>
     `;
@@ -2032,18 +2056,18 @@ function runEvaluationByMode() {
 
 async function runSingleEvaluation() {
     if (!AppState.proposals || AppState.proposals.length < 1) {
-        alert('評価には1件以上の提案が必要です');
+        alert(t('eval.need_one_or_more'));
         return;
     }
 
-    updateStatus('提案を独立評価中... (数分かかる場合があります)');
+    updateStatus(t('eval.evaluating_single'));
 
     // 右パネルにローディング表示
     openRightPanel();
     const content = document.getElementById('rightPanelContent');
     const headerTitle = document.querySelector('.right-panel-header h3');
-    if (headerTitle) headerTitle.textContent = '独立評価';
-    const evaluationInfo = `${AppState.proposals.length}件の提案`;
+    if (headerTitle) headerTitle.textContent = t('panel.independent_evaluation');
+    const evaluationInfo = t('eval.proposals_count', {count: AppState.proposals.length});
     if (content) {
         content.innerHTML = `
             <div class="evaluation-progress">
@@ -2051,14 +2075,14 @@ async function runSingleEvaluation() {
                     <div class="loading-spinner"></div>
                 </div>
                 <div style="text-align: center; color: #888; margin-top: 1rem;">
-                    <div id="singleEvalPhase">初期化中...</div>
+                    <div id="singleEvalPhase">${t('eval.phase.initializing')}</div>
                     <div id="singleEvalProgressText" style="font-size: 0.85rem; margin-top: 0.5rem;"></div>
                     <div style="margin-top: 0.75rem; padding: 0 1rem;">
                         <div style="background: var(--bg-primary); border-radius: 4px; height: 8px; overflow: hidden;">
                             <div id="singleEvalProgressBar" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
                         </div>
                     </div>
-                    <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #666;">${evaluationInfo}を独立評価しています</div>
+                    <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #666;">${t('eval.evaluating_single_info', {info: evaluationInfo})}</div>
                 </div>
             </div>
         `;
@@ -2107,10 +2131,10 @@ async function runSingleEvaluation() {
                         if (event.event_type === 'completed' && event.result) {
                             AppState.singleEvaluationResult = event.result;
                             AppState.evaluationResult = null;  // ペアワイズ結果をクリア
-                            updateStatus(`独立評価完了: ${event.result.ranking?.length || 0}件をランキング`);
+                            updateStatus(t('eval.single_complete', {count: event.result.ranking?.length || 0}));
                             switchTab('evaluate');
                         } else if (event.event_type === 'error') {
-                            throw new Error(event.error || '評価中にエラーが発生しました');
+                            throw new Error(event.error || t('eval.error_during'));
                         }
                     } catch (e) {
                         if (e.message && !e.message.includes('JSON')) {
@@ -2122,12 +2146,12 @@ async function runSingleEvaluation() {
         }
 
     } catch (error) {
-        updateStatus('評価エラー: ' + error.message);
+        updateStatus(t('eval.error') + error.message);
         if (content) {
             content.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">⚠️</div>
-                    <div class="empty-state-text">評価エラー<br>${escapeHtml(error.message)}</div>
+                    <div class="empty-state-text">${t('eval.error_title')}<br>${escapeHtml(error.message)}</div>
                 </div>
             `;
         }
@@ -2142,16 +2166,16 @@ function updateSingleEvaluationProgress(event) {
     if (!phaseEl || !progressTextEl || !progressBarEl) return;
 
     const phaseMessages = {
-        'evaluating': 'アイデアを評価中...',
-        'completed': '評価完了！',
+        'evaluating': t('eval.phase.evaluating'),
+        'completed': t('eval.phase.completed'),
     };
 
-    phaseEl.textContent = phaseMessages[event.phase] || event.message || '処理中...';
+    phaseEl.textContent = phaseMessages[event.phase] || event.message || t('eval.phase.processing');
 
     if (event.total_evaluations > 0) {
         const percent = Math.round((event.current_evaluation / event.total_evaluations) * 100);
         progressBarEl.style.width = `${percent}%`;
-        progressTextEl.textContent = `${event.current_evaluation}/${event.total_evaluations}件の評価完了`;
+        progressTextEl.textContent = t('eval.progress.evaluations', {current: event.current_evaluation, total: event.total_evaluations});
     }
 }
 
@@ -2165,20 +2189,20 @@ async function runEvaluation() {
     const targetPaperCount = includeTarget ? 1 : 0;
     const totalCount = proposalCount + targetPaperCount;
     if (totalCount < 2) {
-        alert('評価には2件以上のアイデアが必要です（提案 + ターゲット論文）');
+        alert(t('eval.need_two_or_more'));
         return;
     }
 
-    updateStatus('提案を評価中... (数分かかる場合があります)');
+    updateStatus(t('eval.evaluating'));
 
     // 右パネルにローディング表示
     openRightPanel();
     const content = document.getElementById('rightPanelContent');
     const headerTitle = document.querySelector('.right-panel-header h3');
-    if (headerTitle) headerTitle.textContent = '提案評価';
+    if (headerTitle) headerTitle.textContent = t('panel.proposal_evaluation');
     const evaluationInfo = includeTarget
-        ? `${AppState.proposals.length}件の提案 + ターゲット論文`
-        : `${AppState.proposals.length}件の提案`;
+        ? t('eval.proposals_plus_target', {count: AppState.proposals.length})
+        : t('eval.proposals_count', {count: AppState.proposals.length});
     if (content) {
         content.innerHTML = `
             <div class="evaluation-progress">
@@ -2186,14 +2210,14 @@ async function runEvaluation() {
                     <div class="loading-spinner"></div>
                 </div>
                 <div style="text-align: center; color: #888; margin-top: 1rem;">
-                    <div id="evaluationPhase">初期化中...</div>
+                    <div id="evaluationPhase">${t('eval.phase.initializing')}</div>
                     <div id="evaluationProgressText" style="font-size: 0.85rem; margin-top: 0.5rem;"></div>
                     <div style="margin-top: 0.75rem; padding: 0 1rem;">
                         <div style="background: var(--bg-primary); border-radius: 4px; height: 8px; overflow: hidden;">
                             <div id="evaluationProgressBar" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
                         </div>
                     </div>
-                    <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #666;">${evaluationInfo}を評価しています</div>
+                    <div style="font-size: 0.75rem; margin-top: 0.5rem; color: #666;">${t('eval.evaluating_info', {info: evaluationInfo})}</div>
                 </div>
             </div>
         `;
@@ -2247,10 +2271,10 @@ async function runEvaluation() {
                         if (event.event_type === 'completed' && event.result) {
                             AppState.evaluationResult = event.result;
                             AppState.singleEvaluationResult = null;  // 単体評価結果をクリア
-                            updateStatus(`評価完了: ${event.result.ranking?.length || 0}件をランキング`);
+                            updateStatus(t('eval.complete', {count: event.result.ranking?.length || 0}));
                             switchTab('evaluate');
                         } else if (event.event_type === 'error') {
-                            throw new Error(event.error || '評価中にエラーが発生しました');
+                            throw new Error(event.error || t('eval.error_during'));
                         }
                     } catch (e) {
                         if (e.message && !e.message.includes('JSON')) {
@@ -2262,12 +2286,12 @@ async function runEvaluation() {
         }
 
     } catch (error) {
-        updateStatus('評価エラー: ' + error.message);
+        updateStatus(t('eval.error') + error.message);
         if (content) {
             content.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">⚠️</div>
-                    <div class="empty-state-text">評価エラー<br>${escapeHtml(error.message)}</div>
+                    <div class="empty-state-text">${t('eval.error_title')}<br>${escapeHtml(error.message)}</div>
                 </div>
             `;
         }
@@ -2282,21 +2306,21 @@ function updateEvaluationProgress(event) {
     if (!phaseEl || !progressTextEl || !progressBarEl) return;
 
     const phaseMessages = {
-        'extracting_target': 'ターゲット論文を分析中...',
-        'comparing': 'ペアワイズ比較を実行中...',
-        'calculating_elo': 'ELOレーティングを計算中...',
-        'completed': '評価完了！',
+        'extracting_target': t('eval.phase.extracting_target'),
+        'comparing': t('eval.phase.comparing'),
+        'calculating_elo': t('eval.phase.calculating_elo'),
+        'completed': t('eval.phase.completed'),
     };
 
-    phaseEl.textContent = phaseMessages[event.phase] || event.message || '処理中...';
+    phaseEl.textContent = phaseMessages[event.phase] || event.message || t('eval.phase.processing');
 
     if (event.total_comparisons > 0) {
         const percent = Math.round((event.current_comparison / event.total_comparisons) * 100);
         progressBarEl.style.width = `${percent}%`;
-        progressTextEl.textContent = `${event.current_comparison}/${event.total_comparisons}件の比較完了`;
+        progressTextEl.textContent = t('eval.progress.comparisons', {current: event.current_comparison, total: event.total_comparisons});
     } else if (event.phase === 'extracting_target') {
         progressBarEl.style.width = '10%';
-        progressTextEl.textContent = 'ターゲット論文からアイデアを抽出中...';
+        progressTextEl.textContent = t('eval.progress.extracting_target');
     }
 }
 
@@ -2316,7 +2340,7 @@ function renderEvaluation() {
         content.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">🏆</div>
-                <div class="empty-state-text">評価結果がありません<br>提案タブで「評価を実行」をクリックしてください</div>
+                <div class="empty-state-text">${t('eval.no_results')}<br>${t('eval.no_results_hint')}</div>
             </div>
         `;
         return;
@@ -2325,28 +2349,27 @@ function renderEvaluation() {
     const ranking = result.ranking;
     const pairwiseResults = result.pairwise_results || [];
 
-    // 指標名の日本語マッピング
     const metricLabels = {
-        'novelty': '独自性',
-        'significance': '重要性',
-        'feasibility': '実現可能性',
-        'clarity': '明確さ',
-        'effectiveness': '有効性',
-        'experiment_design': '実験設計',
+        'novelty': t('metric.novelty'),
+        'significance': t('metric.significance'),
+        'feasibility': t('metric.feasibility'),
+        'clarity': t('metric.clarity'),
+        'effectiveness': t('metric.effectiveness'),
+        'experiment_design': t('metric.experiment_design'),
     };
 
     let html = `
         <div class="evaluation-header" style="margin-bottom: 0.75rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px;">
-            <div style="font-size: 0.75rem; color: #888;">ペアワイズ比較評価</div>
+            <div style="font-size: 0.75rem; color: #888;">${t('eval.pairwise_title')}</div>
             <div style="font-size: 0.9rem; color: #fff; font-weight: bold;">
-                ${ranking.length}件の提案をランキング
+                ${t('eval.ranked_proposals', {count: ranking.length})}
             </div>
             <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">
-                ${pairwiseResults.length}回の比較を実施
+                ${t('eval.comparisons_done', {count: pairwiseResults.length})}
             </div>
         </div>
 
-        <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">ランキング:</div>
+        <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">${t('eval.ranking')}</div>
         <div class="evaluation-ranking">
     `;
 
@@ -2356,7 +2379,7 @@ function renderEvaluation() {
         const overallScore = item.overall_score?.toFixed(1) || 'N/A';
         const isTargetPaper = item.is_target_paper === true;
         const source = item.source || 'ideagraph';
-        const sourceBadge = isTargetPaper ? '<span class="target-paper-badge">📄 ターゲット論文</span>' : getSourceBadge(source);
+        const sourceBadge = isTargetPaper ? `<span class="target-paper-badge">${t('source.target_paper')}</span>` : getSourceBadge(source);
         const targetClass = isTargetPaper ? 'target-paper' : '';
         const sourceClass = source === 'coi' ? 'coi-source' : '';
 
@@ -2364,12 +2387,12 @@ function renderEvaluation() {
             <div class="evaluation-rank-card ${medalClass} ${targetClass} ${sourceClass}" data-index="${index}" data-source="${source}">
                 <div class="rank-header">
                     <span class="rank-badge ${medalClass}">#${rank}</span>
-                    <span class="rank-title">${truncateText(item.idea_title || '提案' + rank, 25)}</span>
+                    <span class="rank-title">${truncateText(item.idea_title || (t('export.md.proposal') + rank), 25)}</span>
                     ${sourceBadge}
                 </div>
                 <div class="rank-scores">
                     <div class="rank-score-item">
-                        <span class="score-label">総合スコア</span>
+                        <span class="score-label">${t('eval.overall_score')}</span>
                         <span class="score-value">${overallScore}</span>
                     </div>
                 </div>
@@ -2395,7 +2418,7 @@ function renderEvaluation() {
         html += `
             <details class="comparison-details" style="margin-top: 1rem;">
                 <summary style="cursor: pointer; font-size: 0.8rem; color: var(--accent-blue); padding: 0.5rem 0;">
-                    比較詳細を表示 (${pairwiseResults.length}件)
+                    ${t('eval.comparison_details', {count: pairwiseResults.length})}
                 </summary>
                 <div class="comparison-list" style="margin-top: 0.5rem;">
         `;
@@ -2406,8 +2429,8 @@ function renderEvaluation() {
             const isTargetB = comp.idea_b_id === 'target_paper';
             const proposalA = isTargetA ? null : AppState.proposals.find((p, idx) => `proposal_${idx}` === comp.idea_a_id || idx === parseInt(comp.idea_a_id.replace('proposal_', '')));
             const proposalB = isTargetB ? null : AppState.proposals.find((p, idx) => `proposal_${idx}` === comp.idea_b_id || idx === parseInt(comp.idea_b_id.replace('proposal_', '')));
-            const titleA = isTargetA ? '📄 ターゲット論文' : (proposalA?.title || comp.idea_a_id);
-            const titleB = isTargetB ? '📄 ターゲット論文' : (proposalB?.title || comp.idea_b_id);
+            const titleA = isTargetA ? t('source.target_paper') : (proposalA?.title || comp.idea_a_id);
+            const titleB = isTargetB ? t('source.target_paper') : (proposalB?.title || comp.idea_b_id);
 
             html += `
                 <div class="comparison-item">
@@ -2423,7 +2446,7 @@ function renderEvaluation() {
                 html += `<div class="comparison-scores" style="margin-top: 0.25rem;">`;
                 comp.scores.forEach(score => {
                     const label = metricLabels[score.metric] || score.metric;
-                    const winnerText = score.winner === 1 ? 'A' : score.winner === 2 ? 'B' : '引分';
+                    const winnerText = score.winner === 1 ? 'A' : score.winner === 2 ? 'B' : t('comparison.draw');
                     html += `
                         <div class="comparison-score-row" style="font-size: 0.7rem; color: #888; margin: 0.1rem 0;">
                             ${label}: <span style="color: var(--accent-blue);">${winnerText}</span>
@@ -2443,10 +2466,10 @@ function renderEvaluation() {
     html += `
         <div class="evaluation-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
             <button class="btn-secondary" onclick="exportEvaluation('json')" style="flex: 1;">
-                📋 JSONエクスポート
+                ${t('eval.json_export')}
             </button>
             <button class="btn-secondary" onclick="exportEvaluation('markdown')" style="flex: 1;">
-                📄 Markdownエクスポート
+                ${t('eval.md_export')}
             </button>
         </div>
     `;
@@ -2464,25 +2487,25 @@ function renderSingleEvaluation() {
     const ranking = result.ranking;
 
     const metricLabels = {
-        'novelty': '独自性',
-        'significance': '重要性',
-        'feasibility': '実現可能性',
-        'clarity': '明確さ',
-        'effectiveness': '有効性',
+        'novelty': t('metric.novelty'),
+        'significance': t('metric.significance'),
+        'feasibility': t('metric.feasibility'),
+        'clarity': t('metric.clarity'),
+        'effectiveness': t('metric.effectiveness'),
     };
 
     let html = `
         <div class="evaluation-header" style="margin-bottom: 0.75rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px;">
-            <div style="font-size: 0.75rem; color: #888;">独立評価</div>
+            <div style="font-size: 0.75rem; color: #888;">${t('eval.single_title')}</div>
             <div style="font-size: 0.9rem; color: #fff; font-weight: bold;">
-                ${ranking.length}件の提案をランキング
+                ${t('eval.ranked_proposals', {count: ranking.length})}
             </div>
             <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">
-                各指標1-10の絶対スコアで評価
+                ${t('eval.absolute_score')}
             </div>
         </div>
 
-        <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">ランキング:</div>
+        <div style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">${t('eval.ranking')}</div>
         <div class="evaluation-ranking">
     `;
 
@@ -2498,12 +2521,12 @@ function renderSingleEvaluation() {
             <div class="evaluation-rank-card ${medalClass} ${sourceClass}" data-index="${index}" data-source="${source}">
                 <div class="rank-header">
                     <span class="rank-badge ${medalClass}">#${rank}</span>
-                    <span class="rank-title">${truncateText(item.idea_title || '提案' + rank, 25)}</span>
+                    <span class="rank-title">${truncateText(item.idea_title || (t('export.md.proposal') + rank), 25)}</span>
                     ${sourceBadge}
                 </div>
                 <div class="rank-scores">
                     <div class="rank-score-item">
-                        <span class="score-label">総合スコア</span>
+                        <span class="score-label">${t('eval.overall_score')}</span>
                         <span class="score-value">${overallScore}</span>
                     </div>
                 </div>
@@ -2522,7 +2545,7 @@ function renderSingleEvaluation() {
             html += `
                 <details class="single-eval-reasoning" style="margin-top: 0.5rem;">
                     <summary style="cursor: pointer; font-size: 0.75rem; color: var(--accent-blue); padding: 0.25rem 0;">
-                        評価理由を表示
+                        ${t('eval.show_reasoning')}
                     </summary>
                     <div style="margin-top: 0.25rem; font-size: 0.75rem; color: #999;">
             `;
@@ -2542,10 +2565,10 @@ function renderSingleEvaluation() {
     html += `
         <div class="evaluation-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
             <button class="btn-secondary" onclick="exportSingleEvaluation('json')" style="flex: 1;">
-                📋 JSONエクスポート
+                ${t('eval.json_export')}
             </button>
             <button class="btn-secondary" onclick="exportSingleEvaluation('markdown')" style="flex: 1;">
-                📄 Markdownエクスポート
+                ${t('eval.md_export')}
             </button>
         </div>
     `;
@@ -2627,7 +2650,7 @@ function renderScoreBar(label, score) {
 
 function exportEvaluation(format) {
     if (!AppState.evaluationResult) {
-        alert('エクスポートする評価結果がありません');
+        alert(t('eval.no_export_data'));
         return;
     }
 
@@ -2652,35 +2675,35 @@ function exportEvaluation(format) {
 function generateEvaluationMarkdown() {
     const result = AppState.evaluationResult;
     const metricLabels = {
-        'novelty': '独自性',
-        'significance': '重要性',
-        'feasibility': '実現可能性',
-        'clarity': '明確さ',
-        'effectiveness': '有効性',
-        'experiment_design': '実験設計',
+        'novelty': t('metric.novelty'),
+        'significance': t('metric.significance'),
+        'feasibility': t('metric.feasibility'),
+        'clarity': t('metric.clarity'),
+        'effectiveness': t('metric.effectiveness'),
+        'experiment_design': t('metric.experiment_design'),
     };
 
-    let md = `# 提案評価結果\n\n`;
-    md += `評価日時: ${result.evaluated_at || new Date().toISOString()}\n`;
-    md += `モデル: ${result.model_name || 'N/A'}\n\n`;
+    let md = `# ${t('export.md.eval_title')}\n\n`;
+    md += `${t('export.md.eval_date')}: ${result.evaluated_at || new Date().toISOString()}\n`;
+    md += `${t('export.md.model')}: ${result.model_name || 'N/A'}\n\n`;
     md += `---\n\n`;
 
-    md += `## ランキング\n\n`;
-    md += `| 順位 | タイプ | 提案 | 総合スコア |\n`;
+    md += `## ${t('export.md.ranking')}\n\n`;
+    md += `| ${t('export.md.rank')} | ${t('export.md.type')} | ${t('export.md.proposal')} | ${t('export.md.overall')} |\n`;
     md += `|------|--------|------|------------|\n`;
 
     result.ranking.forEach((item) => {
-        const title = item.idea_title || `提案${item.rank}`;
+        const title = item.idea_title || `${t('export.md.proposal')}${item.rank}`;
         const score = item.overall_score?.toFixed(1) || 'N/A';
-        const type = item.is_target_paper ? '📄 ターゲット' : '💡 提案';
+        const type = item.is_target_paper ? t('export.md.type_target') : t('export.md.type_proposal');
         md += `| ${item.rank} | ${type} | ${title} | ${score} |\n`;
     });
 
-    md += `\n### スコア詳細\n\n`;
+    md += `\n### ${t('export.md.score_detail')}\n\n`;
     result.ranking.forEach((item) => {
-        const title = item.idea_title || `提案${item.rank}`;
-        const targetMark = item.is_target_paper ? ' (📄 ターゲット論文)' : '';
-        md += `#### ${item.rank}位: ${title}${targetMark}\n\n`;
+        const title = item.idea_title || `${t('export.md.proposal')}${item.rank}`;
+        const targetMark = item.is_target_paper ? ` (${t('source.target_paper')})` : '';
+        md += `#### ${t('export.md.rank_n', {n: item.rank})}: ${title}${targetMark}\n\n`;
         if (item.scores_by_metric) {
             for (const [metric, score] of Object.entries(item.scores_by_metric)) {
                 const label = metricLabels[metric] || metric;
@@ -2691,15 +2714,15 @@ function generateEvaluationMarkdown() {
     });
 
     if (result.pairwise_results && result.pairwise_results.length > 0) {
-        md += `## ペアワイズ比較結果\n\n`;
+        md += `## ${t('export.md.pairwise_results')}\n\n`;
         result.pairwise_results.forEach((comp, i) => {
-            md += `### 比較 ${i + 1}: ${comp.idea_a_id} vs ${comp.idea_b_id}\n\n`;
+            md += `### ${t('export.md.comparison_n', {n: i + 1})}: ${comp.idea_a_id} vs ${comp.idea_b_id}\n\n`;
             if (comp.scores && comp.scores.length > 0) {
-                md += `| 指標 | 勝者 | 理由 |\n`;
+                md += `| ${t('export.md.metric')} | ${t('export.md.winner')} | ${t('export.md.reason')} |\n`;
                 md += `|------|------|------|\n`;
                 comp.scores.forEach(score => {
                     const label = metricLabels[score.metric] || score.metric;
-                    const winnerText = score.winner === 1 ? 'A' : score.winner === 2 ? 'B' : '引分';
+                    const winnerText = score.winner === 1 ? 'A' : score.winner === 2 ? 'B' : t('comparison.draw');
                     const reasoning = score.reasoning ? score.reasoning.replace(/\|/g, '\\|').substring(0, 50) + '...' : '';
                     md += `| ${label} | ${winnerText} | ${reasoning} |\n`;
                 });
@@ -2714,7 +2737,7 @@ function generateEvaluationMarkdown() {
 // ========== エクスポート ==========
 function exportProposals(format) {
     if (!AppState.proposals || !AppState.proposals.length) {
-        alert('エクスポートする提案がありません');
+        alert(t('export.no_proposals'));
         return;
     }
 
@@ -2739,13 +2762,13 @@ function exportProposals(format) {
 }
 
 function generateMarkdown() {
-    let md = `# 研究提案\n\n`;
-    md += `対象論文: ${AppState.selectedPaperId}\n`;
-    md += `生成日時: ${new Date().toLocaleString('ja-JP')}\n\n`;
+    let md = `# ${t('export.md.title')}\n\n`;
+    md += `${t('export.md.target_paper')}: ${AppState.selectedPaperId}\n`;
+    md += `${t('export.md.generated_at')}: ${new Date().toLocaleString()}\n\n`;
     md += `---\n\n`;
 
     if (AppState.proposalPrompt) {
-        md += `## 生成プロンプト\n`;
+        md += `## ${t('export.md.prompt')}\n`;
         md += "```text\n";
         md += `${AppState.proposalPrompt}\n`;
         md += "```\n\n";
@@ -2753,23 +2776,23 @@ function generateMarkdown() {
     }
 
     AppState.proposals.forEach((proposal, i) => {
-        md += `## 提案 ${i + 1}: ${proposal.title}\n\n`;
-        md += `### 動機\n${proposal.motivation}\n\n`;
-        md += `### 手法\n${proposal.method}\n\n`;
-        md += `### 実験計画\n`;
-        md += `- **データセット**: ${proposal.experiment.datasets.join(', ')}\n`;
-        md += `- **ベースライン**: ${proposal.experiment.baselines.join(', ')}\n`;
-        md += `- **評価指標**: ${proposal.experiment.metrics.join(', ')}\n`;
-        md += `- **アブレーション**: ${proposal.experiment.ablations.join(', ')}\n`;
-        md += `- **期待結果**: ${proposal.experiment.expected_results}\n`;
-        md += `- **失敗時の解釈**: ${proposal.experiment.failure_interpretation}\n\n`;
-        md += `### 既存研究との差異\n`;
+        md += `## ${t('export.md.proposal_n', {n: i + 1})}: ${proposal.title}\n\n`;
+        md += `### ${t('proposal.motivation')}\n${proposal.motivation}\n\n`;
+        md += `### ${t('proposal.method')}\n${proposal.method}\n\n`;
+        md += `### ${t('proposal.experiment_plan')}\n`;
+        md += `- **${t('proposal.datasets')}**: ${proposal.experiment.datasets.join(', ')}\n`;
+        md += `- **${t('proposal.baselines')}**: ${proposal.experiment.baselines.join(', ')}\n`;
+        md += `- **${t('proposal.metrics')}**: ${proposal.experiment.metrics.join(', ')}\n`;
+        md += `- **${t('proposal.ablations')}**: ${proposal.experiment.ablations.join(', ')}\n`;
+        md += `- **${t('proposal.expected_results')}**: ${proposal.experiment.expected_results}\n`;
+        md += `- **${t('proposal.failure_interpretation')}**: ${proposal.experiment.failure_interpretation}\n\n`;
+        md += `### ${t('proposal.differences')}\n`;
         proposal.differences.forEach(d => {
             md += `- ${d}\n`;
         });
-        md += `\n### 根拠\n`;
-        md += `- **関連論文**: ${proposal.grounding.papers.join(', ')}\n`;
-        md += `- **関連エンティティ**: ${proposal.grounding.entities.join(', ')}\n\n`;
+        md += `\n### ${t('proposal.grounding')}\n`;
+        md += `- **${t('proposal.related_papers')}**: ${proposal.grounding.papers.join(', ')}\n`;
+        md += `- **${t('proposal.related_entities')}**: ${proposal.grounding.entities.join(', ')}\n\n`;
         md += `---\n\n`;
     });
 
@@ -2799,35 +2822,35 @@ function renderHistory() {
         content.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">📚</div>
-                <div class="empty-state-text">保存された履歴がありません<br><span style="font-size: 0.75rem;">分析や提案を保存すると<br>ここに表示されます</span></div>
+                <div class="empty-state-text">${t('history.no_history')}<br><span style="font-size: 0.75rem;">${t('history.no_history_hint').replace('\n', '<br>')}</span></div>
             </div>
         `;
         return;
     }
 
     let html = '<div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">';
-    html += '<button class="btn-secondary" onclick="loadSavedHistory()" style="flex: 1; padding: 0.4rem;">🔄 更新</button>';
-    html += '<button class="btn-secondary" onclick="clearAllHistory()" style="padding: 0.4rem; color: #f44336;">🗑️ 全削除</button>';
+    html += `<button class="btn-secondary" onclick="loadSavedHistory()" style="flex: 1; padding: 0.4rem;">${t('history.refresh')}</button>`;
+    html += `<button class="btn-secondary" onclick="clearAllHistory()" style="padding: 0.4rem; color: #f44336;">${t('history.delete_all')}</button>`;
     html += '</div>';
 
     if (AppState.savedAnalyses.length > 0) {
-        html += `<h4 style="font-size: 0.85rem; color: var(--accent-green); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.3rem;">📊 分析履歴 (${AppState.savedAnalyses.length})</h4>`;
+        html += `<h4 style="font-size: 0.85rem; color: var(--accent-green); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.3rem;">${t('history.analysis_history', {count: AppState.savedAnalyses.length})}</h4>`;
         html += `<div class="history-list">`;
         AppState.savedAnalyses.forEach((analysis, i) => {
-            const title = analysis.target_paper_title || analysis.target_paper_id || '不明';
+            const title = analysis.target_paper_title || analysis.target_paper_id || t('history.unknown');
             const date = analysis.saved_at ? new Date(analysis.saved_at).toLocaleString('ja-JP', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
             const totalPaths = Number.isFinite(analysis.total_paths) ? analysis.total_paths : null;
             const candidatesCount = Number.isFinite(analysis.candidates_count) ? analysis.candidates_count : null;
             const countLabel = totalPaths !== null && candidatesCount !== null
-                ? `${candidatesCount}/${totalPaths}パス`
-                : `${candidatesCount ?? '?'}パス`;
+                ? `${candidatesCount}/${totalPaths} ${t('analysis.paths')}`
+                : `${candidatesCount ?? '?'} ${t('analysis.paths')}`;
             html += `
                 <div class="history-item">
                     <div class="history-item-info" onclick="loadAnalysis(${i})" style="flex: 1; cursor: pointer;">
                         <div class="history-item-title">${truncateText(title, 24)}</div>
                         <div class="history-item-date">${date} · ${countLabel}</div>
                     </div>
-                    <button class="btn-icon" onclick="event.stopPropagation(); deleteAnalysis('${analysis.id}')" title="削除" style="color: #888;">✕</button>
+                    <button class="btn-icon" onclick="event.stopPropagation(); deleteAnalysis('${analysis.id}')" title="${t('history.delete')}" style="color: #888;">✕</button>
                 </div>
             `;
         });
@@ -2839,19 +2862,19 @@ function renderHistory() {
         AppState.savedProposalGroups = grouping.groups;
         AppState.savedProposalGroupIndexByKey = grouping.indexByKey;
 
-        html += `<h4 style="font-size: 0.85rem; color: var(--accent-blue); margin: 1rem 0 0.5rem; display: flex; align-items: center; gap: 0.3rem;">💡 提案履歴 (${AppState.savedProposals.length})</h4>`;
+        html += `<h4 style="font-size: 0.85rem; color: var(--accent-blue); margin: 1rem 0 0.5rem; display: flex; align-items: center; gap: 0.3rem;">${t('history.proposal_history', {count: AppState.savedProposals.length})}</h4>`;
         html += `<div class="history-list">`;
         AppState.savedProposals.forEach((proposal, i) => {
-            const title = proposal.title || '無題の提案';
+            const title = proposal.title || t('history.untitled_proposal');
             const date = proposal.saved_at ? new Date(proposal.saved_at).toLocaleString('ja-JP', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
             const rating = proposal.rating ? '★'.repeat(proposal.rating) : '';
             const groupKey = getProposalGroupKey(proposal);
             const groupIndex = AppState.savedProposalGroupIndexByKey[groupKey];
             const group = AppState.savedProposalGroups[groupIndex];
             const groupCount = group ? group.proposals.length : 1;
-            const groupBadge = groupCount > 1 ? ` · ${groupCount}件` : '';
+            const groupBadge = groupCount > 1 ? ` · ${groupCount}` : '';
             const groupAction = groupCount > 1
-                ? `<button class="btn-icon" onclick="event.stopPropagation(); loadProposalGroup(${groupIndex})" title="提案セットを開く (${groupCount}件)" style="color: #88b;">📦</button>`
+                ? `<button class="btn-icon" onclick="event.stopPropagation(); loadProposalGroup(${groupIndex})" title="${t('history.open_set', {count: groupCount})}" style="color: #88b;">📦</button>`
                 : '';
             html += `
                 <div class="history-item">
@@ -2860,7 +2883,7 @@ function renderHistory() {
                         <div class="history-item-date">${date} ${rating}${groupBadge}</div>
                     </div>
                     ${groupAction}
-                    <button class="btn-icon" onclick="event.stopPropagation(); deleteProposal('${proposal.id}')" title="削除" style="color: #888;">✕</button>
+                    <button class="btn-icon" onclick="event.stopPropagation(); deleteProposal('${proposal.id}')" title="${t('history.delete')}" style="color: #888;">✕</button>
                 </div>
             `;
         });
@@ -2874,37 +2897,37 @@ function renderHistory() {
 }
 
 async function deleteAnalysis(analysisId) {
-    if (!confirm('この分析履歴を削除しますか？')) return;
+    if (!confirm(t('history.confirm_delete_analysis'))) return;
 
     try {
         const response = await fetch(`/api/storage/analyses/${analysisId}`, {
             method: 'DELETE',
         });
-        if (!response.ok) throw new Error('削除に失敗しました');
-        updateStatus('分析履歴を削除しました');
+        if (!response.ok) throw new Error(t('history.delete_failed'));
+        updateStatus(t('history.analysis_deleted'));
         await loadSavedHistory();
     } catch (error) {
-        updateStatus('削除エラー: ' + error.message);
+        updateStatus(t('history.delete_error') + error.message);
     }
 }
 
 async function deleteProposal(proposalId) {
-    if (!confirm('この提案履歴を削除しますか？')) return;
+    if (!confirm(t('history.confirm_delete_proposal'))) return;
 
     try {
         const response = await fetch(`/api/storage/proposals/${proposalId}`, {
             method: 'DELETE',
         });
-        if (!response.ok) throw new Error('削除に失敗しました');
-        updateStatus('提案履歴を削除しました');
+        if (!response.ok) throw new Error(t('history.delete_failed'));
+        updateStatus(t('history.proposal_deleted'));
         await loadSavedHistory();
     } catch (error) {
-        updateStatus('削除エラー: ' + error.message);
+        updateStatus(t('history.delete_error') + error.message);
     }
 }
 
 async function clearAllHistory() {
-    if (!confirm('全ての履歴を削除しますか？\nこの操作は取り消せません。')) return;
+    if (!confirm(t('history.confirm_delete_all'))) return;
 
     try {
         // 全分析を削除
@@ -2915,10 +2938,10 @@ async function clearAllHistory() {
         for (const proposal of AppState.savedProposals) {
             await fetch(`/api/storage/proposals/${proposal.id}`, { method: 'DELETE' });
         }
-        updateStatus('全ての履歴を削除しました');
+        updateStatus(t('history.all_deleted'));
         await loadSavedHistory();
     } catch (error) {
-        updateStatus('削除エラー: ' + error.message);
+        updateStatus(t('history.delete_error') + error.message);
     }
 }
 
@@ -2936,28 +2959,28 @@ async function saveAnalysis() {
             }),
         });
 
-        if (!response.ok) throw new Error('保存に失敗しました');
+        if (!response.ok) throw new Error(t('save.failed'));
 
         const saved = await response.json();
-        updateStatus(`分析を保存しました (ID: ${saved.id})`);
+        updateStatus(t('save.analysis_saved', {id: saved.id}));
         await loadSavedHistory();
     } catch (error) {
-        updateStatus('保存エラー: ' + error.message);
+        updateStatus(t('save.error') + error.message);
     }
 }
 
 async function saveAllProposals() {
     if (!AppState.proposals || !AppState.proposals.length) {
-        alert('保存する提案がありません');
+        alert(t('save.no_proposals'));
         return;
     }
     const targetPaperId = getTargetPaperIdForSave();
     if (!targetPaperId) {
-        alert('論文IDが未設定です');
+        alert(t('save.no_paper_id'));
         return;
     }
 
-    updateStatus('提案を保存中...');
+    updateStatus(t('save.saving_proposals'));
     let savedCount = 0;
     let failedCount = 0;
 
@@ -2988,14 +3011,14 @@ async function saveAllProposals() {
             savedCount += 1;
         } catch (error) {
             failedCount += 1;
-            console.error('保存エラー:', error);
+            console.error('Save error:', error);
         }
     }
 
     if (failedCount === 0) {
-        updateStatus(`提案を保存しました (${savedCount}件)`);
+        updateStatus(t('save.proposals_saved', {count: savedCount}));
     } else {
-        updateStatus(`保存完了: ${savedCount}件, 失敗: ${failedCount}件`);
+        updateStatus(t('save.partial_save', {saved: savedCount, failed: failedCount}));
     }
 
     await loadSavedHistory();
@@ -3012,7 +3035,7 @@ async function saveProposal(index) {
         const singleModels = getSelectedModels();
         const targetPaperId = getTargetPaperIdForSave();
         if (!targetPaperId) {
-            alert('論文IDが未設定です');
+            alert(t('save.no_paper_id'));
             return;
         }
         const response = await fetch('/api/storage/proposals', {
@@ -3032,10 +3055,10 @@ async function saveProposal(index) {
         if (!response.ok) throw new Error(await response.text());
 
         const saved = await response.json();
-        updateStatus(`提案を保存しました (ID: ${saved.id})`);
+        updateStatus(t('save.proposal_saved', {id: saved.id}));
         await loadSavedHistory();
     } catch (error) {
-        updateStatus('保存エラー: ' + error.message);
+        updateStatus(t('save.error') + error.message);
     }
 }
 
@@ -3060,7 +3083,7 @@ async function loadSavedHistory() {
             renderHistory();
         }
     } catch (error) {
-        console.error('履歴の読み込みに失敗:', error);
+        console.error('History load failed:', error);
     }
 }
 
@@ -3070,7 +3093,7 @@ async function loadAnalysis(index) {
 
     try {
         const response = await fetch(`/api/storage/analyses/${saved.id}?preview_limit=${ANALYSIS_DISPLAY_LIMIT}`);
-        if (!response.ok) throw new Error('読み込みに失敗しました');
+        if (!response.ok) throw new Error(t('history.load_failed'));
 
         const analysis = await response.json();
         AppState.analysisResult = analysis.data;
@@ -3078,9 +3101,9 @@ async function loadAnalysis(index) {
         AppState.selectedPaperTitle = analysis.target_paper_title;
         AppState.analysisId = analysis.id || null;
         switchTab('analyze');
-        updateStatus(`分析を読み込みました: ${analysis.target_paper_id}`);
+        updateStatus(t('history.analysis_loaded', {id: analysis.target_paper_id}));
     } catch (error) {
-        updateStatus('読み込みエラー: ' + error.message);
+        updateStatus(t('history.load_error') + error.message);
     }
 }
 
@@ -3090,7 +3113,7 @@ async function loadProposal(index) {
 
     try {
         const response = await fetch(`/api/storage/proposals/${saved.id}`);
-        if (!response.ok) throw new Error('読み込みに失敗しました');
+        if (!response.ok) throw new Error(t('history.load_failed'));
 
         const proposal = await response.json();
         AppState.proposals = [proposal.data];
@@ -3099,9 +3122,9 @@ async function loadProposal(index) {
         AppState.proposalPrompt = proposal.prompt || (proposal.data && proposal.data.prompt) || '';
         AppState.proposalSources = { 0: getProposalSourceFromType(proposal.proposal_type) };
         switchTab('propose');
-        updateStatus(`提案を読み込みました: ${proposal.title}`);
+        updateStatus(t('history.proposal_loaded', {title: proposal.title}));
     } catch (error) {
-        updateStatus('読み込みエラー: ' + error.message);
+        updateStatus(t('history.load_error') + error.message);
     }
 }
 
@@ -3118,7 +3141,7 @@ function loadProposalGroup(groupIndex) {
         AppState.proposalSources[index] = getProposalSourceFromType(proposal.proposal_type);
     });
     switchTab('propose');
-    updateStatus(`提案セットを読み込みました: ${group.target_paper_id}`);
+    updateStatus(t('history.proposal_set_loaded', {id: group.target_paper_id}));
 }
 
 // ========== ノード・エッジ情報表示 ==========
@@ -3137,7 +3160,7 @@ function showNodeInfo(node) {
             AppState.selectedPaperTitle = props.title || props.id;
         }
 
-        let html = `<p><strong>ラベル:</strong> ${labels.join(', ')}</p>`;
+        let html = `<p><strong>${t('node.label')}:</strong> ${labels.join(', ')}</p>`;
         for (const [key, value] of Object.entries(props)) {
             let displayValue = value;
             if (Array.isArray(value)) {
@@ -3150,7 +3173,7 @@ function showNodeInfo(node) {
             }
             html += `<p><strong>${key}:</strong> ${displayValue}</p>`;
         }
-        detailsDiv.innerHTML = html || '<p>プロパティなし</p>';
+        detailsDiv.innerHTML = html || `<p>${t('node.no_properties')}</p>`;
         infoDiv.style.display = 'block';
         document.getElementById('edgeInfo').style.display = 'none';
     } else {
@@ -3168,25 +3191,25 @@ function showEdgeInfo(edge) {
 
         const citationType = props.citation_type || 'Unknown';
         const importanceScore = props.importance_score || 0;
-        const context = props.context || '情報なし';
+        const context = props.context || t('edge.no_info');
 
-        let sourceTitle = '不明';
-        let targetTitle = '不明';
+        let sourceTitle = t('history.unknown');
+        let targetTitle = t('history.unknown');
 
         if (AppState.viz.nodes) {
             const sourceNode = AppState.viz.nodes.get(edge.from);
             const targetNode = AppState.viz.nodes.get(edge.to);
             if (sourceNode && sourceNode.raw) {
-                sourceTitle = sourceNode.raw.properties?.title || sourceNode.label || '不明';
+                sourceTitle = sourceNode.raw.properties?.title || sourceNode.label || t('history.unknown');
             }
             if (targetNode && targetNode.raw) {
-                targetTitle = targetNode.raw.properties?.title || targetNode.label || '不明';
+                targetTitle = targetNode.raw.properties?.title || targetNode.label || t('history.unknown');
             }
         }
 
         const scoreStars = importanceScore > 0
             ? '★'.repeat(importanceScore) + '☆'.repeat(5 - importanceScore)
-            : '未評価';
+            : t('edge.not_rated');
 
         const citationColor = getCitationColor(citationType);
 
@@ -3196,12 +3219,12 @@ function showEdgeInfo(edge) {
                     ${citationType}
                 </span>
             </div>
-            <p><strong>関係タイプ:</strong> ${relType}</p>
-            <p><strong>重要度:</strong> <span class="importance-score">${scoreStars}</span> (${importanceScore}/5)</p>
-            <p><strong>引用元:</strong> ${truncateText(sourceTitle, 60)}</p>
-            <p><strong>引用先:</strong> ${truncateText(targetTitle, 60)}</p>
+            <p><strong>${t('edge.relation_type')}:</strong> ${relType}</p>
+            <p><strong>${t('edge.importance')}:</strong> <span class="importance-score">${scoreStars}</span> (${importanceScore}/5)</p>
+            <p><strong>${t('edge.source')}:</strong> ${truncateText(sourceTitle, 60)}</p>
+            <p><strong>${t('edge.target')}:</strong> ${truncateText(targetTitle, 60)}</p>
             <div class="context-section">
-                <strong>引用コンテキスト:</strong>
+                <strong>${t('edge.context')}:</strong>
                 <p class="context-text">${context}</p>
             </div>
         `;
@@ -3219,7 +3242,7 @@ async function runCoI() {
     // トピックを決定（ターゲット論文のタイトルまたはID）
     const topic = AppState.selectedPaperTitle || AppState.selectedPaperId;
     if (!topic) {
-        alert('CoIを実行するには、まず分析対象の論文を選択してください');
+        alert(t('coi.select_paper'));
         return;
     }
 
@@ -3283,7 +3306,7 @@ async function runCoI() {
 
                         if (data.status === 'completed' && data.result) {
                             AppState.coiResult = data.result;
-                            updateStatus('CoI実行完了。変換中...');
+                            updateStatus(t('coi.complete'));
                             conversionAttempted = true;
                             await convertCoIToProposal();
                         } else if (data.status === 'error') {
@@ -3296,8 +3319,8 @@ async function runCoI() {
             }
         }
     } catch (error) {
-        updateStatus('CoIエラー: ' + error.message);
-        alert('CoI実行エラー: ' + error.message);
+        updateStatus(t('coi.error') + error.message);
+        alert(t('coi.exec_error') + error.message);
     } finally {
         AppState.coiRunning = false;
         if (AppState.coiResult && !conversionAttempted) {
@@ -3309,7 +3332,7 @@ async function runCoI() {
 
 async function convertCoIToProposal() {
     if (!AppState.coiResult) {
-        alert('変換するCoI結果がありません');
+        alert(t('coi.no_result'));
         return false;
     }
 
@@ -3340,8 +3363,8 @@ async function convertCoIToProposal() {
     } catch (error) {
         console.error('CoI conversion failed:', error);
         const fallbackProposal = buildCoIFallbackProposal(AppState.coiResult);
-        await appendCoIProposal(fallbackProposal, 'CoI提案を追加しました（簡易表示）');
-        updateStatus('変換エラー（簡易表示に切り替え）: ' + error.message);
+        await appendCoIProposal(fallbackProposal, t('coi.added_simple'));
+        updateStatus(t('coi.convert_error') + error.message);
         return true;
     }
 }
@@ -3353,20 +3376,20 @@ function openCoILoadModal() {
     modal.innerHTML = `
         <div class="modal" style="width: 500px;">
             <div class="modal-header">
-                <h2 class="modal-title">CoI結果の読み込み</h2>
+                <h2 class="modal-title">${t('coi.load_title')}</h2>
                 <button class="modal-close" onclick="closeCoILoadModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <p style="font-size: 0.85rem; color: #ccc; margin-bottom: 1rem;">
-                    既存のCoI実行結果（result.json）を読み込んでProposal形式に変換します。
+                    ${t('coi.load_description')}
                 </p>
-                <label style="font-size: 0.8rem; color: #aaa;">result.jsonのパス:</label>
+                <label style="font-size: 0.8rem; color: #aaa;">${t('coi.load_path_label')}</label>
                 <input type="text" id="coiResultPath" placeholder="/path/to/result.json" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: var(--bg-primary); border: 1px solid var(--bg-tertiary); border-radius: 4px; color: #fff;">
                 <div id="coiLoadError" style="margin-top: 0.5rem; font-size: 0.75rem; color: #f44336;"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeCoILoadModal()">キャンセル</button>
-                <button class="btn-primary" onclick="loadCoIResult()">読み込み</button>
+                <button class="btn-secondary" onclick="closeCoILoadModal()">${t('coi.cancel')}</button>
+                <button class="btn-primary" onclick="loadCoIResult()">${t('coi.load')}</button>
             </div>
         </div>
     `;
@@ -3389,7 +3412,7 @@ async function loadCoIResult() {
     const path = pathInput?.value?.trim();
 
     if (!path) {
-        if (errorEl) errorEl.textContent = 'パスを入力してください';
+        if (errorEl) errorEl.textContent = t('coi.enter_path');
         return;
     }
 
@@ -3411,11 +3434,11 @@ async function loadCoIResult() {
         closeCoILoadModal();
 
         // 変換
-        updateStatus('CoI結果を変換中...');
+        updateStatus(t('coi.converting'));
         await convertCoIToProposal();
 
     } catch (error) {
-        if (errorEl) errorEl.textContent = 'エラー: ' + error.message;
+        if (errorEl) errorEl.textContent = t('generic.error') + error.message;
     }
 }
 
@@ -3428,30 +3451,30 @@ async function renderExperimentTab() {
     content.innerHTML = `
         <div class="experiment-tab">
             <div class="experiment-section">
-                <h4>実験実行</h4>
+                <h4>${t('experiment.run')}</h4>
                 <div id="experimentConfigList" class="experiment-config-list">
-                    <div class="empty-state-text">読み込み中...</div>
+                    <div class="empty-state-text">${t('generic.loading')}</div>
                 </div>
             </div>
             <div class="experiment-section">
-                <h4>実行履歴</h4>
+                <h4>${t('experiment.run_history')}</h4>
                 <div id="experimentRunList" class="experiment-run-list">
-                    <div class="empty-state-text">読み込み中...</div>
+                    <div class="empty-state-text">${t('generic.loading')}</div>
                 </div>
             </div>
             <div class="experiment-section">
-                <h4>論文図表</h4>
+                <h4>${t('experiment.paper_figures')}</h4>
                 <div id="paperFiguresSection" class="paper-figures-section">
                     <div style="margin-bottom:8px;">
-                        <button class="btn-experiment-run" onclick="generatePaperFigures(this)">論文図表を生成</button>
+                        <button class="btn-experiment-run" onclick="generatePaperFigures(this)">${t('experiment.generate_figures')}</button>
                     </div>
                     <div id="paperFiguresList"></div>
                 </div>
             </div>
             <div class="experiment-section">
-                <h4>キャッシュ</h4>
+                <h4>${t('experiment.cache')}</h4>
                 <div id="experimentCacheStatus" class="experiment-cache-status">
-                    <div class="empty-state-text">読み込み中...</div>
+                    <div class="empty-state-text">${t('generic.loading')}</div>
                 </div>
             </div>
         </div>
@@ -3475,7 +3498,7 @@ async function loadExperimentConfigs() {
         const configs = data.configs || [];
 
         if (configs.length === 0) {
-            container.innerHTML = '<div class="empty-state-text">設定ファイルがありません</div>';
+            container.innerHTML = `<div class="empty-state-text">${t('experiment.no_configs')}</div>`;
             return;
         }
 
@@ -3487,11 +3510,11 @@ async function loadExperimentConfigs() {
         }
 
         const categoryLabels = {
-            system_effectiveness: 'システム有効性',
-            ablation: 'アブレーション',
-            comparison: '比較',
-            evaluation_validity: '評価妥当性',
-            other: 'その他',
+            system_effectiveness: t('category.system_effectiveness'),
+            ablation: t('category.ablation'),
+            comparison: t('category.comparison'),
+            evaluation_validity: t('category.evaluation_validity'),
+            other: t('category.other'),
         };
 
         let html = '';
@@ -3508,16 +3531,16 @@ async function loadExperimentConfigs() {
                     </div>
                     <div class="experiment-config-desc">${escapeHtml(c.description)}</div>
                     <div class="experiment-config-meta">
-                        <span class="experiment-meta-item">論文数: <strong>${c.num_papers || '-'}</strong></span>
-                        <span class="experiment-meta-item">条件数: <strong>${c.num_conditions || '-'}</strong></span>
-                        <span class="experiment-meta-item">評価: <strong>${evalModeLabel}</strong></span>
+                        <span class="experiment-meta-item">${t('experiment.num_papers')}: <strong>${c.num_papers || '-'}</strong></span>
+                        <span class="experiment-meta-item">${t('experiment.num_conditions')}: <strong>${c.num_conditions || '-'}</strong></span>
+                        <span class="experiment-meta-item">${t('experiment.evaluation')}: <strong>${evalModeLabel}</strong></span>
                     </div>
                     <div class="experiment-config-conditions">${conditionTags}</div>
                     <div class="experiment-config-actions">
                         <label class="experiment-limit-label">
                             Limit: <input type="number" class="experiment-limit-input" min="1" value="1" data-path="${escapeHtml(c.path)}">
                         </label>
-                        <button class="btn-experiment-run" onclick="runExperiment('${escapeHtml(c.path)}', this)">実行</button>
+                        <button class="btn-experiment-run" onclick="runExperiment('${escapeHtml(c.path)}', this)">${t('experiment.execute')}</button>
                     </div>
                 </div>`;
             }
@@ -3525,7 +3548,7 @@ async function loadExperimentConfigs() {
         }
         container.innerHTML = html;
     } catch (e) {
-        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+        container.innerHTML = `<div class="empty-state-text">${t('generic.error')}${escapeHtml(e.message)}</div>`;
     }
 }
 
@@ -3539,12 +3562,12 @@ async function loadExperimentRuns() {
         const runs = data.runs || [];
 
         if (runs.length === 0) {
-            container.innerHTML = '<div class="empty-state-text">実行履歴がありません</div>';
+            container.innerHTML = `<div class="empty-state-text">${t('experiment.no_runs')}</div>`;
             return;
         }
 
         let html = '<table class="experiment-table"><thead><tr>' +
-            '<th>Exp ID</th><th>タイムスタンプ</th><th>サマリー</th><th>図</th><th>操作</th>' +
+            `<th>Exp ID</th><th>${t('experiment.timestamp')}</th><th>${t('experiment.summary')}</th><th>${t('experiment.figures')}</th><th>${t('experiment.actions')}</th>` +
             '</tr></thead><tbody>';
         for (const run of runs) {
             html += `<tr>
@@ -3552,13 +3575,13 @@ async function loadExperimentRuns() {
                 <td class="experiment-timestamp">${escapeHtml(run.timestamp)}</td>
                 <td>${run.has_summary ? '<span class="badge-ok">OK</span>' : '<span class="badge-none">-</span>'}</td>
                 <td>${run.has_figures ? '<span class="badge-ok">OK</span>' : '<span class="badge-none">-</span>'}</td>
-                <td><button class="btn-small" onclick="viewExperimentRun('${escapeHtml(run.run_id)}')">詳細</button></td>
+                <td><button class="btn-small" onclick="viewExperimentRun('${escapeHtml(run.run_id)}')">${t('experiment.detail')}</button></td>
             </tr>`;
         }
         html += '</tbody></table>';
         container.innerHTML = html;
     } catch (e) {
-        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+        container.innerHTML = `<div class="empty-state-text">${t('generic.error')}${escapeHtml(e.message)}</div>`;
     }
 }
 
@@ -3573,22 +3596,22 @@ async function loadExperimentCacheStatus() {
 
         const entries = Object.entries(stages);
         if (entries.length === 0) {
-            container.innerHTML = '<div class="empty-state-text">キャッシュは空です</div>';
+            container.innerHTML = `<div class="empty-state-text">${t('experiment.no_cache')}</div>`;
             return;
         }
 
-        let html = '<table class="experiment-table"><thead><tr><th>ステージ</th><th>件数</th></tr></thead><tbody>';
+        let html = `<table class="experiment-table"><thead><tr><th>${t('experiment.stage')}</th><th>${t('experiment.count')}</th></tr></thead><tbody>`;
         let total = 0;
         for (const [stage, count] of entries) {
             html += `<tr><td>${escapeHtml(stage)}</td><td>${count}</td></tr>`;
             total += count;
         }
-        html += `<tr class="experiment-total-row"><td>合計</td><td>${total}</td></tr>`;
+        html += `<tr class="experiment-total-row"><td>${t('experiment.total')}</td><td>${total}</td></tr>`;
         html += '</tbody></table>';
-        html += '<button class="btn-small btn-danger" onclick="clearExperimentCache()">キャッシュクリア</button>';
+        html += `<button class="btn-small btn-danger" onclick="clearExperimentCache()">${t('experiment.cache_clear')}</button>`;
         container.innerHTML = html;
     } catch (e) {
-        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+        container.innerHTML = `<div class="empty-state-text">${t('generic.error')}${escapeHtml(e.message)}</div>`;
     }
 }
 
@@ -3597,8 +3620,8 @@ async function runExperiment(configPath, btnEl) {
     const limit = limitInput ? parseInt(limitInput.value, 10) : null;
 
     btnEl.disabled = true;
-    btnEl.textContent = '実行中...';
-    updateStatus('実験実行中...');
+    btnEl.textContent = t('experiment.executing');
+    updateStatus(t('experiment.running'));
 
     try {
         const res = await fetch('/api/experiments/run', {
@@ -3629,19 +3652,19 @@ async function runExperiment(configPath, btnEl) {
                     try {
                         const event = JSON.parse(line.slice(6));
                         if (event.event === 'completed') {
-                            updateStatus('実験完了: ' + (event.run_dir || ''));
+                            updateStatus(t('experiment.complete') + (event.run_dir || ''));
                         } else if (event.event === 'error') {
-                            updateStatus('実験エラー: ' + (event.error || ''));
+                            updateStatus(t('experiment.error') + (event.error || ''));
                         }
                     } catch (_) {}
                 }
             }
         }
     } catch (e) {
-        updateStatus('実験エラー: ' + e.message);
+        updateStatus(t('experiment.error') + e.message);
     } finally {
         btnEl.disabled = false;
-        btnEl.textContent = '実行';
+        btnEl.textContent = t('experiment.execute');
         await loadExperimentRuns();
     }
 }
@@ -3650,7 +3673,7 @@ async function viewExperimentRun(runId) {
     const content = document.getElementById('rightPanelContent');
     if (!content) return;
 
-    content.innerHTML = '<div class="empty-state-text">読み込み中...</div>';
+    content.innerHTML = `<div class="empty-state-text">${t('generic.loading')}</div>`;
 
     try {
         const res = await fetch(`/api/experiments/runs/${runId}`);
@@ -3659,14 +3682,14 @@ async function viewExperimentRun(runId) {
 
         let html = `<div class="experiment-detail">
             <div class="experiment-detail-header">
-                <button class="btn-small" onclick="renderExperimentTab()">← 一覧に戻る</button>
+                <button class="btn-small" onclick="renderExperimentTab()">${t('experiment.back_to_list')}</button>
                 <span class="experiment-detail-title">${escapeHtml(runId)}</span>
             </div>`;
 
         // サマリーテーブル
         if (data.summary && data.summary.single_summary) {
-            html += '<div class="experiment-section"><h4>スコアサマリー</h4>';
-            html += '<table class="experiment-table"><thead><tr><th>条件</th><th>指標</th><th>N</th><th>平均</th><th>標準偏差</th></tr></thead><tbody>';
+            html += `<div class="experiment-section"><h4>${t('experiment.score_summary')}</h4>`;
+            html += `<table class="experiment-table"><thead><tr><th>${t('experiment.condition')}</th><th>${t('experiment.metric')}</th><th>${t('experiment.n')}</th><th>${t('experiment.mean')}</th><th>${t('experiment.std')}</th></tr></thead><tbody>`;
             for (const [condition, metrics] of Object.entries(data.summary.single_summary)) {
                 for (const [metric, stats] of Object.entries(metrics)) {
                     html += `<tr>
@@ -3685,15 +3708,15 @@ async function viewExperimentRun(runId) {
         if (data.summary && data.summary.comparison_tests) {
             const tests = data.summary.comparison_tests;
             if (Object.keys(tests).length > 0) {
-                html += '<div class="experiment-section"><h4>統計検定結果</h4>';
-                html += '<table class="experiment-table"><thead><tr><th>比較</th><th>p値</th><th>Cohen\'s d</th><th>有意</th></tr></thead><tbody>';
+                html += `<div class="experiment-section"><h4>${t('experiment.stat_test')}</h4>`;
+                html += `<table class="experiment-table"><thead><tr><th>${t('experiment.comparison')}</th><th>${t('experiment.p_value')}</th><th>Cohen's d</th><th>${t('experiment.significant')}</th></tr></thead><tbody>`;
                 for (const [key, result] of Object.entries(tests)) {
                     const sig = result.holm_bonferroni_significant;
                     html += `<tr>
                         <td>${escapeHtml(key)}</td>
                         <td>${typeof result.pvalue_permutation === 'number' ? result.pvalue_permutation.toFixed(4) : '-'}</td>
                         <td>${typeof result.cohen_d === 'number' ? result.cohen_d.toFixed(3) : '-'}</td>
-                        <td>${sig === true ? '<span class="badge-ok">有意</span>' : sig === false ? '<span class="badge-none">n.s.</span>' : '-'}</td>
+                        <td>${sig === true ? `<span class="badge-ok">${t('experiment.significant')}</span>` : sig === false ? `<span class="badge-none">${t('experiment.not_significant')}</span>` : '-'}</td>
                     </tr>`;
                 }
                 html += '</tbody></table></div>';
@@ -3702,7 +3725,7 @@ async function viewExperimentRun(runId) {
 
         // 図
         if (data.figures && data.figures.length > 0) {
-            html += '<div class="experiment-section"><h4>チャート</h4><div class="experiment-figures">';
+            html += `<div class="experiment-section"><h4>${t('experiment.charts')}</h4><div class="experiment-figures">`;
             for (const fig of data.figures) {
                 html += `<div class="experiment-figure">
                     <img src="/api/experiments/runs/${escapeHtml(runId)}/figures/${escapeHtml(fig)}" alt="${escapeHtml(fig)}" loading="lazy">
@@ -3714,7 +3737,7 @@ async function viewExperimentRun(runId) {
 
         // レポート
         if (data.report) {
-            html += `<div class="experiment-section"><h4>レポート</h4>
+            html += `<div class="experiment-section"><h4>${t('experiment.report')}</h4>
                 <pre class="experiment-report">${escapeHtml(data.report)}</pre>
             </div>`;
         }
@@ -3722,20 +3745,20 @@ async function viewExperimentRun(runId) {
         html += '</div>';
         content.innerHTML = html;
     } catch (e) {
-        content.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+        content.innerHTML = `<div class="empty-state-text">${t('generic.error')}${escapeHtml(e.message)}</div>`;
     }
 }
 
 async function clearExperimentCache() {
-    if (!confirm('実験キャッシュを全て削除しますか？')) return;
+    if (!confirm(t('experiment.confirm_cache_clear'))) return;
 
     try {
         const res = await fetch('/api/experiments/cache', { method: 'DELETE' });
         const data = await res.json();
-        updateStatus(`キャッシュクリア: ${data.cleared}件削除`);
+        updateStatus(t('experiment.cache_cleared', {count: data.cleared}));
         await loadExperimentCacheStatus();
     } catch (e) {
-        updateStatus('キャッシュクリアエラー: ' + e.message);
+        updateStatus(t('experiment.cache_clear_error') + e.message);
     }
 }
 
@@ -3743,8 +3766,8 @@ async function clearExperimentCache() {
 
 async function generatePaperFigures(btnEl) {
     btnEl.disabled = true;
-    btnEl.textContent = '生成中...';
-    updateStatus('論文図表を生成中...');
+    btnEl.textContent = t('experiment.generating_figures');
+    updateStatus(t('experiment.generating_figures'));
 
     try {
         const res = await fetch('/api/paper-figures/generate', {
@@ -3754,13 +3777,13 @@ async function generatePaperFigures(btnEl) {
         });
         const data = await res.json();
         const count = data.count || 0;
-        updateStatus(`論文図表を${count}件生成しました`);
+        updateStatus(t('experiment.figures_generated', {count}));
         await loadPaperFigures();
     } catch (e) {
-        updateStatus('論文図表生成エラー: ' + e.message);
+        updateStatus(t('experiment.figures_error') + e.message);
     } finally {
         btnEl.disabled = false;
-        btnEl.textContent = '論文図表を生成';
+        btnEl.textContent = t('experiment.generate_figures');
     }
 }
 
@@ -3775,7 +3798,7 @@ async function loadPaperFigures() {
         const tables = data.tables || [];
 
         if (figures.length === 0 && tables.length === 0) {
-            container.innerHTML = '<div class="empty-state-text">論文図表がありません。「論文図表を生成」ボタンで生成してください。</div>';
+            container.innerHTML = `<div class="empty-state-text">${t('experiment.no_figures')}</div>`;
             return;
         }
 
@@ -3796,12 +3819,12 @@ async function loadPaperFigures() {
         }
 
         if (tables.length > 0) {
-            html += '<div class="paper-tables-section"><h5>LaTeX テーブル</h5>';
+            html += `<div class="paper-tables-section"><h5>${t('experiment.latex_tables')}</h5>`;
             for (const tbl of tables) {
                 html += `<div class="paper-table-item">
                     <div class="paper-table-header">
                         <span>${escapeHtml(tbl.name)}</span>
-                        <button class="btn-small" onclick="copyPaperTableTex(this)" data-tex="${escapeHtml(tbl.content)}">コピー</button>
+                        <button class="btn-small" onclick="copyPaperTableTex(this)" data-tex="${escapeHtml(tbl.content)}">${t('copy.button')}</button>
                     </div>
                     <pre class="paper-table-tex">${escapeHtml(tbl.content)}</pre>
                 </div>`;
@@ -3811,7 +3834,7 @@ async function loadPaperFigures() {
 
         container.innerHTML = html;
     } catch (e) {
-        container.innerHTML = `<div class="empty-state-text">エラー: ${escapeHtml(e.message)}</div>`;
+        container.innerHTML = `<div class="empty-state-text">${t('generic.error')}${escapeHtml(e.message)}</div>`;
     }
 }
 
@@ -3819,8 +3842,8 @@ function copyPaperTableTex(btnEl) {
     const tex = btnEl.getAttribute('data-tex');
     if (tex) {
         navigator.clipboard.writeText(tex).then(() => {
-            btnEl.textContent = 'コピー済み';
-            setTimeout(() => { btnEl.textContent = 'コピー'; }, 2000);
+            btnEl.textContent = t('experiment.copied');
+            setTimeout(() => { btnEl.textContent = t('copy.button'); }, 2000);
         });
     }
 }
@@ -3833,8 +3856,22 @@ function toggleRightPanel() {
     }
 }
 
+// ========== 言語切替時のビュー更新 ==========
+function refreshCurrentView() {
+    I18N.updateStaticElements();
+    updateRightPanelContent(AppState.currentTab);
+}
+
 // ========== 初期化 ==========
 document.addEventListener('DOMContentLoaded', () => {
+    // i18n初期化
+    const savedLang = localStorage.getItem('ideagraph-lang');
+    if (savedLang && I18N.translations[savedLang]) {
+        I18N.currentLang = savedLang;
+        document.documentElement.lang = savedLang;
+    }
+    I18N.updateStaticElements();
+
     initGraph();
 
     // モデルプリセットの詳細表示を初期化

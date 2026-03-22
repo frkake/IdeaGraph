@@ -11,15 +11,21 @@
 <body>
     <div class="container">
         <header>
-            <h1>IdeaGraph</h1>
+            <div class="header-top">
+                <h1>IdeaGraph</h1>
+                <div class="lang-switcher">
+                    <button class="lang-btn active" data-lang="ja" onclick="I18N.setLang('ja'); refreshCurrentView();">JA</button>
+                    <button class="lang-btn" data-lang="en" onclick="I18N.setLang('en'); refreshCurrentView();">EN</button>
+                </div>
+            </div>
             <!-- タブナビゲーション -->
             <div class="nav-tabs">
-                <button class="nav-tab active" data-tab="explore">探索</button>
-                <button class="nav-tab" data-tab="analyze">分析</button>
-                <button class="nav-tab" data-tab="propose">提案</button>
-                <button class="nav-tab" data-tab="evaluate">評価</button>
-                <button class="nav-tab" data-tab="history">履歴</button>
-                <button class="nav-tab" data-tab="experiment">実験</button>
+                <button class="nav-tab active" data-tab="explore" data-i18n="tab.explore">探索</button>
+                <button class="nav-tab" data-tab="analyze" data-i18n="tab.analyze">分析</button>
+                <button class="nav-tab" data-tab="propose" data-i18n="tab.propose">提案</button>
+                <button class="nav-tab" data-tab="evaluate" data-i18n="tab.evaluate">評価</button>
+                <button class="nav-tab" data-tab="history" data-i18n="tab.history">履歴</button>
+                <button class="nav-tab" data-tab="experiment" data-i18n="tab.experiment">実験</button>
             </div>
             <!-- 凡例 -->
             <div class="legend">
@@ -64,49 +70,49 @@
             <div class="sidebar">
                 <!-- クイックフィルター -->
                 <div class="section">
-                    <h2>クイックフィルター</h2>
+                    <h2 data-i18n="sidebar.quick_filter">クイックフィルター</h2>
                     <div class="filter-buttons">
-                        <button class="btn-paper" onclick="filterBy('all')">全て</button>
+                        <button class="btn-paper" onclick="filterBy('all')" data-i18n="filter.all">全て</button>
                         <button class="btn-paper" onclick="filterBy('papers')">Papers</button>
                         <button class="btn-method" onclick="filterBy('method')">Methods</button>
                         <button class="btn-dataset" onclick="filterBy('dataset')">Datasets</button>
                         <button class="btn-benchmark" onclick="filterBy('benchmark')">Benchmarks</button>
                         <button class="btn-task" onclick="filterBy('task')">Tasks</button>
-                        <button class="btn-cites" onclick="filterBy('cites')">引用関係</button>
-                        <button class="btn-mentions" onclick="filterBy('mentions')">言及関係</button>
+                        <button class="btn-cites" onclick="filterBy('cites')" data-i18n="filter.citation">引用関係</button>
+                        <button class="btn-mentions" onclick="filterBy('mentions')" data-i18n="filter.mention">言及関係</button>
                     </div>
                 </div>
 
                 <!-- キーワード検索 -->
                 <div class="section">
-                    <h2>キーワード検索</h2>
+                    <h2 data-i18n="sidebar.keyword_search">キーワード検索</h2>
                     <div class="search-row">
-                        <input type="text" id="keyword" placeholder="論文タイトルやEntity名...">
-                        <button onclick="searchKeyword()">検索</button>
+                        <input type="text" id="keyword" data-i18n-placeholder="search.placeholder" placeholder="論文タイトルやEntity名...">
+                        <button onclick="searchKeyword()" data-i18n="search.button">検索</button>
                     </div>
                 </div>
 
                 <!-- Cypherクエリ -->
                 <div class="section">
-                    <h2>Cypher クエリ</h2>
+                    <h2 data-i18n="sidebar.cypher_query">Cypher クエリ</h2>
                     <textarea id="query" rows="3">MATCH (p:Paper)-[r]->(n) RETURN p, r, n LIMIT 50</textarea>
-                    <button class="full-width" onclick="runQuery()">クエリ実行</button>
+                    <button class="full-width" onclick="runQuery()" data-i18n="query.execute">クエリ実行</button>
                 </div>
 
                 <!-- マルチホップ分析 -->
                 <div class="section">
-                    <h2>マルチホップ分析</h2>
-                    <label for="paperId">論文ID</label>
-                    <input type="text" id="paperId" placeholder="ノードをクリックで自動入力">
-                    <label for="hopK">ホップ数</label>
+                    <h2 data-i18n="sidebar.multihop_analysis">マルチホップ分析</h2>
+                    <label for="paperId" data-i18n="analysis.paper_id">論文ID</label>
+                    <input type="text" id="paperId" data-i18n-placeholder="analysis.paper_id_placeholder" placeholder="ノードをクリックで自動入力">
+                    <label for="hopK" data-i18n="analysis.hop_count">ホップ数</label>
                     <input type="number" id="hopK" value="2" min="1" max="5">
-                    <button class="full-width secondary" onclick="runAnalysis()">分析実行</button>
+                    <button class="full-width secondary" onclick="runAnalysis()" data-i18n="analysis.execute">分析実行</button>
                 </div>
 
                 <!-- モデル設定 -->
                 <div class="section">
-                    <h2>モデル設定</h2>
-                    <label for="modelPreset">プリセット</label>
+                    <h2 data-i18n="sidebar.model_settings">モデル設定</h2>
+                    <label for="modelPreset" data-i18n="model.preset">プリセット</label>
                     <select id="modelPreset" onchange="onModelPresetChange()">
                         <option value="gpt4o">GPT-4o</option>
                         <option value="gpt5" selected>GPT-5</option>
@@ -116,23 +122,23 @@
 
                 <!-- 提案生成設定 -->
                 <div class="section" id="proposalSettingsSection" style="display: none;">
-                    <h2>提案生成設定</h2>
-                    <label for="numProposals">生成数</label>
+                    <h2 data-i18n="sidebar.proposal_settings">提案生成設定</h2>
+                    <label for="numProposals" data-i18n="proposal.count">生成数</label>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <input type="number" id="numProposals" value="1" min="1" max="10" style="width: 60px;">
-                        <span style="font-size: 0.8rem; color: #888;">件（1-10）</span>
+                        <span style="font-size: 0.8rem; color: #888;" data-i18n="proposal.count_hint">件（1-10）</span>
                     </div>
                 </div>
 
                 <!-- ノード詳細 -->
                 <div id="nodeInfo" class="node-info" style="display: none;">
-                    <h3>選択ノード</h3>
+                    <h3 data-i18n="sidebar.selected_node">選択ノード</h3>
                     <div id="nodeDetails"></div>
                 </div>
 
                 <!-- エッジ詳細 -->
                 <div id="edgeInfo" class="edge-info" style="display: none;">
-                    <h3>引用関係詳細</h3>
+                    <h3 data-i18n="sidebar.edge_detail">引用関係詳細</h3>
                     <div id="edgeDetails"></div>
                 </div>
             </div>
@@ -143,26 +149,27 @@
             <!-- 右パネル（分析結果・提案） -->
             <div id="rightPanel" class="right-panel" style="display: none;">
                 <div class="right-panel-header">
-                    <h3>分析結果</h3>
-                    <button class="toggle-panel-btn" onclick="toggleRightPanel()" title="パネルを閉じる">
+                    <h3 data-i18n="panel.analysis_results">分析結果</h3>
+                    <button class="toggle-panel-btn" onclick="toggleRightPanel()" data-i18n-title="panel.close" title="パネルを閉じる">
                         ✕
                     </button>
                 </div>
                 <div id="rightPanelContent" class="right-panel-content">
                     <div class="empty-state">
                         <div class="empty-state-icon">📊</div>
-                        <div class="empty-state-text">分析結果がありません<br>論文を選択して分析を実行してください</div>
+                        <div class="empty-state-text" data-i18n="analysis.no_results">分析結果がありません</div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="status">
-            <span id="status">準備完了</span>
+            <span id="status" data-i18n="graph.ready">準備完了</span>
             <span id="stats"></span>
         </div>
     </div>
 
+    <script src="/static/js/i18n.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

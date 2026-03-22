@@ -293,22 +293,22 @@ class PaperFigureGenerator:
         return paths
 
     # ======================================================================
-    # Fig 3 — Key Ablation Results (1x3 multi-panel)
+    # Fig 3 — Key Ablation Results (1x2 multi-panel)
     # ======================================================================
 
     def _fig3_ablation_summary(
         self, data: CrossExperimentData, output_dir: Path,
     ) -> list[Path]:
-        """EXP-201 (hops), EXP-202 (format), EXP-203 (scope) — 1x3 panels."""
+        """EXP-201 (hops), EXP-202 (format) — 1x2 panels."""
         exp201 = data.get("EXP-201")
         exp202 = data.get("EXP-202")
-        exp203 = data.get("EXP-203")
 
         # Need at least one panel to proceed
-        if not any([exp201, exp202, exp203]):
+        if not any([exp201, exp202]):
             return []
 
-        fig, axes = plt.subplots(1, 3, figsize=(DOUBLE_COL, 2.5))
+        _exclude_formats = {"format_json_graph", "format_triples"}
+        fig, axes = plt.subplots(1, 2, figsize=(DOUBLE_COL, 2.8))
 
         # -- Panel 1: Hops line plot ------------------------------------------
         ax1 = axes[0]
@@ -317,37 +317,30 @@ class PaperFigureGenerator:
             sweep = _extract_sweep(list(scores201.keys()))
             if sweep is not None:
                 x_vals, sorted_conds = sweep
-                means = [safe_mean(scores201[c].get("overall", [])) for c in sorted_conds]
-                sems = [safe_sem(scores201[c].get("overall", [])) for c in sorted_conds]
                 x_arr = np.array(x_vals)
-                m_arr = np.array(means)
-                s_arr = np.array(sems)
-                ax1.plot(x_arr, m_arr, "o-", color=METRIC_COLORS["overall"], linewidth=1.5, markersize=4)
-                ax1.fill_between(x_arr, m_arr - s_arr, m_arr + s_arr, alpha=0.15, color=METRIC_COLORS["overall"])
-                # Overlay individual paper scores
-                for idx, c in enumerate(sorted_conds):
-                    raw = scores201[c].get("overall", [])
-                    if raw:
-                        jitter = np.random.default_rng(42 + idx).uniform(-0.15, 0.15, len(raw))
-                        ax1.scatter(
-                            [x_vals[idx] + j for j in jitter], raw,
-                            s=6, alpha=0.3, color=METRIC_COLORS["overall"],
-                            edgecolors="none", zorder=2,
-                        )
-                # Mark optimal
-                if len(m_arr) > 0:
-                    best = int(np.argmax(m_arr))
-                    ax1.plot(x_arr[best], m_arr[best], "*", color=METRIC_COLORS["overall"], markersize=10, zorder=5)
+                for metric in METRICS:
+                    means = [safe_mean(scores201[c].get(metric, [])) for c in sorted_conds]
+                    sems = [safe_sem(scores201[c].get(metric, [])) for c in sorted_conds]
+                    m_arr = np.array(means)
+                    s_arr = np.array(sems)
+                    ax1.plot(
+                        x_arr, m_arr, marker="o", linestyle="--",
+                        color=METRIC_COLORS[metric], linewidth=1.0, markersize=4,
+                        label=METRIC_DISPLAY.get(metric, metric),
+                    )
+                    ax1.fill_between(x_arr, m_arr - s_arr, m_arr + s_arr,
+                                     alpha=0.08, color=METRIC_COLORS[metric])
                 # n annotation
-                n1 = max((len(scores201[c].get("overall", [])) for c in sorted_conds), default=0)
+                n1 = max((len(scores201[c].get(METRICS[0], [])) for c in sorted_conds), default=0)
                 if n1 > 0:
                     annotate_n_header(ax1, n1)
                 ax1.set_xlabel("Max Hops")
+                ax1.legend(fontsize=6, ncol=2, loc="best", handlelength=1.5)
             else:
                 ax1.text(0.5, 0.5, "N/A", transform=ax1.transAxes, ha="center", va="center")
         else:
             ax1.text(0.5, 0.5, "N/A", transform=ax1.transAxes, ha="center", va="center")
-        ax1.set_ylabel("Overall Score")
+        ax1.set_ylabel("Score (1\u201310)")
         ax1.set_title("(a) Hop Depth", fontsize=9, pad=4)
         ax1.grid(axis="y", alpha=0.25, linewidth=0.4)
 
@@ -355,7 +348,7 @@ class PaperFigureGenerator:
         ax2 = axes[1]
         if exp202 is not None:
             scores202 = load_single_scores(exp202.run_dir)
-            conds = list(scores202.keys())
+            conds = [c for c in scores202.keys() if c not in _exclude_formats]
             if conds:
                 labels = [clean_condition(c) for c in conds]
                 means = [safe_mean(scores202[c].get("overall", [])) for c in conds]
@@ -384,61 +377,35 @@ class PaperFigureGenerator:
             tick.set_rotation(15)
             tick.set_ha("right")
 
-        # -- Panel 3: Scope bar chart -----------------------------------------
-        ax3 = axes[2]
-        if exp203 is not None:
-            scores203 = load_single_scores(exp203.run_dir)
-            conds = list(scores203.keys())
-            if conds:
-                labels = [clean_condition(c) for c in conds]
-                means = [safe_mean(scores203[c].get("overall", [])) for c in conds]
-                sems = [safe_sem(scores203[c].get("overall", [])) for c in conds]
-                colors = [PALETTE[i % len(PALETTE)] for i in range(len(conds))]
-                bars = ax3.bar(labels, means, yerr=sems, capsize=2, color=colors, error_kw={"linewidth": 0.8})
-                if means:
-                    best_idx = int(np.argmax(means))
-                    bars[best_idx].set_edgecolor("#222222")
-                    bars[best_idx].set_linewidth(1.5)
-                # Overlay individual paper scores
-                for idx, c in enumerate(conds):
-                    raw = scores203[c].get("overall", [])
-                    overlay_strip(ax3, idx, raw, colors[idx], width=0.2, size=8, alpha=0.4, seed=42 + idx)
-                # n annotation
-                n3 = max((len(scores203[c].get("overall", [])) for c in conds), default=0)
-                if n3 > 0:
-                    annotate_n_header(ax3, n3)
-            else:
-                ax3.text(0.5, 0.5, "N/A", transform=ax3.transAxes, ha="center", va="center")
-        else:
-            ax3.text(0.5, 0.5, "N/A", transform=ax3.transAxes, ha="center", va="center")
-        ax3.set_title("(c) Prompt Scope", fontsize=9, pad=4)
-        ax3.grid(axis="y", alpha=0.25, linewidth=0.4)
-        # Rotate long labels in scope panel
-        for tick in ax3.get_xticklabels():
-            tick.set_rotation(15)
-            tick.set_ha("right")
-
         # Zoom y-axes to data range (not 0-based) for visible differences
-        data_means: list[float] = []
-        for exp_data, exp_scores_fn in [
-            (exp201, lambda: load_single_scores(exp201.run_dir) if exp201 else {}),
-            (exp202, lambda: load_single_scores(exp202.run_dir) if exp202 else {}),
-            (exp203, lambda: load_single_scores(exp203.run_dir) if exp203 else {}),
-        ]:
-            if exp_data is not None:
-                sc = exp_scores_fn()
-                for c in sc.values():
-                    m = safe_mean(c.get("overall", []))
+        # Panel (a): use all metrics for range; Panel (b): overall only
+        panel_a_means: list[float] = []
+        if exp201 is not None:
+            sc201 = load_single_scores(exp201.run_dir)
+            for c in sc201.values():
+                for metric in METRICS:
+                    m = safe_mean(c.get(metric, []))
                     if m > 0:
-                        data_means.append(m)
-        if data_means:
-            lo = min(data_means)
-            hi = max(data_means)
+                        panel_a_means.append(m)
+        if panel_a_means:
+            lo = min(panel_a_means)
+            hi = max(panel_a_means)
             margin = max((hi - lo) * 0.5, 0.3)
-            y_lo = max(0, lo - margin)
-            y_hi = hi + margin
-            for ax in axes:
-                ax.set_ylim(y_lo, y_hi)
+            ax1.set_ylim(max(0, lo - margin), hi + margin)
+
+        if exp202 is not None:
+            b_means: list[float] = []
+            sc202 = load_single_scores(exp202.run_dir)
+            for c_name, c_scores in sc202.items():
+                if c_name not in _exclude_formats:
+                    m = safe_mean(c_scores.get("overall", []))
+                    if m > 0:
+                        b_means.append(m)
+            if b_means:
+                lo = min(b_means)
+                hi = max(b_means)
+                margin = max((hi - lo) * 0.5, 0.3)
+                ax2.set_ylim(max(0, lo - margin), hi + margin)
 
         fig.tight_layout()
         paths = save_figure(fig, output_dir, "fig3_ablation_summary")
