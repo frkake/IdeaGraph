@@ -1407,115 +1407,6 @@ def _get_paper_full_text(paper_id: str) -> str | None:
         logging.warning(f"PDF full text extraction not directly supported, no extraction cache found")
         return None
 
-def cmd_experiment(args: argparse.Namespace) -> int:
-    """実験サブコマンド"""
-    from idea_graph.services.experiment_runner import ExperimentRunner
-    from idea_graph.services.experiment_cache import ExperimentCache
-    from idea_graph.services.aggregator import ExperimentAggregator
-
-    sub = args.experiment_command
-
-    if sub == "run":
-        runner = ExperimentRunner(no_cache=args.no_cache)
-        summary = runner.run(
-            config_path=args.config,
-            limit=args.limit,
-            no_cache=args.no_cache,
-            clear_cache=args.clear_cache,
-            parallel=args.parallel,
-        )
-        console.print(f"[green]Run ID: {summary.run_id}[/]")
-        return 0
-
-    if sub == "list":
-        runner = ExperimentRunner()
-        runs = runner.list_runs()
-        if not runs:
-            console.print("[yellow]No experiment runs found.[/]")
-            return 0
-        table = Table(title="Experiment Runs", show_header=True, header_style="bold magenta")
-        table.add_column("Run ID", style="cyan")
-        table.add_column("Experiment", style="green")
-        table.add_column("Papers")
-        table.add_column("Started")
-        for run in runs:
-            table.add_row(
-                run.run_id,
-                run.experiment_id,
-                str(len(run.target_papers)),
-                run.started_at[:19],
-            )
-        console.print(table)
-        return 0
-
-    if sub == "aggregate":
-        agg = ExperimentAggregator()
-        result = agg.aggregate(args.run_dir)
-        console.print(f"[green]Aggregation complete. Saved to {args.run_dir}/summary/aggregate.json[/]")
-        # 簡易表示
-        for condition, metrics in result.get("single_summary", {}).items():
-            overall = metrics.get("overall", {})
-            if overall:
-                console.print(f"  {condition}: mean={overall.get('mean', 0):.2f} std={overall.get('std', 0):.2f}")
-        return 0
-
-    if sub == "compare":
-        agg = ExperimentAggregator()
-        result = agg.compare(args.run_dirs)
-        console.print(f"[green]Comparison baseline: {result['baseline']}[/]")
-        for key, comp in result.get("comparisons", {}).items():
-            console.print(f"  vs {key}:")
-            for cond, delta in comp.get("overall_mean_delta_vs_baseline", {}).items():
-                sign = "+" if delta >= 0 else ""
-                console.print(f"    {cond}: {sign}{delta:.3f}")
-        return 0
-
-    if sub == "cache-status":
-        cache = ExperimentCache()
-        status = cache.status()
-        if not status:
-            console.print("[yellow]Cache is empty.[/]")
-            return 0
-        table = Table(title="Cache Status", show_header=True, header_style="bold magenta")
-        table.add_column("Stage", style="cyan")
-        table.add_column("Files", justify="right")
-        for stage, count in sorted(status.items()):
-            table.add_row(stage, str(count))
-        console.print(table)
-        return 0
-
-    if sub == "clear-cache":
-        cache = ExperimentCache()
-        cleared = cache.clear(stage=args.stage)
-        console.print(f"[green]Cleared {cleared} cache files.[/]")
-        return 0
-
-    if sub == "paper-figures":
-        from idea_graph.services.visualizer import ExperimentVisualizer
-
-        vis = ExperimentVisualizer()
-        results = vis.generate_paper_figures(
-            output_dir=args.output,
-            runs_base=args.runs_base,
-            formats=args.formats,
-            paper_ids=args.paper_ids,
-            exclude_ids=args.exclude_paper_ids,
-        )
-        if not results:
-            console.print("[yellow]No figures or tables generated. Check that experiments/runs/ contains run data.[/]")
-            return 0
-        table = Table(title="Generated Paper Figures & Tables", show_header=True, header_style="bold magenta")
-        table.add_column("Name", style="cyan")
-        table.add_column("Files")
-        for name, paths in sorted(results.items()):
-            table.add_row(name, ", ".join(p.name for p in paths))
-        console.print(table)
-        console.print(f"[green]Output directory: {args.output}[/]")
-        return 0
-
-    return 0
-
-
 def cmd_evaluate(args: argparse.Namespace) -> int:
     """評価コマンド"""
     import json
@@ -1913,44 +1804,6 @@ def main() -> int:
         help="未来の論文もプロンプトコンテキストに含める",
     )
 
-    # experiment コマンド
-    experiment_parser = subparsers.add_parser("experiment", help="実験の実行・管理")
-    experiment_sub = experiment_parser.add_subparsers(dest="experiment_command", help="実験サブコマンド")
-
-    exp_run = experiment_sub.add_parser("run", help="実験を実行")
-    exp_run.add_argument("config", type=str, help="YAML設定ファイルのパス")
-    exp_run.add_argument("--limit", type=int, default=None, help="対象論文数の制限")
-    exp_run.add_argument("--no-cache", action="store_true", help="キャッシュ読み込みを無効化")
-    exp_run.add_argument("--clear-cache", action="store_true", help="実行前にキャッシュを削除")
-    exp_run.add_argument("--parallel", type=int, default=1,
-                         help="論文単位の並列実行数 (デフォルト: 1 = 逐次実行)")
-
-    experiment_sub.add_parser("list", help="実行履歴の一覧")
-
-    exp_agg = experiment_sub.add_parser("aggregate", help="結果の集計・統計解析")
-    exp_agg.add_argument("run_dir", type=str, help="実行ディレクトリ")
-
-    exp_cmp = experiment_sub.add_parser("compare", help="2つの実行結果を比較")
-    exp_cmp.add_argument("run_dirs", nargs="+", type=str, help="比較する実行ディレクトリ（2つ以上）")
-
-    experiment_sub.add_parser("cache-status", help="キャッシュ状況の確認")
-
-    exp_clear = experiment_sub.add_parser("clear-cache", help="キャッシュの削除")
-    exp_clear.add_argument("--stage", type=str, default=None,
-                           help="削除対象ステージ (analysis|proposals|evaluations)")
-
-    exp_paper = experiment_sub.add_parser("paper-figures", help="論文用クロス実験図表を生成")
-    exp_paper.add_argument("--output", type=str, default="experiments/paper_figures",
-                           help="出力ディレクトリ (デフォルト: experiments/paper_figures)")
-    exp_paper.add_argument("--runs-base", type=str, default="experiments/runs",
-                           help="実験結果ディレクトリ (デフォルト: experiments/runs)")
-    exp_paper.add_argument("--formats", nargs="+", default=["png", "svg"],
-                           help="出力形式 (デフォルト: png svg)")
-    exp_paper.add_argument("--paper-ids", nargs="+", default=None,
-                           help="描画対象の論文IDリスト")
-    exp_paper.add_argument("--exclude-paper-ids", nargs="+", default=None,
-                           help="除外する論文IDリスト")
-
     # evaluate コマンド
     evaluate_parser = subparsers.add_parser("evaluate", help="提案をペアワイズ比較評価")
     evaluate_parser.add_argument(
@@ -2006,8 +1859,6 @@ def main() -> int:
         return cmd_analyze(args)
     elif args.command == "propose":
         return cmd_propose(args)
-    elif args.command == "experiment":
-        return cmd_experiment(args)
     elif args.command == "evaluate":
         return cmd_evaluate(args)
     else:
