@@ -120,6 +120,7 @@ class PaperFigureGenerator:
             ("fig3_ablation_summary", self._fig3_ablation_summary),
             ("fig4_evaluation_validity", self._fig4_evaluation_validity),
             ("fig5_connectivity", self._fig5_connectivity),
+            ("fig6_main_with_hopdepth", self._fig6_main_with_hopdepth),
         ]
 
         for name, gen_fn in generators:
@@ -624,5 +625,138 @@ class PaperFigureGenerator:
         fig.tight_layout()
 
         paths = save_figure(fig, output_dir, "fig5_connectivity")
+        plt.close(fig)
+        return paths
+
+    # ======================================================================
+    # Fig 6 — Combined: Main Results (ELO) + Hop Depth Ablation
+    # ======================================================================
+
+    def _fig6_main_with_hopdepth(
+        self, data: CrossExperimentData, output_dir: Path,
+    ) -> list[Path]:
+        """EXP-101 ELO grouped bar (left) + EXP-201 hop depth line (right).
+
+        Note: The two panels use different scoring systems.
+        - (a) Pairwise evaluation: ELO ratings from head-to-head comparisons.
+        - (b) Independent evaluation: absolute scores (1-10) per idea.
+        """
+        exp101 = data.get("EXP-101")
+        exp201 = data.get("EXP-201")
+        if exp101 is None or exp201 is None:
+            return []
+
+        elo = load_pairwise_elo_by_source(exp101.run_dir)
+        scores201 = load_single_scores(exp201.run_dir)
+        if not elo or not scores201:
+            return []
+
+        sweep = _extract_sweep(list(scores201.keys()))
+        if sweep is None:
+            return []
+
+        fig = plt.figure(figsize=(DOUBLE_COL + 1.5, 3.0), constrained_layout=True)
+        gs = fig.add_gridspec(1, 2, width_ratios=[3, 1.8], wspace=0.15)
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax2 = fig.add_subplot(gs[0, 1])
+
+        # -- Left panel: ELO grouped bar (EXP-101) ----------------------------
+        sources = sorted(elo.keys())
+        display_metrics = METRICS + ["overall"]
+        n_metrics = len(display_metrics)
+        n_sources = len(sources)
+        bar_w = 0.72 / max(n_sources, 1)
+        x = np.arange(n_metrics)
+
+        for s_idx, src in enumerate(sources):
+            means = [safe_mean(elo[src].get(m, [])) for m in display_metrics]
+            sems = [safe_sem(elo[src].get(m, [])) for m in display_metrics]
+            offset = (s_idx - (n_sources - 1) / 2) * bar_w
+            ax1.bar(
+                x + offset, means, bar_w * 0.88,
+                yerr=sems, capsize=2,
+                color=color_for(src), label=display_name(src),
+                error_kw={"linewidth": 0.8},
+            )
+            for m_idx, m in enumerate(display_metrics):
+                raw_vals = elo[src].get(m, [])
+                overlay_strip(
+                    ax1, x[m_idx] + offset, raw_vals, color_for(src),
+                    width=bar_w * 0.3, size=10, alpha=0.4,
+                    seed=42 + s_idx * 10 + m_idx,
+                )
+
+        sample_n = max(
+            (len(elo[s].get(m, [])) for s in sources for m in display_metrics),
+            default=0,
+        )
+        if sample_n > 0:
+            annotate_n_header(ax1, sample_n)
+
+        ax1.axhline(1000, color="#888888", linestyle="--", linewidth=0.7, zorder=0)
+
+        all_vals = [
+            safe_mean(elo[s].get(m, []))
+            for s in sources for m in display_metrics
+        ]
+        if all_vals:
+            lo, hi = min(all_vals), max(all_vals)
+            margin = max((hi - lo) * 0.2, 20)
+            ax1.set_ylim(min(lo - margin, 990), hi + margin)
+
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(
+            [METRIC_DISPLAY.get(m, m) for m in display_metrics],
+            rotation=20, ha="right",
+        )
+        ax1.set_ylabel("ELO Rating")
+        ax1.set_title("(a) Method Comparison", fontsize=9, pad=4)
+        ax1.legend(loc="best", ncol=n_sources)
+        ax1.grid(axis="y", alpha=0.25, linewidth=0.4)
+
+        # -- Right panel: Hop depth line (EXP-201) ----------------------------
+        x_vals, sorted_conds = sweep
+        x_arr = np.array(x_vals)
+        for metric in METRICS:
+            means = [safe_mean(scores201[c].get(metric, [])) for c in sorted_conds]
+            sems = [safe_sem(scores201[c].get(metric, [])) for c in sorted_conds]
+            m_arr = np.array(means)
+            s_arr = np.array(sems)
+            ax2.plot(
+                x_arr, m_arr, marker="o", linestyle="--",
+                color=METRIC_COLORS[metric], linewidth=1.0, markersize=4,
+                label=METRIC_DISPLAY.get(metric, metric),
+            )
+            ax2.fill_between(
+                x_arr, m_arr - s_arr, m_arr + s_arr,
+                alpha=0.08, color=METRIC_COLORS[metric],
+            )
+
+        n1 = max(
+            (len(scores201[c].get(METRICS[0], [])) for c in sorted_conds),
+            default=0,
+        )
+        if n1 > 0:
+            annotate_n_header(ax2, n1)
+
+        ax2.set_xlabel("Max Hops")
+        ax2.set_ylabel("Score (1\u201310)")
+        ax2.set_title("(b) Hop Depth", fontsize=9, pad=4)
+        ax2.legend(fontsize=6, ncol=2, loc="best", handlelength=1.5)
+        ax2.grid(axis="y", alpha=0.25, linewidth=0.4)
+
+        # Zoom y-axis
+        panel_a_means: list[float] = []
+        for c in scores201.values():
+            for metric in METRICS:
+                m = safe_mean(c.get(metric, []))
+                if m > 0:
+                    panel_a_means.append(m)
+        if panel_a_means:
+            lo, hi = min(panel_a_means), max(panel_a_means)
+            margin = max((hi - lo) * 0.5, 0.3)
+            ax2.set_ylim(max(0, lo - margin), hi + margin)
+
+        paths = save_figure(fig, output_dir, "fig6_main_with_hopdepth")
         plt.close(fig)
         return paths
