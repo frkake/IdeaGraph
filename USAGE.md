@@ -1,179 +1,181 @@
-# IdeaGraph 使用ガイド
+# IdeaGraph Usage Guide
 
-AI論文のナレッジグラフ構築・可視化・研究アイデア提案・評価ツールの詳細な使い方
+> Back to [README.md](README.md) | [日本語版](USAGE_ja.md)
 
-## 目次
+Detailed guide for the AI research paper knowledge graph construction, visualization, idea proposal, and evaluation tool.
 
-- [セットアップ](#セットアップ)
-- [CLI コマンド](#cli-コマンド)
-  - [idea-graph ingest](#idea-graph-ingest---論文データのインジェスト)
-  - [idea-graph serve](#idea-graph-serve---web-サーバー起動)
-  - [idea-graph status](#idea-graph-status---ステータス確認)
-  - [idea-graph rebuild](#idea-graph-rebuild---グラフ再構築)
-  - [idea-graph analyze](#idea-graph-analyze---マルチホップ分析)
-  - [idea-graph propose](#idea-graph-propose---研究アイデア提案)
-  - [idea-graph evaluate](#idea-graph-evaluate---研究アイデア評価)
-  - [coi](#coi---chain-of-ideas-エージェント)
+## Table of Contents
+
+- [Setup](#setup)
+- [CLI Commands](#cli-commands)
+  - [idea-graph ingest](#idea-graph-ingest---ingest-paper-data)
+  - [idea-graph serve](#idea-graph-serve---start-web-server)
+  - [idea-graph status](#idea-graph-status---check-status)
+  - [idea-graph rebuild](#idea-graph-rebuild---rebuild-graph)
+  - [idea-graph analyze](#idea-graph-analyze---multi-hop-analysis)
+  - [idea-graph propose](#idea-graph-propose---research-idea-proposal)
+  - [idea-graph evaluate](#idea-graph-evaluate---research-idea-evaluation)
+  - [coi](#coi---chain-of-ideas-agent)
 - [Web UI](#web-ui)
-- [API エンドポイント](#api-エンドポイント)
-- [出力ファイルの場所](#出力ファイルの場所)
-- [ワークフロー例](#ワークフロー例)
-- [トラブルシューティング](#トラブルシューティング)
+- [API Endpoints](#api-endpoints)
+- [Output File Locations](#output-file-locations)
+- [Workflow Examples](#workflow-examples)
+- [Troubleshooting](#troubleshooting)
 
-## セットアップ
+## Setup
 
-### 1. 環境変数の設定
+### 1. Configure Environment Variables
 
-`.env` ファイルを作成し、以下の環境変数を設定：
+Create a `.env` file and set the following environment variables:
 
 ```bash
-# Neo4j 接続情報
+# Neo4j connection info
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=password
-# メモリ設定（WSL2等でメモリが少ない場合に調整）
+# Memory settings (adjust for low-memory environments such as WSL2)
 NEO4J_HEAP_MAX=4G
 NEO4J_PAGECACHE_SIZE=4G
 
-# Google Gemini API キー（情報抽出に必要）
+# Google Gemini API key (required for information extraction)
 GOOGLE_API_KEY=your-api-key-here
 
-# OpenAI API キー（研究アイデア提案・評価に必要）
+# OpenAI API key (required for research idea proposal and evaluation)
 OPENAI_API_KEY=your-openai-api-key-here
 
-# Chain-of-Ideas 設定（オプション）
-COI_MAIN_LLM_MODEL=gpt-4o          # CoIのメインモデル
-COI_CHEAP_LLM_MODEL=gpt-4o-mini    # CoIの軽量モデル
-COI_OPENAI_BASE_URL=               # カスタムエンドポイント（オプション）
-COI_SEMANTIC_SEARCH_API_KEY=        # Semantic Scholar API キー
+# Chain-of-Ideas settings (optional)
+COI_MAIN_LLM_MODEL=gpt-4o          # CoI main model
+COI_CHEAP_LLM_MODEL=gpt-4o-mini    # CoI lightweight model
+COI_OPENAI_BASE_URL=               # Custom endpoint (optional)
+COI_SEMANTIC_SEARCH_API_KEY=        # Semantic Scholar API key
 
-# CoI Azure 設定（オプション）
+# CoI Azure settings (optional)
 COI_IS_AZURE=false
 COI_AZURE_OPENAI_ENDPOINT=
 COI_AZURE_OPENAI_KEY=
 COI_AZURE_OPENAI_API_VERSION=
 
-# CoI Embedding 設定（オプション）
+# CoI Embedding settings (optional)
 COI_EMBEDDING_API_KEY=
 COI_EMBEDDING_API_ENDPOINT=
 COI_EMBEDDING_MODEL=
 ```
 
-### 2. Neo4j の起動
+### 2. Start Neo4j
 
 ```bash
 docker compose up -d
 ```
 
-Neo4j Browser: http://localhost:7474 でアクセス可能
+Neo4j Browser: Accessible at http://localhost:7474
 
-### 3. 依存関係のインストール
+### 3. Install Dependencies
 
 ```bash
-# 基本機能
+# Core functionality
 uv sync --all-extras
 
-# Chain-of-Ideas を使う場合は追加で
+# Additionally, if using Chain-of-Ideas
 uv sync --group coi
 ```
 
-## CLI コマンド
+## CLI Commands
 
-グローバルオプション: `-v, --verbose` で詳細ログを表示
+Global option: `-v, --verbose` to display detailed logs
 
-### `idea-graph ingest` - 論文データのインジェスト
+### `idea-graph ingest` - Ingest Paper Data
 
-HuggingFace データセットから論文を読み込み、ダウンロード、情報抽出、グラフ書き込みを行う。
+Load papers from a HuggingFace dataset, then download, extract information, and write to the graph.
 
 ```bash
-uv run idea-graph ingest [オプション]
+uv run idea-graph ingest [options]
 ```
 
-**オプション:**
+**Options:**
 
-| オプション | 説明 |
-|-----------|------|
-| `--limit N` | データセットから処理するシード論文数を N 件に制限 |
-| `--skip-download` | arXiv からのダウンロードをスキップ |
-| `--skip-extract` | Gemini による情報抽出をスキップ |
-| `--skip-write` | Neo4j への書き込みをスキップ |
-| `--max-depth N` | 引用論文の再帰的探索の最大深度（デフォルト: 1, 0=シード論文のみ）|
-| `--crawl-limit N` | 引用クロールする論文の最大数（全シード論文合計）|
-| `--top-n-citations N` | 各論文から探索する引用の最大数（重要度上位N件、デフォルト: 5）|
+| Option | Description |
+|--------|-------------|
+| `--limit N` | Limit the number of seed papers to process from the dataset to N |
+| `--skip-download` | Skip downloading from arXiv |
+| `--skip-extract` | Skip information extraction by Gemini |
+| `--skip-write` | Skip writing to Neo4j |
+| `--max-depth N` | Maximum depth for recursive citation exploration (default: 1, 0=seed papers only) |
+| `--crawl-limit N` | Maximum number of papers to crawl via citations (total across all seed papers) |
+| `--top-n-citations N` | Maximum number of citations to explore per paper (top N by importance, default: 5) |
 
-**`--limit` と `--crawl-limit` の違い:**
+**Difference between `--limit` and `--crawl-limit`:**
 
 ```mermaid
 flowchart LR
-    A[データセット<br/>3495件] -->|--limit 10| B[シード論文<br/>10件を処理]
-    B -->|--crawl-limit 50| C[引用論文<br/>最大50件を追加クロール]
-    A -.->|残り| D[スキップ]
+    A[Dataset<br/>3495 papers] -->|--limit 10| B[Seed papers<br/>Process 10]
+    B -->|--crawl-limit 50| C[Cited papers<br/>Crawl up to 50 additional]
+    A -.->|Remaining| D[Skipped]
 ```
 
-**例:**
+**Examples:**
 
 ```bash
-# 10件だけテスト実行
+# Test run with only 10 papers
 uv run idea-graph ingest --limit 10
 
-# 詳細ログ付きで全件処理
+# Process all papers with verbose logging
 uv run idea-graph ingest -v
 
-# ダウンロード済みデータから抽出・書き込みのみ
+# Extract and write only from already-downloaded data
 uv run idea-graph ingest --skip-download
 
-# メイン論文のみ処理（引用クロールなし）
+# Process main papers only (no citation crawling)
 uv run idea-graph ingest --max-depth 0
 
-# 引用を2ホップまで探索、各論文から上位10件の引用を取得
+# Explore citations up to 2 hops, retrieving top 10 citations per paper
 uv run idea-graph ingest --max-depth 2 --top-n-citations 10
 
-# 引用クロールを100件に制限
+# Limit citation crawling to 100 papers
 uv run idea-graph ingest --crawl-limit 100
 ```
 
-**処理フロー:**
+**Processing Flow:**
 
-1. HuggingFace `yanshengqiu/AI_Idea_Bench_2025` データセットを読み込み
-2. Paper ノードと引用関係（CITES）を Neo4j に書き込み
-3. 各論文を arXiv から検索・ダウンロード（LaTeX優先、PDFフォールバック）
-4. Gemini API で構造化情報を抽出（要約、主張、エンティティ、関係）
-5. 抽出結果を Neo4j に書き込み（エンティティ、MENTIONS 関係など）
-6. 引用論文のクロール（`--max-depth > 0` の場合）
-   - 各論文の引用から重要度上位 N 件を選択
-   - 優先度付きキューで重要な論文から順に処理
-   - 指定された深度まで再帰的に探索
+1. Load the HuggingFace `yanshengqiu/AI_Idea_Bench_2025` dataset
+2. Write Paper nodes and citation relationships (CITES) to Neo4j
+3. Search and download each paper from arXiv (LaTeX preferred, PDF fallback)
+4. Extract structured information using the Gemini API (summary, claims, entities, relations)
+5. Write extraction results to Neo4j (entities, MENTIONS relationships, etc.)
+6. Crawl cited papers (when `--max-depth > 0`)
+   - Select the top N citations by importance from each paper
+   - Process papers in order of importance using a priority queue
+   - Recursively explore up to the specified depth
 
-**進捗管理:**
+**Progress Management:**
 
-- 処理は中断しても `cache/progress.json` に保存され、再実行時に続きから処理
-- 失敗した論文は `failed` として理由が記録される（再実行時は **再試行** される）
-- arXiv 側の一時的エラー（HTTP 429/503 等）は検索時に指数バックオフでリトライ
+- Processing can be interrupted and will be saved to `cache/progress.json`; upon re-execution, it resumes from where it left off
+- Failed papers are recorded as `failed` with a reason (they will be **retried** on re-execution)
+- Temporary arXiv errors (HTTP 429/503, etc.) are retried with exponential backoff during search
 
-**arXiv リトライ設定（任意）:**
-
-```bash
-ARXIV_SEARCH_MAX_RETRIES=6           # 検索リトライ回数（デフォルト: 6）
-ARXIV_SEARCH_BACKOFF_BASE_SECONDS=2.0 # バックオフ基底（秒）
-ARXIV_SEARCH_BACKOFF_MAX_SECONDS=60.0 # バックオフ上限（秒）
-ARXIV_SEARCH_JITTER_SECONDS=1.0       # ジッター（秒）
-```
-
-### `idea-graph serve` - Web サーバー起動
+**arXiv Retry Settings (optional):**
 
 ```bash
-uv run idea-graph serve [オプション]
+ARXIV_SEARCH_MAX_RETRIES=6           # Number of search retries (default: 6)
+ARXIV_SEARCH_BACKOFF_BASE_SECONDS=2.0 # Backoff base (seconds)
+ARXIV_SEARCH_BACKOFF_MAX_SECONDS=60.0 # Backoff upper limit (seconds)
+ARXIV_SEARCH_JITTER_SECONDS=1.0       # Jitter (seconds)
 ```
 
-**オプション:**
+### `idea-graph serve` - Start Web Server
 
-| オプション | 説明 |
-|-----------|------|
-| `--host HOST` | バインドするホスト（デフォルト: 0.0.0.0）|
-| `--port PORT` | ポート番号（デフォルト: 8000）|
-| `--reload` | コード変更時に自動リロード（開発用）|
+```bash
+uv run idea-graph serve [options]
+```
 
-**例:**
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--host HOST` | Host to bind to (default: 0.0.0.0) |
+| `--port PORT` | Port number (default: 8000) |
+| `--reload` | Auto-reload on code changes (for development) |
+
+**Examples:**
 
 ```bash
 uv run idea-graph serve
@@ -181,15 +183,15 @@ uv run idea-graph serve --port 3000
 uv run idea-graph serve --reload
 ```
 
-### `idea-graph status` - ステータス確認
+### `idea-graph status` - Check Status
 
-現在の処理状況と Neo4j の接続状態を表示。
+Display the current processing status and Neo4j connection state.
 
 ```bash
 uv run idea-graph status
 ```
 
-**出力例:**
+**Example output:**
 
 ```
 === IdeaGraph Status ===
@@ -211,39 +213,39 @@ Relationship counts:
   MENTIONS: 3500
 ```
 
-### `idea-graph rebuild` - グラフ再構築
+### `idea-graph rebuild` - Rebuild Graph
 
-`cache/extractions` から Neo4j グラフを再構築する。DB をリセットした後、LLM 抽出をやり直さずにグラフを復元したい場合に使用。
-
-```bash
-uv run idea-graph rebuild [オプション]
-```
-
-**オプション:**
-
-| オプション | 説明 |
-|-----------|------|
-| `--limit N` | 処理するアイテム数を制限 |
-| `--batch-size N` | 書き込みバッチサイズ（デフォルト: 200）|
-
-### `idea-graph analyze` - マルチホップ分析
-
-指定した論文に対してグラフ上のマルチホップ分析を実行し、関連する論文・エンティティのパスを取得する。
+Rebuild the Neo4j graph from `cache/extractions`. Use this when you want to restore the graph after resetting the DB without re-running LLM extraction.
 
 ```bash
-uv run idea-graph analyze <paper_id> [オプション]
+uv run idea-graph rebuild [options]
 ```
 
-**オプション:**
+**Options:**
 
-| オプション | 説明 |
-|-----------|------|
-| `--max-hops N` | 最大ホップ数（デフォルト: 3）|
-| `--top-k N` | 表示用のパス上限（デフォルト: 10）|
-| `--format FORMAT` | 出力形式: `table`, `json`, `rich`（デフォルト: table）|
-| `--save` | 分析結果をデータベースに保存 |
+| Option | Description |
+|--------|-------------|
+| `--limit N` | Limit the number of items to process |
+| `--batch-size N` | Write batch size (default: 200) |
 
-**例:**
+### `idea-graph analyze` - Multi-hop Analysis
+
+Run multi-hop analysis on the graph for a specified paper to retrieve paths of related papers and entities.
+
+```bash
+uv run idea-graph analyze <paper_id> [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--max-hops N` | Maximum number of hops (default: 3) |
+| `--top-k N` | Upper limit of paths to display (default: 10) |
+| `--format FORMAT` | Output format: `table`, `json`, `rich` (default: table) |
+| `--save` | Save analysis results to the database |
+
+**Examples:**
 
 ```bash
 uv run idea-graph analyze abc123def456
@@ -251,325 +253,325 @@ uv run idea-graph analyze abc123def456 --max-hops 5 --top-k 20
 uv run idea-graph analyze abc123def456 --format rich --save
 ```
 
-### `idea-graph propose` - 研究アイデア提案
+### `idea-graph propose` - Research Idea Proposal
 
-分析結果をもとに LLM（OpenAI）を使って研究アイデアを生成する。
+Generate research ideas using an LLM (OpenAI) based on analysis results.
 
 ```bash
-uv run idea-graph propose <paper_id> [オプション]
+uv run idea-graph propose <paper_id> [options]
 ```
 
-**基本オプション:**
+**Basic Options:**
 
-| オプション | 説明 |
-|-----------|------|
-| `--num-proposals N` | 生成する提案数（デフォルト: 3）|
-| `--max-hops N` | 分析時の最大ホップ数（デフォルト: 3）|
-| `--top-k N` | 表示用のパス上限（デフォルト: 10）|
-| `--format FORMAT` | 出力形式: `markdown`, `json`, `rich`（デフォルト: markdown）|
-| `-o, --output FILE` | 出力ファイルパス（指定しない場合は標準出力）|
-| `--compare` | 比較テーブル形式で表示（`--format rich` と併用）|
-| `--save` | 提案をデータベースに保存 |
+| Option | Description |
+|--------|-------------|
+| `--num-proposals N` | Number of proposals to generate (default: 3) |
+| `--max-hops N` | Maximum number of hops during analysis (default: 3) |
+| `--top-k N` | Upper limit of paths to display (default: 10) |
+| `--format FORMAT` | Output format: `markdown`, `json`, `rich` (default: markdown) |
+| `-o, --output FILE` | Output file path (prints to stdout if not specified) |
+| `--compare` | Display in comparison table format (use with `--format rich`) |
+| `--save` | Save proposals to the database |
 
-**プロンプト拡張オプション:**
+**Prompt Enhancement Options:**
 
-LLM に渡すグラフコンテキストをカスタマイズするオプション。
+Options to customize the graph context passed to the LLM.
 
-| オプション | 説明 |
-|-----------|------|
-| `--prompt-graph-format FORMAT` | グラフ表現形式: `mermaid`, `paths`, `json_graph`, `triples`, `narrative`（デフォルト: mermaid）|
-| `--prompt-scope SCOPE` | 拡張スコープ: `path`, `k_hop`, `path_plus_k_hop`（デフォルト: path）|
-| `--prompt-node-type-fields JSON` | ノードタイプ別フィールド `{"Paper": ["paper_title", "paper_summary"]}` |
-| `--prompt-edge-type-fields JSON` | エッジタイプ別フィールド `{"CITES": ["citation_type", "context"]}` |
-| `--prompt-max-paths N` | 最大パス数（省略時は自動計算）|
-| `--prompt-max-nodes N` | 最大ノード数（省略時は自動計算）|
-| `--prompt-max-edges N` | 最大エッジ数（省略時は自動計算）|
-| `--prompt-neighbor-k N` | k-hop近傍の深度（省略時は自動計算）|
-| `--prompt-no-inline-edges` | インラインエッジ表示を無効化 |
+| Option | Description |
+|--------|-------------|
+| `--prompt-graph-format FORMAT` | Graph representation format: `mermaid`, `paths`, `json_graph`, `triples`, `narrative` (default: mermaid) |
+| `--prompt-scope SCOPE` | Enhancement scope: `path`, `k_hop`, `path_plus_k_hop` (default: path) |
+| `--prompt-node-type-fields JSON` | Fields per node type `{"Paper": ["paper_title", "paper_summary"]}` |
+| `--prompt-edge-type-fields JSON` | Fields per edge type `{"CITES": ["citation_type", "context"]}` |
+| `--prompt-max-paths N` | Maximum number of paths (auto-calculated if omitted) |
+| `--prompt-max-nodes N` | Maximum number of nodes (auto-calculated if omitted) |
+| `--prompt-max-edges N` | Maximum number of edges (auto-calculated if omitted) |
+| `--prompt-neighbor-k N` | k-hop neighborhood depth (auto-calculated if omitted) |
+| `--prompt-no-inline-edges` | Disable inline edge display |
 
-**例:**
+**Examples:**
 
 ```bash
-# 基本的な提案生成
+# Basic proposal generation
 uv run idea-graph propose abc123def456
 
-# 5件の提案を生成してファイルに保存
+# Generate 5 proposals and save to file
 uv run idea-graph propose abc123def456 --num-proposals 5 -o proposals.md
 
-# カスタムグラフ形式で提案生成
+# Generate proposals with custom graph format
 uv run idea-graph propose abc123def456 \
   --prompt-graph-format paths --prompt-scope k_hop
 
-# リッチ表示で比較テーブルを表示
+# Display comparison table with rich output
 uv run idea-graph propose abc123def456 --format rich --compare --save
 ```
 
-### `idea-graph evaluate` - 研究アイデア評価
+### `idea-graph evaluate` - Research Idea Evaluation
 
-研究提案を LLM で評価・ランキングする。Pairwise（ペアワイズ比較）と Single（絶対スコア）の2つのモードをサポート。
+Evaluate and rank research proposals using an LLM. Supports two modes: Pairwise (pairwise comparison) and Single (absolute scoring).
 
 ```bash
-uv run idea-graph evaluate <proposals_file> [オプション]
+uv run idea-graph evaluate <proposals_file> [options]
 ```
 
-**引数:**
+**Arguments:**
 
-| 引数 | 説明 |
-|------|------|
-| `proposals_file` | 提案を含むJSONファイル（ProposalResult形式またはProposalのリスト）|
+| Argument | Description |
+|----------|-------------|
+| `proposals_file` | JSON file containing proposals (ProposalResult format or list of Proposals) |
 
-**オプション:**
+**Options:**
 
-| オプション | 説明 |
-|-----------|------|
-| `--mode MODE` | 評価モード: `pairwise`, `single`（デフォルト: pairwise）|
-| `--format FORMAT` | 出力形式: `markdown`, `json`, `rich`（デフォルト: rich）|
-| `-o, --output FILE` | 出力ファイルパス |
-| `--model MODEL` | 使用するLLMモデル |
-| `--no-experiment` | 実験計画の評価をスキップ |
-| `--include-target` | ターゲット論文を比較対象に含める（ProposalResult形式のみ）|
+| Option | Description |
+|--------|-------------|
+| `--mode MODE` | Evaluation mode: `pairwise`, `single` (default: pairwise) |
+| `--format FORMAT` | Output format: `markdown`, `json`, `rich` (default: rich) |
+| `-o, --output FILE` | Output file path |
+| `--model MODEL` | LLM model to use |
+| `--no-experiment` | Skip experiment plan evaluation |
+| `--include-target` | Include target paper as a comparison subject (ProposalResult format only) |
 
-**評価指標（5つ）:**
+**Evaluation Metrics (5 metrics):**
 
-| 指標 | 説明 |
-|------|------|
-| Novelty（独自性）| アプローチの新規性 |
-| Significance（重要性）| 研究のインパクト |
-| Feasibility（実現可能性）| 実装の実現性 |
-| Clarity（明確さ）| 記述の明瞭さ |
-| Effectiveness（有効性）| 既存手法を上回る見込み |
+| Metric | Description |
+|--------|-------------|
+| Novelty | Originality of the approach |
+| Significance | Research impact |
+| Feasibility | Implementation feasibility |
+| Clarity | Clarity of description |
+| Effectiveness | Likelihood of outperforming existing methods |
 
-**Pairwise モード:**
-- 全ペアを比較（O(n²)）
-- スワップテスト（A→B と B→A の両方向で比較し、一貫性のない結果は引き分けとする）でポジションバイアスを軽減
-- ELO レーティングで最終ランキングを計算
+**Pairwise Mode:**
+- Compares all pairs (O(n^2))
+- Swap test (compares both A->B and B->A directions; inconsistent results are treated as a draw) to mitigate position bias
+- Final ranking calculated using ELO ratings
 
-**Single モード:**
-- 各提案を個別に1-10点で絶対評価（O(n)）
-- 平均スコアでランキング
-- ELO 計算不要
+**Single Mode:**
+- Absolute evaluation on a 1-10 scale for each proposal (O(n))
+- Ranked by average score
+- No ELO calculation needed
 
-**例:**
+**Examples:**
 
 ```bash
-# Pairwise 評価（デフォルト）
+# Pairwise evaluation (default)
 uv run idea-graph evaluate proposals.json --format rich
 
-# Single 評価
+# Single evaluation
 uv run idea-graph evaluate proposals.json --mode single
 
-# Markdown レポートをファイルに出力
+# Output Markdown report to file
 uv run idea-graph evaluate proposals.json --mode pairwise \
   --format markdown -o evaluation_report.md
 
-# ターゲット論文との比較を含む
+# Include comparison with target paper
 uv run idea-graph evaluate proposals.json --include-target
 ```
 
-### `coi` - Chain-of-Ideas エージェント
+### `coi` - Chain-of-Ideas Agent
 
-Chain-of-Ideas (CoI) 手法で論文チェーンを辿りながら研究アイデアを生成する。
+Generate research ideas by traversing paper chains using the Chain-of-Ideas (CoI) method.
 
 ```bash
-uv run --group coi coi --topic "研究トピック" [オプション]
+uv run --group coi coi --topic "research topic" [options]
 ```
 
-**必須引数:**
+**Required Arguments:**
 
-| 引数 | 説明 |
-|------|------|
-| `--topic TEXT` | 研究トピック |
+| Argument | Description |
+|----------|-------------|
+| `--topic TEXT` | Research topic |
 
-**オプション:**
+**Options:**
 
-| オプション | 説明 |
-|-----------|------|
-| `--save-file DIR` | 出力ディレクトリ（デフォルト: saves/）|
-| `--improve-cnt N` | 実験改善イテレーション数（デフォルト: 1）|
-| `--max-chain-length N` | アイデアチェーンの最大長（デフォルト: 5）|
-| `--min-chain-length N` | アイデアチェーンの最小長（デフォルト: 3）|
-| `--max-chain-numbers N` | 処理するチェーンの最大数（デフォルト: 1）|
-| `--publication-date TEXT` | 検索対象の出版日範囲（Semantic Scholar形式、例: `:2022-12-01`）。指定しない場合、実験ランナー経由ではターゲット論文の出版日から自動取得 |
+| Option | Description |
+|--------|-------------|
+| `--save-file DIR` | Output directory (default: saves/) |
+| `--improve-cnt N` | Number of experiment improvement iterations (default: 1) |
+| `--max-chain-length N` | Maximum length of idea chain (default: 5) |
+| `--min-chain-length N` | Minimum length of idea chain (default: 3) |
+| `--max-chain-numbers N` | Maximum number of chains to process (default: 1) |
+| `--publication-date TEXT` | Publication date range for search (Semantic Scholar format, e.g., `:2022-12-01`). If not specified, automatically retrieved from the target paper's publication date when run via the experiment runner |
 
-**前提条件:**
-- Grobid（Java）が稼働していること
-- spaCy英語モデルがインストール済みであること
+**Prerequisites:**
+- Grobid (Java) must be running
+- spaCy English model must be installed
 
-**セットアップ:**
+**Setup:**
 
 ```bash
-# 依存関係
+# Dependencies
 uv sync --group coi
 
-# Grobid 用 JDK
+# JDK for Grobid
 wget https://download.oracle.com/java/GA/jdk11/9/GPL/openjdk-11.0.2_linux-x64_bin.tar.gz
 tar -zxvf openjdk-11.0.2_linux-x64_bin.tar.gz
 export JAVA_HOME=Your_path/jdk-11.0.2
 
-# spaCy モデル（初回のみ）
+# spaCy model (first time only)
 uv run --group coi python -m ensurepip --upgrade
 uv run --group coi python -m spacy download en_core_web_sm
 ```
 
-**例:**
+**Examples:**
 
 ```bash
-# 基本的な実行
+# Basic execution
 uv run --group coi coi --topic "Graph neural networks for drug discovery"
 
-# チェーン長と改善回数を指定
+# Specify chain length and improvement iterations
 uv run --group coi coi --topic "Vision Transformer" \
   --max-chain-length 7 --improve-cnt 2
 ```
 
 ## Web UI
 
-### アクセス
+### Access
 
 ```bash
 uv run idea-graph serve
 ```
 
-ブラウザで http://localhost:8000 を開く
+Open http://localhost:8000 in your browser
 
-### 画面構成
+### Screen Layout
 
-3パネルレイアウト：
+3-panel layout:
 
-- **左サイドバー** - フィルタ、検索、設定
-- **中央** - グラフ可視化（neovis.js）
-- **右パネル** - 分析結果・提案表示（折りたたみ可）
+- **Left Sidebar** - Filters, search, settings
+- **Center** - Graph visualization (neovis.js)
+- **Right Panel** - Analysis results and proposal display (collapsible)
 
-### タブ一覧
+### Tab Overview
 
-#### 1. Explore タブ（デフォルト）
+#### 1. Explore Tab (Default)
 
-グラフのインタラクティブ探索。
+Interactive graph exploration.
 
-- **クイックフィルタ**: 全て / Papers / Methods / Datasets / Benchmarks / Tasks / 引用関係 / 言及関係
-- **キーワード検索**: 論文タイトルやEntity名で検索
-- **Cypher クエリ**: Neo4j クエリを直接実行（読み取り専用）
-- **ノード/エッジ詳細表示**: クリックでプロパティを表示
-- Paper ノードをクリックすると分析フォームに自動入力
+- **Quick Filters**: All / Papers / Methods / Datasets / Benchmarks / Tasks / Citation Relations / Mention Relations
+- **Keyword Search**: Search by paper title or Entity name
+- **Cypher Query**: Execute Neo4j queries directly (read-only)
+- **Node/Edge Detail View**: Click to display properties
+- Clicking a Paper node auto-populates the analysis form
 
-#### 2. Analyze タブ
+#### 2. Analyze Tab
 
-マルチホップパス分析。
+Multi-hop path analysis.
 
-- **入力**: 論文ID、ホップ数（1-5）
-- **結果表示**: ランク付きパスカード（スコアバー、ノード経路の矢印表示）
-- パスをクリックするとグラフ上でハイライト
-- **プロンプト設定パネル**（折りたたみ）: 出力形式（Mermaid/Paths/JSON Graph/Triples/Narrative）、スコープ（path/k_hop/path_plus_k_hop）、ノード・エッジフィールド選択、パラメータ制限
+- **Input**: Paper ID, number of hops (1-5)
+- **Result Display**: Ranked path cards (score bars, node path with arrow display)
+- Click a path to highlight it on the graph
+- **Prompt Settings Panel** (collapsible): Output format (Mermaid/Paths/JSON Graph/Triples/Narrative), Scope (path/k_hop/path_plus_k_hop), Node/edge field selection, Parameter limits
 
-#### 3. Propose タブ
+#### 3. Propose Tab
 
-研究アイデアの生成と管理。
+Research idea generation and management.
 
-- **提案カード**: タイトル、ソースバッジ（IdeaGraph/CoI/Target Paper）、動機・手法の概要、星評価
-- **詳細モーダル**: 全セクション表示（Rationale、Research Trends、Motivation、Method、Experiment Plan、Differences、Grounding）
-- **比較ビュー**: 複数提案の並列比較モーダル
-- **エクスポート**: Markdown / JSON 形式
-- **生成プロンプト表示**: LLM に送信されたプロンプトの確認・コピー
+- **Proposal Cards**: Title, source badge (IdeaGraph/CoI/Target Paper), motivation/method summary, star rating
+- **Detail Modal**: Full section display (Rationale, Research Trends, Motivation, Method, Experiment Plan, Differences, Grounding)
+- **Comparison View**: Side-by-side comparison modal for multiple proposals
+- **Export**: Markdown / JSON format
+- **Generation Prompt Display**: View and copy the prompt sent to the LLM
 
-**CoI 統合:**
-- 「CoIを実行」: Web UI から直接 Chain-of-Ideas を実行（SSE でリアルタイム進捗表示）
-- 「結果を読み込み」: 保存済み CoI 結果ファイルを読み込み
-- CoI 結果は自動的に IdeaGraph 形式の Proposal に変換される
+**CoI Integration:**
+- "Run CoI": Execute Chain-of-Ideas directly from the Web UI (real-time progress display via SSE)
+- "Load Results": Load saved CoI result files
+- CoI results are automatically converted to IdeaGraph Proposal format
 
-#### 4. Evaluate タブ
+#### 4. Evaluate Tab
 
-提案の評価・ランキング。
+Proposal evaluation and ranking.
 
-- **評価モード選択**: Pairwise（ペアワイズ比較）/ Single（絶対スコア）
-- **ランキング表示**: メダル付き順位（金/銀/銅）、指標別スコアバー
+- **Evaluation Mode Selection**: Pairwise (pairwise comparison) / Single (absolute scoring)
+- **Ranking Display**: Medal-decorated ranking (gold/silver/bronze), metric-specific score bars
 
-**Pairwise モード:**
-- 全ペア比較の詳細表示（勝者・理由）
-- ELO レーティングによるランキング
-- 指標: 独自性 / 重要性 / 実現可能性 / 明確さ / 有効性 / 実験設計
+**Pairwise Mode:**
+- Detailed display of all pair comparisons (winner and reasoning)
+- Ranking by ELO rating
+- Metrics: Novelty / Significance / Feasibility / Clarity / Effectiveness / Experiment Design
 
-**Single モード:**
-- 1-10点の絶対スコア表示
-- 指標ごとの理由（折りたたみ）
+**Single Mode:**
+- Absolute score display on a 1-10 scale
+- Reasoning per metric (collapsible)
 
-- **エクスポート**: JSON / Markdown 形式
+- **Export**: JSON / Markdown format
 
-#### 5. History タブ
+#### 5. History Tab
 
-保存済みデータの管理。
+Saved data management.
 
-- **分析履歴**: タイトル、日付、パス数。クリックで読み込み
-- **提案履歴**: タイトル、日付、星評価、グループ数。クリックで読み込み
-- 個別削除・一括削除
+- **Analysis History**: Title, date, number of paths. Click to load
+- **Proposal History**: Title, date, star rating, number of groups. Click to load
+- Individual deletion and bulk deletion
 
-### モデル設定
+### Model Settings
 
-左サイドバーのプリセットドロップダウンから選択：
+Select from the preset dropdown in the left sidebar:
 
-| プリセット | CoI メイン | CoI 軽量 | IdeaGraph |
-|-----------|-----------|----------|-----------|
+| Preset | CoI Main | CoI Lightweight | IdeaGraph |
+|--------|----------|-----------------|-----------|
 | GPT-4o | gpt-4o-2024-11-20 | gpt-4o-mini-2024-07-18 | gpt-4o-2024-11-20 |
 | GPT-5 | gpt-5-2025-08-07 | gpt-4o-mini-2024-07-18 | gpt-5-2025-08-07 |
 
-### ノード・エッジの色分け
+### Node and Edge Color Coding
 
-**ノードタイプ:**
-| タイプ | 色 |
-|--------|-----|
-| Paper | 青 (#4A90D9) |
-| Method | オレンジ (#FF9800) |
-| Dataset | 紫 (#9C27B0) |
-| Benchmark | シアン (#00BCD4) |
-| Task | ピンク (#E91E63) |
-| Entity（その他）| 緑 (#7CB342) |
+**Node Types:**
+| Type | Color |
+|------|-------|
+| Paper | Blue (#4A90D9) |
+| Method | Orange (#FF9800) |
+| Dataset | Purple (#9C27B0) |
+| Benchmark | Cyan (#00BCD4) |
+| Task | Pink (#E91E63) |
+| Entity (other) | Green (#7CB342) |
 
-**エッジタイプ:**
-| タイプ | 色 |
-|--------|-----|
-| EXTENDS | 赤橙 (#FF5722) |
-| COMPARES | 青 (#2196F3) |
-| USES | 緑 (#4CAF50) |
-| MENTIONS | スレート (#607D8B) |
-| BACKGROUND | グレー (#9E9E9E) |
+**Edge Types:**
+| Type | Color |
+|------|-------|
+| EXTENDS | Red-orange (#FF5722) |
+| COMPARES | Blue (#2196F3) |
+| USES | Green (#4CAF50) |
+| MENTIONS | Slate (#607D8B) |
+| BACKGROUND | Gray (#9E9E9E) |
 
-## API エンドポイント
+## API Endpoints
 
-### 一覧
+### Overview
 
-| メソッド | パス | 説明 |
-|---------|------|------|
-| GET | `/health` | ヘルスチェック |
-| GET | `/api/visualization/config` | 可視化設定取得 |
-| POST | `/api/visualization/query` | Cypher クエリ実行 |
-| POST | `/api/analyze` | マルチホップ分析 |
-| POST | `/api/propose` | 研究アイデア提案 |
-| POST | `/api/propose/preview` | 提案プロンプトプレビュー |
-| POST | `/api/evaluate` | 評価（Pairwise） |
-| POST | `/api/evaluate/stream` | 評価（Pairwise, SSE） |
-| POST | `/api/evaluate/single` | 評価（Single） |
-| POST | `/api/evaluate/single/stream` | 評価（Single, SSE） |
-| POST | `/api/coi/run` | CoI 実行（SSE） |
-| POST | `/api/coi/run/sync` | CoI 実行（同期） |
-| POST | `/api/coi/convert` | CoI 結果を Proposal に変換 |
-| POST | `/api/coi/load` | CoI 結果ファイル読み込み |
-| POST | `/api/storage/analyses` | 分析結果の保存 |
-| GET | `/api/storage/analyses` | 分析結果一覧 |
-| GET | `/api/storage/analyses/{id}` | 分析結果の取得 |
-| DELETE | `/api/storage/analyses/{id}` | 分析結果の削除 |
-| POST | `/api/storage/proposals` | 提案の保存 |
-| GET | `/api/storage/proposals` | 提案一覧 |
-| GET | `/api/storage/proposals/{id}` | 提案の取得 |
-| PATCH | `/api/storage/proposals/{id}` | 提案の更新 |
-| DELETE | `/api/storage/proposals/{id}` | 提案の削除 |
-| GET | `/api/storage/export/proposals` | 提案のエクスポート |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/api/visualization/config` | Get visualization configuration |
+| POST | `/api/visualization/query` | Execute Cypher query |
+| POST | `/api/analyze` | Multi-hop analysis |
+| POST | `/api/propose` | Research idea proposal |
+| POST | `/api/propose/preview` | Proposal prompt preview |
+| POST | `/api/evaluate` | Evaluation (Pairwise) |
+| POST | `/api/evaluate/stream` | Evaluation (Pairwise, SSE) |
+| POST | `/api/evaluate/single` | Evaluation (Single) |
+| POST | `/api/evaluate/single/stream` | Evaluation (Single, SSE) |
+| POST | `/api/coi/run` | CoI execution (SSE) |
+| POST | `/api/coi/run/sync` | CoI execution (synchronous) |
+| POST | `/api/coi/convert` | Convert CoI result to Proposal |
+| POST | `/api/coi/load` | Load CoI result file |
+| POST | `/api/storage/analyses` | Save analysis results |
+| GET | `/api/storage/analyses` | List analysis results |
+| GET | `/api/storage/analyses/{id}` | Get analysis result |
+| DELETE | `/api/storage/analyses/{id}` | Delete analysis result |
+| POST | `/api/storage/proposals` | Save proposal |
+| GET | `/api/storage/proposals` | List proposals |
+| GET | `/api/storage/proposals/{id}` | Get proposal |
+| PATCH | `/api/storage/proposals/{id}` | Update proposal |
+| DELETE | `/api/storage/proposals/{id}` | Delete proposal |
+| GET | `/api/storage/export/proposals` | Export proposals |
 
-### ヘルスチェック
+### Health Check
 
 ```
 GET /health
 ```
 
-**レスポンス:**
+**Response:**
 ```json
 {
   "status": "ok",
@@ -577,17 +579,17 @@ GET /health
 }
 ```
 
-### 可視化
+### Visualization
 
-#### 可視化設定取得
+#### Get Visualization Configuration
 
 ```
 GET /api/visualization/config
 ```
 
-neovis.js の設定情報（Neo4j接続情報、ノードスタイリング）を返す。
+Returns neovis.js configuration (Neo4j connection info, node styling).
 
-#### Cypher クエリ実行
+#### Execute Cypher Query
 
 ```
 POST /api/visualization/query
@@ -599,9 +601,9 @@ Content-Type: application/json
 }
 ```
 
-読み取り専用。CREATE, DELETE, SET, REMOVE, MERGE はブロックされる。
+Read-only. CREATE, DELETE, SET, REMOVE, and MERGE are blocked.
 
-**レスポンス:**
+**Response:**
 ```json
 {
   "nodes": [
@@ -613,7 +615,7 @@ Content-Type: application/json
 }
 ```
 
-### マルチホップ分析
+### Multi-hop Analysis
 
 ```
 POST /api/analyze
@@ -628,22 +630,22 @@ Content-Type: application/json
 }
 ```
 
-| パラメータ | 型 | 説明 |
-|-----------|-----|------|
-| `target_paper_id` | string | 分析対象の論文ID |
-| `multihop_k` | int | 探索するホップ数（デフォルト: 3）|
-| `top_n` | int | paper_paths / entity_paths の表示上限（デフォルト: 10）|
-| `response_limit` | int | candidates の上限（省略時は全件）|
-| `save` | bool | 保存して analysis_id を返す（デフォルト: false）|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target_paper_id` | string | Paper ID to analyze |
+| `multihop_k` | int | Number of hops to explore (default: 3) |
+| `top_n` | int | Display limit for paper_paths / entity_paths (default: 10) |
+| `response_limit` | int | Limit for candidates (all if omitted) |
+| `save` | bool | Save and return analysis_id (default: false) |
 
-**レスポンス:**
+**Response:**
 ```json
 {
   "target_paper_id": "abc123def456",
   "candidates": [
     {
       "nodes": [
-        {"id": "paper1", "label": "Paper", "name": "論文タイトル"},
+        {"id": "paper1", "label": "Paper", "name": "Paper Title"},
         {"id": "entity1", "label": "Entity", "name": "Transformer", "entity_type": "method"}
       ],
       "edges": [
@@ -668,20 +670,20 @@ Content-Type: application/json
 }
 ```
 
-**スコアリング:**
+**Scoring:**
 
-| 要素 | 説明 |
-|------|------|
-| `cite_importance_score` | LLM抽出の重要度（1-5）× 3.0 |
-| `cite_type_score` | 引用タイプ別重み（EXTENDS=20, COMPARES=15, USES=12 等）|
-| `mentions_score` | エンティティ言及数 × 3.0 |
-| `entity_relation_score` | エンティティ関係タイプ別重み |
-| `length_penalty` | パス長ペナルティ（-2.0/ホップ）|
-| `base` | 基本スコア（100）|
+| Element | Description |
+|---------|-------------|
+| `cite_importance_score` | LLM-extracted importance (1-5) x 3.0 |
+| `cite_type_score` | Weight by citation type (EXTENDS=20, COMPARES=15, USES=12, etc.) |
+| `mentions_score` | Entity mention count x 3.0 |
+| `entity_relation_score` | Weight by entity relation type |
+| `length_penalty` | Path length penalty (-2.0/hop) |
+| `base` | Base score (100) |
 
-### 研究アイデア提案
+### Research Idea Proposal
 
-#### 提案生成
+#### Proposal Generation
 
 ```
 POST /api/propose
@@ -707,50 +709,50 @@ Content-Type: application/json
 }
 ```
 
-| パラメータ | 型 | 説明 |
-|-----------|-----|------|
-| `target_paper_id` | string | 対象論文ID |
-| `analysis_id` | string | 保存済み分析のID |
-| `analysis_result` | object | 分析結果（analysis_id 未指定時に必須）|
-| `num_proposals` | int | 生成する提案数（デフォルト: 3）|
-| `constraints` | object | 制約条件（オプション）|
-| `prompt_options` | object | プロンプト拡張設定（オプション）。`include_target_paper` (bool, デフォルト: false): ターゲット論文をプロンプトコンテキストに含める。`exclude_future_papers` (bool, デフォルト: true): ターゲット論文より後に発表された論文を除外する。|
-| `model_name` | string | 使用するモデル（オプション）|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target_paper_id` | string | Target paper ID |
+| `analysis_id` | string | ID of a saved analysis |
+| `analysis_result` | object | Analysis result (required when analysis_id is not specified) |
+| `num_proposals` | int | Number of proposals to generate (default: 3) |
+| `constraints` | object | Constraint conditions (optional) |
+| `prompt_options` | object | Prompt enhancement settings (optional). `include_target_paper` (bool, default: false): Include target paper in prompt context. `exclude_future_papers` (bool, default: true): Exclude papers published after the target paper. |
+| `model_name` | string | Model to use (optional) |
 
-**レスポンス:**
+**Response:**
 ```json
 {
   "target_paper_id": "abc123def456",
   "proposals": [
     {
-      "title": "提案タイトル",
-      "rationale": "アイデアの背景理由",
-      "research_trends": "関連する研究トレンド",
-      "motivation": "この研究の動機",
-      "method": "提案手法の説明",
+      "title": "Proposal Title",
+      "rationale": "Background reasoning for the idea",
+      "research_trends": "Related research trends",
+      "motivation": "Motivation for this research",
+      "method": "Description of the proposed method",
       "experiment": {
         "datasets": ["ImageNet", "COCO"],
         "baselines": ["ResNet", "ViT"],
         "metrics": ["Accuracy", "F1-score"],
-        "ablations": ["モジュールAの除去"],
-        "expected_results": "期待される結果",
-        "failure_interpretation": "失敗時の解釈"
+        "ablations": ["Removal of module A"],
+        "expected_results": "Expected results",
+        "failure_interpretation": "Interpretation upon failure"
       },
       "grounding": {
-        "papers": ["参照論文1", "参照論文2"],
-        "entities": ["関連エンティティ1"],
+        "papers": ["Reference paper 1", "Reference paper 2"],
+        "entities": ["Related entity 1"],
         "path_mermaid": "graph LR\n  A[Paper] --> B[Entity]"
       },
-      "differences": ["既存手法との差異1", "既存手法との差異2"]
+      "differences": ["Difference from existing methods 1", "Difference from existing methods 2"]
     }
   ],
-  "prompt": "LLMに送信されたプロンプト全文"
+  "prompt": "Full prompt sent to the LLM"
 }
 ```
 
-#### プロンプトプレビュー
+#### Prompt Preview
 
-LLM を呼ばずにプロンプトのみ生成する。
+Generate only the prompt without calling the LLM.
 
 ```
 POST /api/propose/preview
@@ -764,16 +766,16 @@ Content-Type: application/json
 }
 ```
 
-**レスポンス:**
+**Response:**
 ```json
 {
-  "prompt": "生成されるプロンプト全文"
+  "prompt": "Full generated prompt"
 }
 ```
 
-### 評価 API
+### Evaluation API
 
-#### Pairwise 評価
+#### Pairwise Evaluation
 
 ```
 POST /api/evaluate
@@ -794,22 +796,22 @@ Content-Type: application/json
   "include_experiment": true,
   "model_name": "gpt-5-2025-08-07",
   "target_paper_id": "abc123def456",
-  "target_paper_content": "論文全文テキスト",
-  "target_paper_title": "論文タイトル"
+  "target_paper_content": "Full paper text",
+  "target_paper_title": "Paper title"
 }
 ```
 
-| パラメータ | 型 | 説明 |
-|-----------|-----|------|
-| `proposals` | array | 評価する提案のリスト（最低2件） |
-| `proposal_sources` | array | 各提案のソース（`ideagraph`, `coi`, `target_paper`）|
-| `include_experiment` | bool | 実験計画を評価に含める（デフォルト: true）|
-| `model_name` | string | 使用モデル（オプション）|
-| `target_paper_id` | string | ターゲット論文ID（ターゲット含める場合）|
-| `target_paper_content` | string | ターゲット論文テキスト |
-| `target_paper_title` | string | ターゲット論文タイトル |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `proposals` | array | List of proposals to evaluate (minimum 2) |
+| `proposal_sources` | array | Source of each proposal (`ideagraph`, `coi`, `target_paper`) |
+| `include_experiment` | bool | Include experiment plan in evaluation (default: true) |
+| `model_name` | string | Model to use (optional) |
+| `target_paper_id` | string | Target paper ID (when including target) |
+| `target_paper_content` | string | Target paper text |
+| `target_paper_title` | string | Target paper title |
 
-**レスポンス:**
+**Response:**
 ```json
 {
   "evaluated_at": "2026-02-07T10:00:00",
@@ -818,7 +820,7 @@ Content-Type: application/json
     {
       "rank": 1,
       "idea_id": "idea_0",
-      "idea_title": "提案タイトル",
+      "idea_title": "Proposal Title",
       "overall_score": 1520.5,
       "scores_by_metric": {
         "novelty": 1550.0,
@@ -839,7 +841,7 @@ Content-Type: application/json
         {
           "metric": "novelty",
           "winner": 0,
-          "reasoning": "理由..."
+          "reasoning": "Reasoning..."
         }
       ]
     }
@@ -847,26 +849,26 @@ Content-Type: application/json
 }
 ```
 
-#### Pairwise 評価（SSE ストリーミング）
+#### Pairwise Evaluation (SSE Streaming)
 
 ```
 POST /api/evaluate/stream
 ```
 
-リクエストは `/api/evaluate` と同じ。SSE で進捗イベントを送信。
+Request is the same as `/api/evaluate`. Sends progress events via SSE.
 
-**イベント形式:**
+**Event format:**
 ```json
 {
   "event_type": "progress|extracting_target|completed|error",
   "current_comparison": 3,
   "total_comparisons": 10,
   "phase": "comparing",
-  "message": "比較 3/10 完了"
+  "message": "Comparison 3/10 completed"
 }
 ```
 
-#### Single 評価
+#### Single Evaluation
 
 ```
 POST /api/evaluate/single
@@ -879,13 +881,13 @@ Content-Type: application/json
 }
 ```
 
-| パラメータ | 型 | 説明 |
-|-----------|-----|------|
-| `proposals` | array | 評価する提案のリスト（最低1件）|
-| `proposal_sources` | array | 各提案のソース |
-| `model_name` | string | 使用モデル（オプション）|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `proposals` | array | List of proposals to evaluate (minimum 1) |
+| `proposal_sources` | array | Source of each proposal |
+| `model_name` | string | Model to use (optional) |
 
-**レスポンス:**
+**Response:**
 ```json
 {
   "evaluated_at": "2026-02-07T10:00:00",
@@ -894,13 +896,13 @@ Content-Type: application/json
   "ranking": [
     {
       "idea_id": "idea_0",
-      "idea_title": "提案タイトル",
+      "idea_title": "Proposal Title",
       "scores": [
-        {"metric": "novelty", "score": 8, "reasoning": "理由..."},
-        {"metric": "significance", "score": 7, "reasoning": "理由..."},
-        {"metric": "feasibility", "score": 9, "reasoning": "理由..."},
-        {"metric": "clarity", "score": 8, "reasoning": "理由..."},
-        {"metric": "effectiveness", "score": 7, "reasoning": "理由..."}
+        {"metric": "novelty", "score": 8, "reasoning": "Reasoning..."},
+        {"metric": "significance", "score": 7, "reasoning": "Reasoning..."},
+        {"metric": "feasibility", "score": 9, "reasoning": "Reasoning..."},
+        {"metric": "clarity", "score": 8, "reasoning": "Reasoning..."},
+        {"metric": "effectiveness", "score": 7, "reasoning": "Reasoning..."}
       ],
       "overall_score": 7.8,
       "source": "ideagraph"
@@ -909,17 +911,17 @@ Content-Type: application/json
 }
 ```
 
-#### Single 評価（SSE ストリーミング）
+#### Single Evaluation (SSE Streaming)
 
 ```
 POST /api/evaluate/single/stream
 ```
 
-リクエストは `/api/evaluate/single` と同じ。
+Request is the same as `/api/evaluate/single`.
 
 ### CoI API
 
-#### CoI 実行（SSE ストリーミング）
+#### CoI Execution (SSE Streaming)
 
 ```
 POST /api/coi/run
@@ -936,47 +938,47 @@ Content-Type: application/json
 }
 ```
 
-| パラメータ | 型 | 説明 |
-|-----------|-----|------|
-| `topic` | string | 研究トピック（必須）|
-| `target_paper_id` | string | ターゲット論文ID（オプション）。指定すると出版日を自動取得して検索範囲を制限 |
-| `publication_date` | string | 検索対象の出版日範囲（Semantic Scholar形式、例: `:2022-12-01`）。指定時は `target_paper_id` からの自動取得より優先 |
-| `max_chain_length` | int | チェーン最大長（デフォルト: 5）|
-| `min_chain_length` | int | チェーン最小長（デフォルト: 3）|
-| `max_chain_numbers` | int | チェーン最大数（デフォルト: 1）|
-| `improve_cnt` | int | 改善イテレーション数（デフォルト: 1）|
-| `coi_main_model` | string | メインモデル（オプション）|
-| `coi_cheap_model` | string | 軽量モデル（オプション）|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `topic` | string | Research topic (required) |
+| `target_paper_id` | string | Target paper ID (optional). When specified, automatically retrieves the publication date to restrict the search range |
+| `publication_date` | string | Publication date range for search (Semantic Scholar format, e.g., `:2022-12-01`). Takes precedence over automatic retrieval from `target_paper_id` when specified |
+| `max_chain_length` | int | Maximum chain length (default: 5) |
+| `min_chain_length` | int | Minimum chain length (default: 3) |
+| `max_chain_numbers` | int | Maximum number of chains (default: 1) |
+| `improve_cnt` | int | Number of improvement iterations (default: 1) |
+| `coi_main_model` | string | Main model (optional) |
+| `coi_cheap_model` | string | Lightweight model (optional) |
 
-**SSE レスポンス:**
+**SSE Response:**
 ```json
 {
   "status": "running|completed|error",
-  "progress": "進捗メッセージ",
+  "progress": "Progress message",
   "result": {
-    "idea": "生成されたアイデア",
-    "idea_chain": "アイデアチェーン",
-    "experiment": "実験計画",
-    "related_experiments": ["関連実験"],
-    "entities": "抽出エンティティ",
-    "trend": "研究トレンド",
-    "future": "将来展望",
+    "idea": "Generated idea",
+    "idea_chain": "Idea chain",
+    "experiment": "Experiment plan",
+    "related_experiments": ["Related experiments"],
+    "entities": "Extracted entities",
+    "trend": "Research trend",
+    "future": "Future outlook",
     "year": [2023, 2024, 2025]
   }
 }
 ```
 
-#### CoI 実行（同期）
+#### CoI Execution (Synchronous)
 
 ```
 POST /api/coi/run/sync
 ```
 
-リクエストは `/api/coi/run` と同じ。完了まで待機して結果を返す。
+Request is the same as `/api/coi/run`. Waits for completion and returns the result.
 
-#### CoI 結果を Proposal に変換
+#### Convert CoI Result to Proposal
 
-CoI の出力を IdeaGraph 標準の Proposal 形式に LLM で変換する。
+Convert CoI output to IdeaGraph standard Proposal format using an LLM.
 
 ```
 POST /api/coi/convert
@@ -988,7 +990,7 @@ Content-Type: application/json
 }
 ```
 
-**レスポンス:**
+**Response:**
 ```json
 {
   "proposal": { ... },
@@ -996,9 +998,9 @@ Content-Type: application/json
 }
 ```
 
-#### CoI 結果ファイル読み込み
+#### Load CoI Result File
 
-保存済みの CoI 結果ファイルを読み込む。
+Load a saved CoI result file.
 
 ```
 POST /api/coi/load
@@ -1009,9 +1011,9 @@ Content-Type: application/json
 }
 ```
 
-### ストレージ API
+### Storage API
 
-#### 分析結果の保存
+#### Save Analysis Results
 
 ```
 POST /api/storage/analyses
@@ -1019,30 +1021,30 @@ Content-Type: application/json
 
 {
   "target_paper_id": "abc123def456",
-  "target_paper_title": "論文タイトル",
+  "target_paper_title": "Paper Title",
   "analysis_result": { ... }
 }
 ```
 
-#### 分析結果一覧の取得
+#### List Analysis Results
 
 ```
 GET /api/storage/analyses?target_paper_id=abc123def456&limit=50
 ```
 
-#### 特定の分析結果を取得
+#### Get Specific Analysis Result
 
 ```
 GET /api/storage/analyses/{analysis_id}?preview_limit=20
 ```
 
-#### 分析結果の削除
+#### Delete Analysis Result
 
 ```
 DELETE /api/storage/analyses/{analysis_id}
 ```
 
-#### 提案の保存
+#### Save Proposal
 
 ```
 POST /api/storage/proposals
@@ -1050,37 +1052,37 @@ Content-Type: application/json
 
 {
   "target_paper_id": "abc123def456",
-  "target_paper_title": "論文タイトル",
+  "target_paper_title": "Paper Title",
   "analysis_id": "a1b2c3d4",
   "proposal": { ... },
-  "prompt": "使用したプロンプト",
+  "prompt": "Prompt used",
   "rating": 4,
-  "notes": "メモ",
+  "notes": "Notes",
   "proposal_type": "idea-graph",
   "model_name": "gpt-5-2025-08-07"
 }
 ```
 
-| パラメータ | 型 | 説明 |
-|-----------|-----|------|
-| `proposal_type` | string | `idea-graph`, `coi`, `target`（デフォルト: idea-graph）|
-| `rating` | int | 評価（オプション）|
-| `notes` | string | メモ（オプション）|
-| `model_name` | string | 使用モデル（オプション）|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `proposal_type` | string | `idea-graph`, `coi`, `target` (default: idea-graph) |
+| `rating` | int | Rating (optional) |
+| `notes` | string | Notes (optional) |
+| `model_name` | string | Model used (optional) |
 
-#### 提案一覧の取得
+#### List Proposals
 
 ```
 GET /api/storage/proposals?target_paper_id=abc123def456&limit=50
 ```
 
-#### 特定の提案を取得
+#### Get Specific Proposal
 
 ```
 GET /api/storage/proposals/{proposal_id}
 ```
 
-#### 提案の評価・メモを更新
+#### Update Proposal Rating and Notes
 
 ```
 PATCH /api/storage/proposals/{proposal_id}
@@ -1088,65 +1090,65 @@ Content-Type: application/json
 
 {
   "rating": 5,
-  "notes": "更新されたメモ"
+  "notes": "Updated notes"
 }
 ```
 
-#### 提案の削除
+#### Delete Proposal
 
 ```
 DELETE /api/storage/proposals/{proposal_id}
 ```
 
-#### 提案のエクスポート
+#### Export Proposals
 
 ```
 GET /api/storage/export/proposals?format=markdown&target_paper_id=abc123def456
 ```
 
-| パラメータ | 型 | 説明 |
-|-----------|-----|------|
-| `format` | string | `markdown` または `json`（デフォルト: markdown）|
-| `target_paper_id` | string | フィルタ用論文ID（オプション）|
-| `proposal_ids` | string | カンマ区切りの提案ID（オプション）|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `format` | string | `markdown` or `json` (default: markdown) |
+| `target_paper_id` | string | Paper ID for filtering (optional) |
+| `proposal_ids` | string | Comma-separated proposal IDs (optional) |
 
-## 出力ファイルの場所
+## Output File Locations
 
-### ディレクトリ構造
+### Directory Structure
 
 ```
 cache/
-├── papers/              # ダウンロードした論文ファイル
+├── papers/              # Downloaded paper files
 │   ├── {paper_id}/
-│   │   ├── source.tar.gz   # LaTeX ソース
-│   │   └── paper.pdf       # PDF ファイル
+│   │   ├── source.tar.gz   # LaTeX source
+│   │   └── paper.pdf       # PDF file
 │   └── ...
-├── extractions/         # Gemini 抽出結果のキャッシュ
+├── extractions/         # Gemini extraction result cache
 │   ├── {paper_id}.json
 │   └── ...
-├── analyses/            # 保存された分析結果
+├── analyses/            # Saved analysis results
 │   └── {analysis_id}.json
-├── proposals/           # 保存された提案
-│   ├── idea-graph/      # IdeaGraph 生成の提案
-│   ├── chain-of-ideas/  # CoI 生成の提案
-│   └── target/          # ターゲット論文の抽出
-└── progress.json        # 処理進捗の永続化
+├── proposals/           # Saved proposals
+│   ├── idea-graph/      # Proposals generated by IdeaGraph
+│   ├── chain-of-ideas/  # Proposals generated by CoI
+│   └── target/          # Extractions from target papers
+└── progress.json        # Persistent processing progress
 
-saves/                   # Chain-of-Ideas の出力
+saves/                   # Chain-of-Ideas output
 └── result.json
 
 experiments/
-├── configs/             # 実験設定ファイル
-│   ├── EXP-101.yaml     # 3手法 pairwise 比較
-│   ├── EXP-102.yaml     # vs 元論文 pairwise
-│   ├── EXP-103.yaml     # IdeaGraph single 評価
-│   ├── EXP-104.yaml     # Baseline single 評価
-│   ├── EXP-105.yaml     # Chain-of-Ideas single 評価
-│   ├── EXP-106.yaml     # 元論文 single 評価
-│   ├── EXP-201〜207.yaml # アブレーションスタディ
-│   ├── EXP-208.yaml     # 出次数安定性
-│   └── EXP-209.yaml     # 被引用数安定性
-├── runs/                # 実験実行結果
+├── configs/             # Experiment configuration files
+│   ├── EXP-101.yaml     # 3-method pairwise comparison
+│   ├── EXP-102.yaml     # vs original paper pairwise
+│   ├── EXP-103.yaml     # IdeaGraph single evaluation
+│   ├── EXP-104.yaml     # Baseline single evaluation
+│   ├── EXP-105.yaml     # Chain-of-Ideas single evaluation
+│   ├── EXP-106.yaml     # Original paper single evaluation
+│   ├── EXP-201~207.yaml # Ablation studies
+│   ├── EXP-208.yaml     # Out-degree stability
+│   └── EXP-209.yaml     # Citation count stability
+├── runs/                # Experiment run results
 │   ├── EXP-101_YYYYMMDD_HHMMSS/
 │   │   ├── evaluations/
 │   │   │   └── pairwise/*.json
@@ -1157,14 +1159,14 @@ experiments/
 │   │   │   └── single/{condition}/*.json
 │   │   └── ...
 │   └── ...
-└── paper_figures/       # 論文用図表（paper-figures で生成）
+└── paper_figures/       # Figures for papers (generated by paper-figures)
     ├── fig1_main_results.png
     ├── fig1_main_results.svg
     ├── table1_main_results.tex
     └── ...
 ```
 
-### progress.json の構造
+### progress.json Structure
 
 ```json
 {
@@ -1182,32 +1184,32 @@ experiments/
 }
 ```
 
-**ステータス値:**
+**Status Values:**
 
-| ステータス | 説明 |
-|-----------|------|
-| `pending` | 未処理 |
-| `downloading` | ダウンロード中 |
-| `extracting` | 情報抽出中 |
-| `writing` | グラフ書き込み中 |
-| `completed` | 完了 |
-| `failed` | 失敗（error フィールドに理由）|
-| `not_found` | arXiv で見つからなかった |
+| Status | Description |
+|--------|-------------|
+| `pending` | Not yet processed |
+| `downloading` | Downloading |
+| `extracting` | Extracting information |
+| `writing` | Writing to graph |
+| `completed` | Completed |
+| `failed` | Failed (reason in error field) |
+| `not_found` | Not found on arXiv |
 
-### 抽出結果 JSON の構造
+### Extraction Result JSON Structure
 
 `cache/extractions/{paper_id}.json`:
 
 ```json
 {
   "paper_id": "abc123def456",
-  "paper_summary": "この論文は...",
-  "claims": ["主張1: ...", "主張2: ..."],
+  "paper_summary": "This paper...",
+  "claims": ["Claim 1: ...", "Claim 2: ..."],
   "entities": [
     {
       "type": "method",
       "name": "Transformer",
-      "description": "自己注意機構を用いた..."
+      "description": "Using self-attention mechanism..."
     }
   ],
   "internal_relations": [
@@ -1220,80 +1222,80 @@ experiments/
 }
 ```
 
-### Neo4j データ
+### Neo4j Data
 
-**ノードラベル:**
+**Node Labels:**
 
-| ラベル | プロパティ |
-|--------|-----------|
+| Label | Properties |
+|-------|------------|
 | `Paper` | `id`, `title`, `summary`, `claims` |
 | `Entity` | `id`, `type`, `name`, `description` |
 
-**関係タイプ:**
+**Relationship Types:**
 
-| タイプ | 説明 |
-|--------|------|
-| `CITES` | Paper → Paper 引用関係（`importance_score`, `citation_type`, `context`）|
-| `MENTIONS` | Paper → Entity 言及関係 |
-| `EXTENDS` | Entity → Entity 拡張関係 |
-| `COMPARES` | Entity → Entity 比較関係 |
-| `USES` | Entity → Entity 使用関係 |
-| `ENABLES` | Entity → Entity 有効化関係 |
-| `IMPROVES` | Entity → Entity 改善関係 |
-| `ADDRESSES` | Entity → Entity 対処関係 |
-| `ALIAS_OF` | Entity → Entity 別名関係 |
+| Type | Description |
+|------|-------------|
+| `CITES` | Paper -> Paper citation relationship (`importance_score`, `citation_type`, `context`) |
+| `MENTIONS` | Paper -> Entity mention relationship |
+| `EXTENDS` | Entity -> Entity extension relationship |
+| `COMPARES` | Entity -> Entity comparison relationship |
+| `USES` | Entity -> Entity usage relationship |
+| `ENABLES` | Entity -> Entity enablement relationship |
+| `IMPROVES` | Entity -> Entity improvement relationship |
+| `ADDRESSES` | Entity -> Entity addressing relationship |
+| `ALIAS_OF` | Entity -> Entity alias relationship |
 
-## ワークフロー例
+## Workflow Examples
 
-### 基本ワークフロー
+### Basic Workflow
 
 ```bash
-# 1. Neo4j 起動
+# 1. Start Neo4j
 docker compose up -d
 
-# 2. 少量でテスト
+# 2. Test with a small batch
 uv run idea-graph ingest --limit 5 --workers 4
 
-# 3. ステータス確認
+# 3. Check status
 uv run idea-graph status
 
-# 4. Web UI で可視化
+# 4. Visualize with Web UI
 uv run idea-graph serve
-# ブラウザで http://localhost:8000 を開く
+# Open http://localhost:8000 in your browser
 
-# 5. 全件処理（時間がかかる）
+# 5. Process all papers (takes time)
 uv run idea-graph ingest
 ```
 
-### 分析・提案ワークフロー（CLI）
+### Analysis and Proposal Workflow (CLI)
 
 ```bash
-# 1. マルチホップ分析を実行して保存
+# 1. Run multi-hop analysis and save
 uv run idea-graph analyze abc123def456 --max-hops 3 --top-k 10 --save --format rich
 
-# 2. 研究アイデアを生成
+# 2. Generate research ideas
 uv run idea-graph propose abc123def456 --num-proposals 5 -o proposals.json --format json --save
 
-# 3. 提案を評価（Pairwise）
+# 3. Evaluate proposals (Pairwise)
 uv run idea-graph evaluate proposals.json --mode pairwise --format rich
 
-# 4. 提案を評価（Single）
+# 4. Evaluate proposals (Single)
 uv run idea-graph evaluate proposals.json --mode single --format markdown -o evaluation.md
 ```
 
-### 分析・提案ワークフロー（API）
+### Analysis and Proposal Workflow (API)
 
 ```bash
-# 1. マルチホップ分析を実行
+# 1. Run multi-hop analysis
 curl -X POST http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
   -d '{"target_paper_id": "abc123def456", "multihop_k": 3, "top_n": 10, "save": true}' \
   -o analysis.json
 
-# 2. 分析IDを取得
+# 2. Get the analysis ID
 analysis_id=$(jq -r '.analysis_id' analysis.json)
 
-# 3. 研究アイデアを生成
+# 3. Generate research ideas
 curl -X POST http://localhost:8000/api/propose \
   -H "Content-Type: application/json" \
   -d '{
@@ -1302,7 +1304,7 @@ curl -X POST http://localhost:8000/api/propose \
     "num_proposals": 3
   }' -o proposals.json
 
-# 4. Pairwise 評価
+# 4. Pairwise evaluation
 curl -X POST http://localhost:8000/api/evaluate \
   -H "Content-Type: application/json" \
   -d '{
@@ -1310,108 +1312,108 @@ curl -X POST http://localhost:8000/api/evaluate \
     "include_experiment": true
   }' -o evaluation.json
 
-# 5. 提案をMarkdownでエクスポート
+# 5. Export proposals as Markdown
 curl "http://localhost:8000/api/storage/export/proposals?format=markdown" \
   -o proposals_export.md
 ```
 
-### CoI + IdeaGraph 統合ワークフロー
+### CoI + IdeaGraph Integration Workflow
 
 ```bash
-# 1. CoI でアイデア生成
+# 1. Generate ideas with CoI
 uv run --group coi coi --topic "Vision Transformer for medical imaging"
 
-# 2. Web UI でCoI結果を読み込み → Proposal に変換
-#    Propose タブ → 「結果を読み込み」→ saves/result.json を指定
+# 2. Load CoI results in Web UI -> Convert to Proposal
+#    Propose tab -> "Load Results" -> Specify saves/result.json
 
-# 3. IdeaGraph でも提案を生成
-#    Analyze タブ → 分析実行 → Propose タブ → 提案生成
+# 3. Also generate proposals with IdeaGraph
+#    Analyze tab -> Run analysis -> Propose tab -> Generate proposals
 
-# 4. CoI と IdeaGraph の提案を並べて評価
-#    Evaluate タブ → Pairwise または Single で評価
+# 4. Evaluate CoI and IdeaGraph proposals side by side
+#    Evaluate tab -> Evaluate with Pairwise or Single
 ```
 
-### キャッシュを使った再処理
+### Reprocessing with Cache
 
 ```bash
-# ダウンロード済みデータから抽出のみやり直し
+# Re-run extraction only from already-downloaded data
 uv run idea-graph ingest --skip-download
 
-# グラフ書き込みのみ
+# Write to graph only
 uv run idea-graph ingest --skip-download --skip-extract
 ```
 
-## トラブルシューティング
+## Troubleshooting
 
-### Neo4j に接続できない
+### Cannot Connect to Neo4j
 
 ```bash
-# コンテナの状態確認
+# Check container status
 docker compose ps
 
-# ログ確認
+# Check logs
 docker compose logs neo4j
 
-# 再起動
+# Restart
 docker compose restart neo4j
 
-# 再起動＆確認
+# Restart and verify
 sudo docker compose up -d --force-recreate
 sudo docker compose ps
 sudo docker compose logs neo4j --tail 200
 uv run idea-graph status
 ```
 
-WSL2 やメモリが少ない環境では `.env` で `NEO4J_HEAP_MAX` / `NEO4J_PAGECACHE_SIZE` を小さく設定する。
+On WSL2 or low-memory environments, set `NEO4J_HEAP_MAX` / `NEO4J_PAGECACHE_SIZE` to smaller values in `.env`.
 
-### Gemini API エラー
+### Gemini API Error
 
-- `GOOGLE_API_KEY` が正しく設定されているか確認
-- レート制限に達した場合は自動的にリトライされる
-- 429 エラーが続く場合は時間を置いて再実行
+- Verify that `GOOGLE_API_KEY` is set correctly
+- Rate limit errors are automatically retried
+- If 429 errors persist, wait and re-run later
 
-### 処理が途中で止まった
+### Processing Stopped Midway
 
 ```bash
-# 進捗を確認
+# Check progress
 uv run idea-graph status
 
-# 続きから再開（自動的に完了分をスキップ）
+# Resume from where it left off (automatically skips completed items)
 uv run idea-graph ingest
 ```
 
-### キャッシュをクリアして再処理
+### Clear Cache and Reprocess
 
 ```bash
-# 特定の論文のキャッシュを削除
+# Delete cache for a specific paper
 rm -rf cache/papers/{paper_id}
 rm cache/extractions/{paper_id}.json
 
-# 全キャッシュをクリア（注意）
+# Clear all cache (use with caution)
 rm -rf cache/
 
-# 進捗もリセット
+# Reset progress as well
 rm cache/progress.json
 ```
 
-### Neo4j データベースを初期化
+### Reset Neo4j Database
 
-#### 方法1: Cypher クエリで削除（データのみ）
+#### Method 1: Delete via Cypher Query (data only)
 
 ```bash
 docker exec idea-graph-neo4j cypher-shell -u neo4j -p password "MATCH (n) DETACH DELETE n"
 ```
 
-#### 方法2: Docker ボリュームごとリセット（完全初期化）
+#### Method 2: Reset Including Docker Volumes (full reset)
 
 ```bash
 docker compose down -v
 docker compose up -d
 ```
 
-#### cache/ から Neo4j を再構築（おすすめ）
+#### Rebuild Neo4j from cache/ (recommended)
 
-Neo4j を `down -v` で完全初期化しても、`cache/extractions` が残っていれば **LLM抽出や再ダウンロードをせずに** グラフを再構築できる。
+Even after fully resetting Neo4j with `down -v`, if `cache/extractions` remains, you can rebuild the graph **without re-running LLM extraction or re-downloading**.
 
 ```bash
 docker compose down -v
@@ -1419,9 +1421,9 @@ docker compose up -d
 uv run idea-graph rebuild
 ```
 
-注意: `uv run idea-graph ingest` は `cache/progress.json` によって「完了済みをスキップ」するため、**DBだけ消して progress を残すと復元されない**ことがある。DB再構築用途は `rebuild` を使う。
+Note: `uv run idea-graph ingest` uses `cache/progress.json` to "skip completed items," so **if you only delete the DB but leave progress intact, the data may not be restored**. Use `rebuild` for DB reconstruction purposes.
 
-#### 完全リセット（Neo4j + ローカルキャッシュ）
+#### Full Reset (Neo4j + local cache)
 
 ```bash
 docker compose down -v
